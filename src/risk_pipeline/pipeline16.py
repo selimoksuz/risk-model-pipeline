@@ -183,6 +183,7 @@ class Config:
     # outputs
     output_excel_path: str = "model_report.xlsx"
     output_folder: str = "outputs"
+    log_file: Optional[str] = None
     write_parquet: bool = True
     write_csv: bool = False
     dictionary_path: Optional[str] = None
@@ -245,7 +246,16 @@ class RiskModelPipeline:
 
         self.cluster_reps_: List[str] = []; self.baseline_vars_: List[str] = []; self.final_vars_: List[str] = []
 
-    def _log(self, msg: str): print(msg)
+        self.log_fh = None
+        if self.cfg.log_file:
+            os.makedirs(os.path.dirname(self.cfg.log_file) or ".", exist_ok=True)
+            self.log_fh = open(self.cfg.log_file, "w", encoding="utf-8")
+
+    def _log(self, msg: str):
+        print(msg)
+        if self.log_fh:
+            self.log_fh.write(msg + "\n")
+            self.log_fh.flush()
     def _activate(self, name: str): self.artifacts["active_steps"].append(name)
 
     # ==================== ORCHESTRATED RUN ====================
@@ -370,6 +380,8 @@ class RiskModelPipeline:
 
         self._finalize_meta()
         self._log(f"[{now_str()}] ■ RUN tamam — run_id={self.cfg.run_id}{sys_metrics()}")
+        if self.log_fh:
+            self.log_fh.close()
         return self
 
     # ---------------- core: validate / downcast / classify / split ----------------

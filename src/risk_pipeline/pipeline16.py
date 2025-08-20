@@ -184,6 +184,7 @@ class Config:
     output_excel_path: str = "model_report.xlsx"
     output_folder: str = "outputs"
     write_parquet: bool = True
+    write_csv: bool = False
     dictionary_path: Optional[str] = None
     use_benchmarks: bool = True
     use_noise_sentinel: bool = True
@@ -240,6 +241,7 @@ class RiskModelPipeline:
         self.ks_info_test_: Optional[pd.DataFrame] = None
         self.ks_info_oot_: Optional[pd.DataFrame] = None
         self.confusion_oot_: Optional[pd.DataFrame] = None
+        self.oot_scores_df_: Optional[pd.DataFrame] = None
 
         self.cluster_reps_: List[str] = []; self.baseline_vars_: List[str] = []; self.final_vars_: List[str] = []
 
@@ -740,7 +742,8 @@ class RiskModelPipeline:
             return cnt/s if s>0 else np.full(K,1.0/max(K,1),dtype=np.float64)
         def psi_codes(base_codes: np.ndarray, comp_codes: np.ndarray, K: int, eps: float)->float:
             p=np.clip(probs_from_codes(base_codes,K),eps,1.0); q=np.clip(probs_from_codes(comp_codes,K),eps,1.0)
-            return float(np.sum((p-q)*np.log(p/p)))
+            # Correct PSI formula uses log(p/q)
+            return float(np.sum((p-q)*np.log(p/q)))
         train_months=base_df["snapshot_month"].to_numpy()
         uniq_months=np.unique(train_months[~pd.isna(train_months)])
         sample_months=uniq_months[:cfg.psi_sample_months] if cfg.psi_sample_months and len(uniq_months)>cfg.psi_sample_months else uniq_months
@@ -797,7 +800,9 @@ class RiskModelPipeline:
         psi_df=pd.DataFrame(psi_rows).sort_values(["variable","compare_scope","compare_label"]).reset_index(drop=True)
         self.psi_summary_=psi_df.copy()
         dropped=psi_df.query("status=='DROP'").groupby("variable")["psi_value"].max().reset_index()
-        self.psi_dropped_=dropped.rename(columns={"psi_value":"max_psi"})
+        # Ensure the column is named consistently before further use
+        dropped = dropped.rename(columns={"psi_value":"max_psi"})
+        self.psi_dropped_ = dropped.copy()
         keep_final=sorted(list(set(keep)-set(dropped["variable"].tolist())))
         self._log(f"   • PSI özet: KEEP={len(keep_final)} | DROP={len(dropped)} | WARN={len(set(warn)-set(dropped['variable']))}")
         if cfg.psi_verbose and len(dropped)>0:
@@ -1049,19 +1054,28 @@ class RiskModelPipeline:
                     "type": "categorical",
                     "groups": [{"label": g.label, "members": list(map(str, g.members)), "woe": g.woe} for g in vw.categorical_groups]
                 }
-        with open(os.path.join(self.cfg.output_folder, f"woe_mapping_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
-            json.dump(mapping, f, ensure_ascii=False, indent=2)
+        # Persist JSON mapping only if requested via write_csv flag (as a lightweight toggle)
+        try:
+            if self.cfg.write_csv:
+                with open(os.path.join(self.cfg.output_folder, f"woe_mapping_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
+                    json.dump(mapping, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
         if self.best_model_name_ and X_oot is not None and y_oot is not None and X_oot.shape[0] > 0:
             mdl = self.models_.get(self.best_model_name_)
             if mdl is not None:
                 prob = mdl.predict_proba(X_oot[self.final_vars_])[:, 1]
                 df_scores = pd.DataFrame({"prob": prob, "target": y_oot})
+                self.oot_scores_df_ = df_scores
+                # Optional external persist
                 try:
-                    df_scores.to_parquet(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.parquet"), index=False)
+                    if self.cfg.write_parquet:
+                        df_scores.to_parquet(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.parquet"), index=False)
+                    elif self.cfg.write_csv:
+                        df_scores.to_csv(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.csv"), index=False)
                 except Exception:
-                    # parquet engine yoksa CSV kaydet
-                    df_scores.to_csv(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.csv"), index=False)
+                    pass
                 _, thr = ks_statistic(y_oot, prob)
                 pred = (prob >= thr).astype(int)
                 try:
@@ -1120,14 +1134,15 @@ class RiskModelPipeline:
         except Exception:
             with pd.ExcelWriter(xlsx, engine="xlsxwriter") as wr:
                 self._write_excel(wr)
-        # Parquet/CSV export
+        # Optional Parquet/CSV export (disabled by default)
         def save(df, name):
             try:
-                if df is not None and not df.empty:
-                    try:
-                        df.to_parquet(os.path.join(self.cfg.output_folder, f"{name}.parquet"), index=False)
-                    except Exception:
-                        df.to_csv(os.path.join(self.cfg.output_folder, f"{name}.csv"), index=False)
+                if df is None or df.empty:
+                    return
+                if self.cfg.write_parquet:
+                    df.to_parquet(os.path.join(self.cfg.output_folder, f"{name}.parquet"), index=False)
+                elif self.cfg.write_csv:
+                    df.to_csv(os.path.join(self.cfg.output_folder, f"{name}.csv"), index=False)
             except Exception:
                 pass
         save(self.final_vars_df_, "final_vars")
@@ -1144,32 +1159,104 @@ class RiskModelPipeline:
         save(self.confusion_oot_, "confusion_oot")
 
     def _write_excel(self, wr):
+        # Helper to convert written sheet to an Excel table
+        def _as_table(writer, df: pd.DataFrame, sheet: str, table_name: str):
+            if df is None or df.empty:
+                return
+            try:
+                ws = writer.sheets[sheet]
+                nrows, ncols = df.shape
+                try:
+                    # openpyxl path
+                    from openpyxl.utils import get_column_letter
+                    from openpyxl.worksheet.table import Table, TableStyleInfo
+                    ref = f"A1:{get_column_letter(ncols)}{nrows+1}"
+                    t = Table(displayName=table_name, ref=ref)
+                    t.tableStyleInfo = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+                    ws.add_table(t)
+                except Exception:
+                    # xlsxwriter path
+                    ws.add_table(0, 0, nrows, ncols-1, {"name": table_name, "style": "Table Style Medium 9"})
+            except Exception:
+                pass
+
         # dataset kolonu YOK; kesitler sheet adıyla ayrışır
         if self.final_vars_df_ is not None:
             self.final_vars_df_.to_excel(wr, sheet_name="final_vars", index=False)
+            _as_table(wr, self.final_vars_df_, "final_vars", "tbl_final_vars")
         pd.DataFrame({"best_name": [self.best_model_name_]}).to_excel(wr, sheet_name="best_name", index=False)
         if self.models_summary_ is not None and self.best_model_name_ is not None:
-            self.models_summary_.query("model_name==@self.best_model_name_").to_excel(wr, sheet_name="best_model", index=False)
+            df_best = self.models_summary_.query("model_name==@self.best_model_name_")
+            df_best.to_excel(wr, sheet_name="best_model", index=False)
+            _as_table(wr, df_best, "best_model", "tbl_best_model")
         if self.models_summary_ is not None:
             self.models_summary_.to_excel(wr, sheet_name="models_summary", index=False)
+            _as_table(wr, self.models_summary_, "models_summary", "tbl_models_summary")
         if self.best_model_vars_df_ is not None:
             self.best_model_vars_df_.to_excel(wr, sheet_name="best_model_vars_df", index=False)
+            _as_table(wr, self.best_model_vars_df_, "best_model_vars_df", "tbl_best_model_vars_df")
         if self.best_model_woe_df_ is not None:
             self.best_model_woe_df_.to_excel(wr, sheet_name="best_model_woe_df", index=False)
+            _as_table(wr, self.best_model_woe_df_, "best_model_woe_df", "tbl_best_model_woe_df")
         if self.top20_iv_df_ is not None:
             self.top20_iv_df_.to_excel(wr, sheet_name="top20_iv_df", index=False)
+            _as_table(wr, self.top20_iv_df_, "top20_iv_df", "tbl_top20_iv_df")
         if self.top50_uni_ is not None:
             self.top50_uni_.to_excel(wr, sheet_name="top50_univariate", index=False)
+            _as_table(wr, self.top50_uni_, "top50_univariate", "tbl_top50_univariate")
         if self.ks_info_traincv_ is not None:
             self.ks_info_traincv_.to_excel(wr, sheet_name="ks_info_traincv", index=False)
+            _as_table(wr, self.ks_info_traincv_, "ks_info_traincv", "tbl_ks_info_traincv")
         if self.ks_info_test_ is not None:
             self.ks_info_test_.to_excel(wr, sheet_name="ks_info_test", index=False)
+            _as_table(wr, self.ks_info_test_, "ks_info_test", "tbl_ks_info_test")
         if self.ks_info_oot_ is not None:
             self.ks_info_oot_.to_excel(wr, sheet_name="ks_info_oot", index=False)
+            _as_table(wr, self.ks_info_oot_, "ks_info_oot", "tbl_ks_info_oot")
         if self.psi_summary_ is not None:
             self.psi_summary_.to_excel(wr, sheet_name="psi_summary", index=False)
+            _as_table(wr, self.psi_summary_, "psi_summary", "tbl_psi_summary")
         if self.psi_dropped_ is not None:
             self.psi_dropped_.to_excel(wr, sheet_name="psi_dropped_features", index=False)
+            _as_table(wr, self.psi_dropped_, "psi_dropped_features", "tbl_psi_dropped")
+        # woe_mapping as a flattened table
+        try:
+            rows=[]
+            for v, vw in self.woe_map.items():
+                if vw.var_type == "numeric" and vw.numeric_bins is not None:
+                    for b in vw.numeric_bins:
+                        rows.append({
+                            "variable": v,
+                            "type": "numeric",
+                            "item_type": "bin",
+                            "left": b.left,
+                            "right": b.right,
+                            "label": None,
+                            "members": None,
+                            "woe": b.woe,
+                        })
+                elif vw.var_type == "categorical" and vw.categorical_groups is not None:
+                    for g in vw.categorical_groups:
+                        rows.append({
+                            "variable": v,
+                            "type": "categorical",
+                            "item_type": "group",
+                            "left": None,
+                            "right": None,
+                            "label": g.label,
+                            "members": ", ".join(map(str, g.members)) if g.members is not None else None,
+                            "woe": g.woe,
+                        })
+            if rows:
+                woe_df = pd.DataFrame(rows)
+                woe_df.to_excel(wr, sheet_name="woe_mapping", index=False)
+                _as_table(wr, woe_df, "woe_mapping", "tbl_woe_mapping")
+        except Exception:
+            pass
+        # oot_scores
+        if self.oot_scores_df_ is not None and not self.oot_scores_df_.empty:
+            self.oot_scores_df_.to_excel(wr, sheet_name="oot_scores", index=False)
+            _as_table(wr, self.oot_scores_df_, "oot_scores", "tbl_oot_scores")
         # run_meta
         meta_df = pd.DataFrame({
             "key": list(self.artifacts["pool"].keys()),
@@ -1181,3 +1268,4 @@ class RiskModelPipeline:
             ]
         })
         meta_df.to_excel(wr, sheet_name="run_meta", index=False)
+        _as_table(wr, meta_df, "run_meta", "tbl_run_meta")

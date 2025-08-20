@@ -1287,28 +1287,41 @@ class RiskModelPipeline:
                     "type": "categorical",
                     "groups": [{"label": g.label, "members": list(map(str, g.members)), "woe": g.woe} for g in vw.categorical_groups]
                 }
-        # Persist JSON mapping only if requested via write_csv flag (as a lightweight toggle)
+        # Persist JSON mapping (always) and final_vars list for future scoring
         try:
-            if self.cfg.write_csv:
-                with open(os.path.join(self.cfg.output_folder, f"woe_mapping_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
-                    json.dump(mapping, f, ensure_ascii=False, indent=2)
+            with open(os.path.join(self.cfg.output_folder, f"woe_mapping_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
+                json.dump(mapping, f, ensure_ascii=False, indent=2)
+            with open(os.path.join(self.cfg.output_folder, f"final_vars_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
+                json.dump({"final_vars": self.final_vars_}, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
-        if self.best_model_name_ and X_oot is not None and y_oot is not None and X_oot.shape[0] > 0:
+        if self.best_model_name_:
             mdl = self.models_.get(self.best_model_name_)
             if mdl is not None:
-                prob = mdl.predict_proba(X_oot[self.final_vars_])[:, 1]
-                df_scores = pd.DataFrame({"prob": prob, "target": y_oot})
-                self.oot_scores_df_ = df_scores
-                # Optional external persist
+                # Persist trained best model for future scoring
                 try:
-                    if self.cfg.write_parquet:
-                        df_scores.to_parquet(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.parquet"), index=False)
-                    elif self.cfg.write_csv:
-                        df_scores.to_csv(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.csv"), index=False)
+                    import joblib
+                    joblib.dump(mdl, os.path.join(self.cfg.output_folder, f"best_model_{self.cfg.run_id}.joblib"))
                 except Exception:
-                    pass
+                    try:
+                        import pickle
+                        with open(os.path.join(self.cfg.output_folder, f"best_model_{self.cfg.run_id}.pkl"), "wb") as f:
+                            pickle.dump(mdl, f)
+                    except Exception:
+                        pass
+                # If OOT present, persist OOT scores too
+                if X_oot is not None and y_oot is not None and X_oot.shape[0] > 0:
+                    prob = self._proba_1d(mdl, X_oot[self.final_vars_])
+                    df_scores = pd.DataFrame({"prob": prob, "target": y_oot})
+                    self.oot_scores_df_ = df_scores
+                    try:
+                        if self.cfg.write_parquet:
+                            df_scores.to_parquet(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.parquet"), index=False)
+                        elif self.cfg.write_csv:
+                            df_scores.to_csv(os.path.join(self.cfg.output_folder, f"oot_scores_{self.cfg.run_id}.csv"), index=False)
+                    except Exception:
+                        pass
                 _, thr = ks_statistic(y_oot, prob)
                 pred = (prob >= thr).astype(int)
                 try:

@@ -16,6 +16,9 @@ pip install -e .  # editable install
 
 # run CLI
 risk-pipeline --help
+
+# or run directly without installing the package
+python scripts/run_pipeline.py --help  # auto-adds src/ to PYTHONPATH
 ```
 
 ## Project layout

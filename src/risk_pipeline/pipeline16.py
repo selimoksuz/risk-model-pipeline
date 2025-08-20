@@ -1,27 +1,27 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
-Risk Model Pipeline — Orchestrated, Robust, Logged, Resource-Aware (PSI v2 FAST)
+Risk Model Pipeline â€” Orchestrated, Robust, Logged, Resource-Aware (PSI v2 FAST)
 
-Bu tek dosya; 16 PARSEL akışını orkestrasyonla çalıştıran, WOE→PSI (vektörize)→FS→Model→Rapor
-boru hattının DERLENMİŞ ve DÜZELTİLMİŞ sürümüdür.
+Bu tek dosya; 16 PARSEL akÄ±ÅŸÄ±nÄ± orkestrasyonla Ã§alÄ±ÅŸtÄ±ran, WOEâ†’PSI (vektÃ¶rize)â†’FSâ†’Modelâ†’Rapor
+boru hattÄ±nÄ±n DERLENMÄ°Å ve DÃœZELTÄ°LMÄ°Å sÃ¼rÃ¼mÃ¼dÃ¼r.
 
-- Dataclasses için MUTABLE DEFAULT hatası (orchestrator alanı) `default_factory` ile giderildi.
-- PSI aşamasında 'np.bincount' hatasına yol açan -1 kodları önlemek için numeric bin aralıkları
-  `_normalize_numeric_edges` ile KOMŞU ve BİTİŞİK hale getirildi (boşluk kalmıyor).
-- `_apply_bins` ve `_bin_labels_for_variable` eksiksizdir; unseen→OTHER, MISSING ayrımı yapılır.
+- Dataclasses iÃ§in MUTABLE DEFAULT hatasÄ± (orchestrator alanÄ±) `default_factory` ile giderildi.
+- PSI aÅŸamasÄ±nda 'np.bincount' hatasÄ±na yol aÃ§an -1 kodlarÄ± Ã¶nlemek iÃ§in numeric bin aralÄ±klarÄ±
+  `_normalize_numeric_edges` ile KOMÅU ve BÄ°TÄ°ÅÄ°K hale getirildi (boÅŸluk kalmÄ±yor).
+- `_apply_bins` ve `_bin_labels_for_variable` eksiksizdir; unseenâ†’OTHER, MISSING ayrÄ±mÄ± yapÄ±lÄ±r.
 
-Kullanım (örnek en altta):
+KullanÄ±m (Ã¶rnek en altta):
     cfg  = Config(...)
     pipe = RiskModelPipeline(cfg)
     pipe.run(df)            # 16 Parsel orchestrated
-    # pipe.export_reports() # Raporlar run sonunda da yazılır
+    # pipe.export_reports() # Raporlar run sonunda da yazÄ±lÄ±r
 """
 
 import os, sys, json, time, gc, warnings, uuid
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Tuple, Optional, Any
 
-# ---- BLAS/OpenMP oversubscription önleme ----
+# ---- BLAS/OpenMP oversubscription Ã¶nleme ----
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, ParameterSampler
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.base import clone
 from xgboost import XGBClassifier
@@ -60,10 +60,10 @@ class Timer:
     def __init__(self, label: str, logger=print):
         self.label = label; self.t0=None; self.logger=logger
     def __enter__(self):
-        self.t0=time.time(); self.logger(f"[{now_str()}] ▶ {self.label} başlıyor{sys_metrics()}"); return self
+        self.t0=time.time(); self.logger(f"[{now_str()}] â–¶ {self.label} baÅŸlÄ±yor{sys_metrics()}"); return self
     def __exit__(self, exc_type, exc, tb):
         dt=time.time()-self.t0; status="OK" if exc is None else f"FAIL: {exc}"
-        self.logger(f"[{now_str()}] ■ {self.label} bitti ({dt:.2f}s) — {status}{sys_metrics()}")
+        self.logger(f"[{now_str()}] â–  {self.label} bitti ({dt:.2f}s) â€” {status}{sys_metrics()}")
 
 
 # ========================= Time helpers =========================
@@ -161,6 +161,8 @@ class Config:
     id_col: str = "app_id"; time_col: str = "app_dt"; target_col: str = "target"
     # split & cv
     use_test_split: bool = False
+    # fraction of pre-OOT rows to allocate to TEST when splitting by months
+    test_size_row_frac: float = 0.2
     stratify_by: Optional[List[str]] = None
     oot_window_months: int = 3
     oot_anchor_mode: str = "last_complete_month"
@@ -257,40 +259,54 @@ class RiskModelPipeline:
             self.log_fh = open(self.cfg.log_file, "w", encoding="utf-8")
 
     def _log(self, msg: str):
-        print(msg)
+        # Robust console print (avoid Unicode errors) and always write to file
+        try:
+            print(msg)
+        except Exception:
+            try:
+                print(str(msg).encode("ascii", "ignore").decode("ascii"))
+            except Exception:
+                pass
         if self.log_fh:
-            self.log_fh.write(msg + "\n")
-            self.log_fh.flush()
+            try:
+                self.log_fh.write(str(msg) + "\n")
+                self.log_fh.flush()
+            except Exception:
+                try:
+                    self.log_fh.write(str(msg).encode("ascii", "ignore").decode("ascii") + "\n")
+                    self.log_fh.flush()
+                except Exception:
+                    pass
     def _activate(self, name: str): self.artifacts["active_steps"].append(name)
 
     # ==================== ORCHESTRATED RUN ====================
     def run(self, df: pd.DataFrame):
         self.df_ = df
 
-        # Parsel 2 — Giriş doğrulama & sabitleme
+        # Parsel 2 â€” GiriÅŸ doÄŸrulama & sabitleme
         if self.cfg.orchestrator.enable_validate:
-            with Timer("2) Giriş doğrulama & sabitleme", self._log):
+            with Timer("2) GiriÅŸ doÄŸrulama & sabitleme", self._log):
                 self._activate("validate")
                 self._validate_and_freeze(self.df_)
                 self._downcast_inplace(self.df_)
 
-        # Parsel 3 — Değişken sınıflaması
+        # Parsel 3 â€” DeÄŸiÅŸken sÄ±nÄ±flamasÄ±
         if self.cfg.orchestrator.enable_classify:
-            with Timer("3) Değişken sınıflaması", self._log):
+            with Timer("3) DeÄŸiÅŸken sÄ±nÄ±flamasÄ±", self._log):
                 self._activate("classify")
                 self.var_catalog_ = self._classify_variables(self.df_)
                 self._log(f"   - numeric={int((self.var_catalog_.variable_group=='numeric').sum())}, "
                           f"categorical={int((self.var_catalog_.variable_group=='categorical').sum())}")
 
-        # Parsel 4 — Eksik & Nadir kural objesi
-        with Timer("4) Eksik & Nadir değer politikası", self._log):
+        # Parsel 4 â€” Eksik & Nadir kural objesi
+        with Timer("4) Eksik & Nadir deÄŸer politikasÄ±", self._log):
             self._activate("missing_policy")
             self.policy_ = {"rare_threshold": self.cfg.rare_threshold,
                             "unknown_to": "OTHER", "missing_label": "MISSING", "other_label": "OTHER"}
 
-        # Parsel 5 — Zaman bölmesi
+        # Parsel 5 â€” Zaman bÃ¶lmesi
         if self.cfg.orchestrator.enable_split:
-            with Timer("5) Zaman bölmesi (Train/Test/OOT)", self._log):
+            with Timer("5) Zaman bÃ¶lmesi (Train/Test/OOT)", self._log):
                 self._activate("split")
                 self.train_idx_, self.test_idx_, self.oot_idx_, anchor = self._split_time(self.df_)
                 self.artifacts["pool"]["anchor"] = str(anchor) if anchor is not None else None
@@ -299,26 +315,27 @@ class RiskModelPipeline:
             idx_all = np.arange(len(self.df_))
             self.train_idx_, self.test_idx_, self.oot_idx_ = idx_all, None, np.array([], dtype=int)
 
-        # Parsel 6 — WOE binleme
+        # Parsel 6 â€” WOE binleme
         if self.cfg.orchestrator.enable_woe:
-            with Timer("6) WOE binleme (yalnız Train; adaptif)", self._log):
+            with Timer("6) WOE binleme (yalnÄ±z Train; adaptif)", self._log):
                 self._activate("woe")
                 self.woe_map = self._fit_woe_mapping(self.df_.iloc[self.train_idx_], self.var_catalog_, self.policy_)
-                self._log(f"   - WOE hazır: {len(self.woe_map)} değişken")
+                self._log(f"   - WOE hazÄ±r: {len(self.woe_map)} deÄŸiÅŸken")
+                self._log("   - Not: WOE haritasi SADECE TRAIN'de ogrenildi; TEST/OOT icin ayni harita uygulanir (leakage yok)")
 
-        # Parsel 7 — PSI v2 FAST
+        # Parsel 7 â€” PSI v2 FAST
         if self.cfg.orchestrator.enable_psi:
-            with Timer("7) PSI (vektörize)", self._log):
+            with Timer("7) PSI (vektÃ¶rize)", self._log):
                 self._activate("psi")
                 psi_keep = self._psi_screening(self.df_, self.train_idx_, self.test_idx_, self.oot_idx_)
                 if not psi_keep:
                     iv_sorted = sorted([(k, v.iv) for k, v in self.woe_map.items()], key=lambda t: t[1], reverse=True)
                     psi_keep = [iv_sorted[0][0]] if iv_sorted else []
-                self._log(f"   - PSI sonrası kalan: {len(psi_keep)}")
+                self._log(f"   - PSI sonrasÄ± kalan: {len(psi_keep)}")
         else:
             psi_keep = list(self.woe_map.keys())
 
-        # Parsel 8 — Transform
+        # Parsel 8 â€” Transform
         X_tr = X_te = X_oot = y_tr = y_te = y_oot = None
         if self.cfg.orchestrator.enable_transform:
             with Timer("8) WOE transform (Train/Test/OOT)", self._log):
@@ -328,7 +345,7 @@ class RiskModelPipeline:
                 X_oot, y_oot = self._transform(self.df_.iloc[self.oot_idx_], psi_keep)
                 self._log(f"   - X_train={X_tr.shape}, X_test={None if X_te is None else X_te.shape}, X_oot={X_oot.shape}")
 
-        # Parsel 9 — Korelasyon & cluster temsilcileri
+        # Parsel 9 â€” Korelasyon & cluster temsilcileri
         if self.cfg.orchestrator.enable_corr_cluster:
             with Timer("9) Korelasyon & cluster", self._log):
                 self.cluster_reps_ = self._corr_and_cluster(X_tr, psi_keep) or psi_keep[:min(10, len(psi_keep))]
@@ -336,55 +353,55 @@ class RiskModelPipeline:
         else:
             self.cluster_reps_ = psi_keep
 
-        # Parsel 10 — FS
+        # Parsel 10 â€” FS
         if self.cfg.orchestrator.enable_fs:
             with Timer("10) Feature selection (Forward+1SE)", self._log):
                 self.baseline_vars_ = self._feature_selection(X_tr, y_tr, self.cluster_reps_, psi_keep) or psi_keep[:min(5, len(psi_keep))]
-                self._log(f"   - baseline değişken={len(self.baseline_vars_)}")
+                self._log(f"   - baseline deÄŸiÅŸken={len(self.baseline_vars_)}")
         else:
             self.baseline_vars_ = psi_keep
 
-        # Parsel 11 — Nihai korelasyon filtresi
+        # Parsel 11 â€” Nihai korelasyon filtresi
         pre_final = self.baseline_vars_
         if self.cfg.orchestrator.enable_final_corr:
             with Timer("11) Nihai korelasyon filtresi", self._log):
                 pre_final = self._final_corr_filter(X_tr[self.baseline_vars_], y_tr) or self.baseline_vars_
-                self._log(f"   - corr sonrası={len(pre_final)}")
+                self._log(f"   - corr sonrasÄ±={len(pre_final)}")
 
-        # Parsel 12 — Noise sentinel
+        # Parsel 12 â€” Noise sentinel
         if self.cfg.orchestrator.enable_noise and self.cfg.use_noise_sentinel:
-            with Timer("12) Gürültü (noise) sentineli", self._log):
+            with Timer("12) GÃ¼rÃ¼ltÃ¼ (noise) sentineli", self._log):
                 self.final_vars_ = self._noise_sentinel_check(X_tr, y_tr, pre_final) or pre_final
-                self._log(f"   - final değişken={len(self.final_vars_)}")
+                self._log(f"   - final deÄŸiÅŸken={len(self.final_vars_)}")
         else:
             self.final_vars_ = pre_final
 
-        # Parsel 13 — Modelleme
+        # Parsel 13 â€” Modelleme
         if self.cfg.orchestrator.enable_model:
-            with Timer("13) Modelleme & değerlendirme", self._log):
+            with Timer("13) Modelleme & deÄŸerlendirme", self._log):
                 self._train_and_evaluate_models(X_tr, y_tr, X_te, y_te, X_oot, y_oot)
 
-        # Parsel 14 — Best select
+        # Parsel 14 â€” Best select
         if self.cfg.orchestrator.enable_best_select:
-            with Timer("14) En iyi model seçimi", self._log):
+            with Timer("14) En iyi model seÃ§imi", self._log):
                 self._select_best_model(); self._log(f"   - best={self.best_model_name_}")
 
-        # Parsel 15 — Rapor tabloları & export
+        # Parsel 15 â€” Rapor tablolarÄ± & export
         if self.cfg.orchestrator.enable_report:
-            with Timer("15) Rapor tabloları", self._log):
+            with Timer("15) Rapor tablolarÄ±", self._log):
                 self._build_report_tables(psi_keep)
                 self._build_top50_univariate(X_tr, y_tr)
                 self._persist_artifacts(X_oot, y_oot)
             with Timer("15b) Export (Excel/Parquet)", self._log):
                 self.export_reports()
 
-        # Parsel 16 — Dictionary (opsiyonel)
+        # Parsel 16 â€” Dictionary (opsiyonel)
         if self.cfg.orchestrator.enable_dictionary:
             with Timer("16) Dictionary entegrasyonu", self._log):
                 self._integrate_dictionary()
 
         self._finalize_meta()
-        self._log(f"[{now_str()}] ■ RUN tamam — run_id={self.cfg.run_id}{sys_metrics()}")
+        self._log(f"[{now_str()}] â–  RUN tamam â€” run_id={self.cfg.run_id}{sys_metrics()}")
         if self.log_fh:
             self.log_fh.close()
         return self
@@ -394,7 +411,7 @@ class RiskModelPipeline:
         for c in [self.cfg.id_col, self.cfg.time_col, self.cfg.target_col]:
             if c not in df.columns: raise ValueError(f"Zorunlu kolon eksik: {c}")
         if not set(pd.Series(df[self.cfg.target_col]).dropna().unique()).issubset({0,1}):
-            raise ValueError("target_col yalnız {0,1} olmalı.")
+            raise ValueError("target_col yalnÄ±z {0,1} olmalÄ±.")
         try:
             df["snapshot_month"] = pd.to_datetime(df[self.cfg.time_col], errors="coerce").dt.to_period("M").dt.to_timestamp()
         except Exception:
@@ -444,15 +461,72 @@ class RiskModelPipeline:
         test_idx=None; train_idx=pre_idx
         if self.cfg.use_test_split and len(pre_idx)>0:
             try:
-                pre=df.iloc[pre_idx].copy(); months=sorted(pd.Series(pre["snapshot_month"]).dropna().unique())
-                if len(months)>=3:
-                    cut=max(1,int(len(months)*0.8))
-                    tr_m=set(months[:cut]); te_m=set(months[cut:])
-                    tr_mask=pre["snapshot_month"].isin(tr_m).values; te_mask=pre["snapshot_month"].isin(te_m).values
-                    tr_local=pre_idx[np.where(tr_mask)[0]]; te_local=pre_idx[np.where(te_mask)[0]]
-                    if len(tr_local)>=1 and len(te_local)>=1: train_idx,test_idx=tr_local,te_local
+                pre=df.iloc[pre_idx].copy()
+                pre = pre.dropna(subset=["snapshot_month"])  # ensure months are valid
+                # Group rows by month and collect indices
+                month_groups = pre.groupby("snapshot_month").indices
+                months = list(month_groups.keys())
+                if len(months) >= 2:
+                    # Build month-level stats
+                    month_rows = {m: pre.index[month_groups[m]] for m in months}
+                    month_sizes = {m: len(month_rows[m]) for m in months}
+                    month_pos = {m: int((df.loc[month_rows[m], self.cfg.target_col] == 1).sum()) for m in months}
+                    total_rows = sum(month_sizes.values())
+                    total_pos = sum(month_pos.values())
+                    overall_rate = (total_pos / max(total_rows, 1)) if total_rows else 0.0
+                    frac = self.cfg.test_size_row_frac if (0 < self.cfg.test_size_row_frac < 1) else 0.2
+                    target_rows = int(round(frac * total_rows))
+
+                    # Random search over month subsets to match size and rate
+                    rng = np.random.default_rng(self.cfg.random_state)
+                    best = None
+                    best_score = float("inf")
+                    month_arr = np.array(months)
+                    # tolerance on size Â±10%
+                    low = int(0.9 * target_rows); high = int(1.1 * target_rows)
+                    for _ in range(1000):
+                        # sample each month with probability proportional to its size until within bounds
+                        probs = np.array([month_sizes[m] for m in month_arr], dtype=float)
+                        probs = probs / probs.sum()
+                        pick = []
+                        rows = 0
+                        tries = 0
+                        while rows < low and tries < len(months) * 3:
+                            m = rng.choice(month_arr, p=probs)
+                            if m not in pick:
+                                pick.append(m); rows += month_sizes[m]
+                            tries += 1
+                        if rows < low or rows > max(high, rows):
+                            # fallback single pass thresholding by cumulative size
+                            order = rng.permutation(month_arr)
+                            pick = []
+                            rows = 0
+                            for m in order:
+                                pick.append(m); rows += month_sizes[m]
+                                if rows >= low: break
+                        # compute score
+                        te_rows = rows
+                        te_pos = sum(month_pos[m] for m in pick)
+                        te_rate = te_pos / max(te_rows, 1)
+                        size_pen = abs(te_rows - target_rows) / max(target_rows, 1)
+                        rate_pen = abs(te_rate - overall_rate)
+                        score = rate_pen + 0.1 * size_pen
+                        if score < best_score and te_rows > 0 and te_rows < total_rows:
+                            best_score = score; best = pick
+                    if best:
+                        te_m = set(best); tr_m = set(months) - te_m
+                        tr_mask = pre["snapshot_month"].isin(tr_m).values; te_mask = pre["snapshot_month"].isin(te_m).values
+                        tr_local = pre_idx[np.where(tr_mask)[0]]; te_local = pre_idx[np.where(te_mask)[0]]
+                        if len(tr_local) >= 1 and len(te_local) >= 1:
+                            train_idx, test_idx = tr_local, te_local
+                        else:
+                            train_idx, test_idx = pre_idx, None
+                    else:
+                        train_idx, test_idx = pre_idx, None
+                else:
+                    train_idx, test_idx = pre_idx, None
             except Exception:
-                train_idx,test_idx=pre_idx,None
+                train_idx, test_idx = pre_idx, None
         return train_idx,test_idx,oot_idx,anchor
 
     # --------------- helpers for categorical/numeric labels ----------------
@@ -475,7 +549,7 @@ class RiskModelPipeline:
         return uniq
 
     def _bin_labels_for_variable(self, vw: "VariableWOE") -> List[str]:
-        """Bir değişkenin WOE bin/grup etiketlerini (sıralı ve benzersiz) verir."""
+        """Bir deÄŸiÅŸkenin WOE bin/grup etiketlerini (sÄ±ralÄ± ve benzersiz) verir."""
         if vw.var_type == "numeric":
             labels = [f"[{b.left},{b.right})"
                       for b in vw.numeric_bins
@@ -490,8 +564,8 @@ class RiskModelPipeline:
 
     def _apply_bins(self, df: pd.DataFrame, var: str, vw: "VariableWOE") -> pd.Series:
         """
-        Train'de fit edilmiş mapping'i kullanarak df[var]'ı WOE bin/grup etiketlerine çevirir.
-        Çıkış pandas.Categorical (sabit kategori seti).
+        Train'de fit edilmiÅŸ mapping'i kullanarak df[var]'Ä± WOE bin/grup etiketlerine Ã§evirir.
+        Ã‡Ä±kÄ±ÅŸ pandas.Categorical (sabit kategori seti).
         """
         s = df[var]
         out = pd.Series(index=s.index, dtype=object)
@@ -608,18 +682,18 @@ class RiskModelPipeline:
 
     def _normalize_numeric_edges(self, bins: List[NumericBin]) -> List[NumericBin]:
         """
-        Bin aralıklarını bitişik hale getirir (boşluk bırakmaz):
-        - İlk bin left = -inf
+        Bin aralÄ±klarÄ±nÄ± bitiÅŸik hale getirir (boÅŸluk bÄ±rakmaz):
+        - Ä°lk bin left = -inf
         - Son bin right = +inf
-        - Aradaki tüm binlerde next.left = prev.right
-        - MISSING bin(ler) (NaN-NaN) sona alınır.
+        - Aradaki tÃ¼m binlerde next.left = prev.right
+        - MISSING bin(ler) (NaN-NaN) sona alÄ±nÄ±r.
         """
         finite = [b for b in bins if not (np.isnan(b.left) and np.isnan(b.right))]
         finite = sorted(finite, key=lambda b: (b.left, b.right))
         if finite:
             finite[0].left = -np.inf
             for i in range(1, len(finite)):
-                finite[i].left = finite[i-1].right  # KOMŞULUK: boşluk kalmasın
+                finite[i].left = finite[i-1].right  # KOMÅULUK: boÅŸluk kalmasÄ±n
             finite[-1].right = np.inf
         miss = [b for b in bins if np.isnan(b.left) and np.isnan(b.right)]
         return finite + miss
@@ -745,10 +819,10 @@ class RiskModelPipeline:
 
     # ----------------------- PSI v2 FAST -----------------------
     def _fmt_psi_line(self, var: str, scope: str, label: str, psi_val: float, status: str) -> str:
-        return f"      ▪ {var:<30s} | {scope:<17s} | {label:<12s} | PSI={psi_val:6.3f} | {status}"
+        return f"      â–ª {var:<30s} | {scope:<17s} | {label:<12s} | PSI={psi_val:6.3f} | {status}"
 
     def _eta(self, start_ts: float, done: int, total: int) -> str:
-        if done==0: return "ETA: hesaplanıyor..."
+        if done==0: return "ETA: hesaplanÄ±yor..."
         elapsed=time.time()-start_ts; per_item=elapsed/done; rem=max(total-done,0)*per_item
         return f"ETA: ~{int(rem):d}s (kalan {total-done}/{total})"
 
@@ -767,7 +841,7 @@ class RiskModelPipeline:
         keep,drop,warn=[],[],[]
         variables=list(self.woe_map.keys()); total=len(variables); t0=time.time()
         if cfg.psi_verbose:
-            self._log(f"   • PSI başlayacak: {total} değişken | Train-ays={len(uniq_months)} | Test={'yok' if (test_idx is None or len(test_idx)==0) else 'var'} | OOT={len(oot_idx)}")
+            self._log(f"   â€¢ PSI baÅŸlayacak: {total} deÄŸiÅŸken | Train-ays={len(uniq_months)} | Test={'yok' if (test_idx is None or len(test_idx)==0) else 'var'} | OOT={len(oot_idx)}")
         for i,var in enumerate(variables,1):
             vw=self.woe_map[var]; v_start=time.time()
             full_cat=self._apply_bins(df,var,vw)
@@ -777,7 +851,7 @@ class RiskModelPipeline:
             oot_codes=codes_all[oot_idx]
             sys_drop=False; any_warn=False
             if cfg.psi_verbose:
-                self._log(f"    - {var}: Train-ay karşılaştırmaları ({len(uniq_months)} ay; örnek log={len(sample_months)})")
+                self._log(f"    - {var}: Train-ay karÅŸÄ±laÅŸtÄ±rmalarÄ± ({len(uniq_months)} ay; Ã¶rnek log={len(sample_months)})")
             for m in uniq_months:
                 mask_m=(train_months==m); comp=tr_codes[mask_m]; psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(comp,K), cfg.psi_eps)
                 status="KEEP"
@@ -804,15 +878,15 @@ class RiskModelPipeline:
                 self._log(self._fmt_psi_line(var,"Train-v-OOT   ","OOT_ALL",psi_val,status))
             if sys_drop:
                 drop.append(var); 
-                if cfg.psi_verbose: self._log(f"      ✖ {var} → DROP (PSI eşik aşıldı)")
+                if cfg.psi_verbose: self._log(f"      âœ– {var} â†’ DROP (PSI eÅŸik aÅŸÄ±ldÄ±)")
             else:
                 keep.append(var)
                 if cfg.psi_verbose:
-                    if any_warn: warn.append(var); self._log(f"      ! {var} → KEEP (WARN bölgeleri var)")
-                    else: self._log(f"      ✓ {var} → KEEP")
+                    if any_warn: warn.append(var); self._log(f"      ! {var} â†’ KEEP (WARN bÃ¶lgeleri var)")
+                    else: self._log(f"      âœ“ {var} â†’ KEEP")
             if (i % max(1,cfg.psi_log_every))==0 or i==total:
-                self._log(f"    progress: {i}/{total} tamamlandı — {self._eta(t0,i,total)}")
-            if cfg.psi_verbose: self._log(f"      (süre: {time.time()-v_start:.2f}s)")
+                self._log(f"    progress: {i}/{total} tamamlandÄ± â€” {self._eta(t0,i,total)}")
+            if cfg.psi_verbose: self._log(f"      (sÃ¼re: {time.time()-v_start:.2f}s)")
             del full_cat, codes_all, tr_codes, te_codes, oot_codes
         psi_df=pd.DataFrame(psi_rows).sort_values(["variable","compare_scope","compare_label"]).reset_index(drop=True)
         self.psi_summary_=psi_df.copy()
@@ -821,10 +895,10 @@ class RiskModelPipeline:
         dropped = dropped.rename(columns={"psi_value":"max_psi"})
         self.psi_dropped_ = dropped.copy()
         keep_final=sorted(list(set(keep)-set(dropped["variable"].tolist())))
-        self._log(f"   • PSI özet: KEEP={len(keep_final)} | DROP={len(dropped)} | WARN={len(set(warn)-set(dropped['variable']))}")
+        self._log(f"   â€¢ PSI Ã¶zet: KEEP={len(keep_final)} | DROP={len(dropped)} | WARN={len(set(warn)-set(dropped['variable']))}")
         if cfg.psi_verbose and len(dropped)>0:
             top_drop=dropped.sort_values("max_psi",ascending=False).head(10)
-            self._log("   • En yüksek PSI ile DROP edilenler (ilk 10):")
+            self._log("   â€¢ En yÃ¼ksek PSI ile DROP edilenler (ilk 10):")
             for _,r in top_drop.iterrows(): self._log(f"      - {r['variable']}: max_psi={r['max_psi']:.3f}")
         del psi_df,dropped,keep,drop,warn; gc.collect()
         return keep_final
@@ -880,11 +954,14 @@ class RiskModelPipeline:
             boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
             boruta.fit(X[all_vars].values, y)
             boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
-        except Exception:
+            self._log(f"   - Boruta: {len(boruta_vars)}/{len(all_vars)} kaldÄ±")
+        except Exception as e:
             boruta_vars = candidate_vars or all_vars[:min(10, len(all_vars))]
+            self._log("   - Boruta kullanÄ±lamadÄ±, aday/kesit ile devam ediliyor")
         if not boruta_vars:
             boruta_vars = all_vars[:min(10, len(all_vars))]
         selected = self._forward_1se_selection(X[boruta_vars], y, "KS", self.cfg.cv_folds)
+        self._log(f"   - Forward+1SE seÃ§ti: {len(selected)}")
         gc.collect()
         return selected
 
@@ -896,7 +973,7 @@ class RiskModelPipeline:
             sc=[]
             for tr,va in skf.split(X[cols],y):
                 m=LogisticRegression(penalty="l2",solver="lbfgs",max_iter=300,class_weight="balanced")
-                m.fit(X.iloc[tr][cols],y[tr]); p=m.predict_proba(X.iloc[va][cols])[:,1]
+                m.fit(X.iloc[tr][cols],y[tr]); p=self._proba_1d(m, X.iloc[va][cols])
                 ks,_=ks_statistic(y[va],p); auc=roc_auc_score(y[va],p); sc.append(ks if maximize_metric.upper()=="KS" else auc)
             return float(np.mean(sc))
         while remaining:
@@ -925,7 +1002,7 @@ class RiskModelPipeline:
             for c in cand:
                 try:
                     m=LogisticRegression(penalty="l2",solver="lbfgs",max_iter=300,class_weight="balanced")
-                    m.fit(X[[c]],y); p=m.predict_proba(X[[c]])[:,1]; ks,_=ks_statistic(y,p)
+                    m.fit(X[[c]],y); p=self._proba_1d(m, X[[c]]); ks,_=ks_statistic(y,p)
                     if ks>best_s: best_s,best_v=ks,c
                 except Exception: continue
             keep.append(best_v if best_v else v)
@@ -946,6 +1023,27 @@ class RiskModelPipeline:
         del Xn; gc.collect()
         return [v for v in sel if not v.startswith("__noise_")]
 
+    # ----------------------- utils: robust proba -----------------------
+    def _proba_1d(self, mdl, Xdf: pd.DataFrame) -> np.ndarray:
+        try:
+            proba = mdl.predict_proba(Xdf)
+            proba = np.asarray(proba)
+            if proba.ndim == 1:
+                return proba.ravel()
+            if proba.shape[1] == 2:
+                return proba[:, 1]
+            if proba.shape[1] == 1:
+                return proba[:, 0]
+            return proba.max(axis=1)
+        except Exception:
+            if hasattr(mdl, "predict_mu"):
+                return np.asarray(mdl.predict_mu(Xdf)).ravel()
+            try:
+                scores = np.asarray(mdl.decision_function(Xdf)).ravel()
+                return 1.0 / (1.0 + np.exp(-scores))
+            except Exception:
+                return np.asarray(mdl.predict(Xdf)).ravel()
+
     # ----------------------- modelleme -----------------------
     def _hyperparameter_tune(self, base_estimator, param_dist, X, y, time_limit: float) -> Any:
         start = time.time()
@@ -961,10 +1059,7 @@ class RiskModelPipeline:
             sc = []
             for tr, va in skf.split(X, y):
                 mdl.fit(X.iloc[tr], y[tr])
-                if hasattr(mdl, "predict_proba"):
-                    p = mdl.predict_proba(X.iloc[va])[:, 1]
-                else:
-                    p = mdl.predict_mu(X.iloc[va])
+                p = self._proba_1d(mdl, X.iloc[va])
                 ks, _ = ks_statistic(y[va], p)
                 sc.append(ks)
                 if time.time() - start > time_limit:
@@ -988,6 +1083,30 @@ class RiskModelPipeline:
             "Logit_L2": (
                 LogisticRegression(solver="lbfgs", max_iter=1000, class_weight="balanced"),
                 {"C": np.logspace(-3, 3, 7)},
+            ),
+            "RandomForest": (
+                RandomForestClassifier(
+                    n_jobs=self.cfg.n_jobs,
+                    random_state=self.cfg.random_state,
+                    class_weight="balanced_subsample",
+                ),
+                {
+                    "n_estimators": [300, 600, 1000],
+                    "max_depth": [None, 5, 10],
+                    "min_samples_leaf": [1, 5, 20],
+                },
+            ),
+            "ExtraTrees": (
+                ExtraTreesClassifier(
+                    n_jobs=self.cfg.n_jobs,
+                    random_state=self.cfg.random_state,
+                    class_weight="balanced",
+                ),
+                {
+                    "n_estimators": [300, 600, 1000],
+                    "max_depth": [None, 5, 10],
+                    "min_samples_leaf": [1, 5, 20],
+                },
             ),
             "XGBoost": (
                 XGBClassifier(
@@ -1029,15 +1148,12 @@ class RiskModelPipeline:
         for name, (base_mdl, params) in models.items():
             print(f"[{now_str()}]   - {name} tuning{sys_metrics()}")
             mdl = self._hyperparameter_tune(base_mdl, params, Xtr[self.final_vars_], ytr, 20 * 60)
-            print(f"[{now_str()}]   - {name} CV başlıyor{sys_metrics()}")
+            print(f"[{now_str()}]   - {name} CV baÅŸlÄ±yor{sys_metrics()}")
             sc = []
             for tr, va in skf.split(Xtr[self.final_vars_], ytr):
                 m = clone(mdl)
                 m.fit(Xtr.iloc[tr][self.final_vars_], ytr[tr])
-                if hasattr(m, "predict_proba"):
-                    p = m.predict_proba(Xtr.iloc[va][self.final_vars_])[:, 1]
-                else:
-                    p = m.predict_mu(Xtr.iloc[va][self.final_vars_])
+                p = self._proba_1d(m, Xtr.iloc[va][self.final_vars_])
                 ks, _ = ks_statistic(ytr[va], p)
                 auc = roc_auc_score(ytr[va], p)
                 sc.append((ks, auc))
@@ -1045,25 +1161,16 @@ class RiskModelPipeline:
             auc_cv = float(np.mean([s[1] for s in sc]))
             gini_cv = gini_from_auc(auc_cv)
             mdl.fit(Xtr[self.final_vars_], ytr)
-            if hasattr(mdl, "predict_proba"):
-                p_tr = mdl.predict_proba(Xtr[self.final_vars_])[:, 1]
-            else:
-                p_tr = mdl.predict_mu(Xtr[self.final_vars_])
+            p_tr = self._proba_1d(mdl, Xtr[self.final_vars_])
             ks_tables["traincv"] = ks_table(ytr, p_tr, n_bands=self.cfg.ks_bands)
             ks_te = auc_te = gini_te = None
             if Xte is not None and yte is not None and Xte.shape[0] > 0:
-                if hasattr(mdl, "predict_proba"):
-                    p_te = mdl.predict_proba(Xte[self.final_vars_])[:, 1]
-                else:
-                    p_te = mdl.predict_mu(Xte[self.final_vars_])
+                p_te = self._proba_1d(mdl, Xte[self.final_vars_])
                 ks_te, _ = ks_statistic(yte, p_te)
                 auc_te = roc_auc_score(yte, p_te)
                 gini_te = gini_from_auc(auc_te)
                 ks_tables["test"] = ks_table(yte, p_te, n_bands=self.cfg.ks_bands)
-            if hasattr(mdl, "predict_proba"):
-                p_oot = mdl.predict_proba(Xoot[self.final_vars_])[:, 1]
-            else:
-                p_oot = mdl.predict_mu(Xoot[self.final_vars_])
+            p_oot = self._proba_1d(mdl, Xoot[self.final_vars_])
             ks_oot, thr_oot = ks_statistic(yoot, p_oot)
             auc_oot = roc_auc_score(yoot, p_oot)
             gini_oot = gini_from_auc(auc_oot)
@@ -1097,7 +1204,7 @@ class RiskModelPipeline:
         top=df.sort_values(["KS_OOT","AUC_OOT","Gini_OOT"], ascending=[False, False, False]).iloc[0]
         self.best_model_name_=str(top["model_name"])
 
-    # ----------------------- Rapor tabloları + univariate top50 -----------------------
+    # ----------------------- Rapor tablolarÄ± + univariate top50 -----------------------
     def _build_report_tables(self, psi_keep: List[str]):
         iv_rows = [{"variable": v, "IV": self.woe_map[v].iv, "variable_group": self.woe_map[v].var_type} for v in psi_keep]
         self.top20_iv_df_ = pd.DataFrame(iv_rows).sort_values("IV", ascending=False).head(20).reset_index(drop=True)
@@ -1241,7 +1348,7 @@ class RiskModelPipeline:
                 tmp["__key"] = tmp["variable"].astype(str).str.strip().str.casefold()
                 self.best_model_woe_df_ = tmp.merge(dic, on="__key", how="left").drop(columns=["__key"])
         except Exception:
-            # sözlük yoksa veya okunamadıysa akış devam etsin
+            # sÃ¶zlÃ¼k yoksa veya okunamadÄ±ysa akÄ±ÅŸ devam etsin
             pass
 
     # ----------------------- Meta & Export -----------------------
@@ -1253,13 +1360,24 @@ class RiskModelPipeline:
     def export_reports(self):
         os.makedirs(self.cfg.output_folder, exist_ok=True)
         xlsx = os.path.join(self.cfg.output_folder, self.cfg.output_excel_path)
-        # Excel
+        # Excel with robust fallback if file is locked
         try:
             with pd.ExcelWriter(xlsx, engine="openpyxl") as wr:
                 self._write_excel(wr)
-        except Exception:
-            with pd.ExcelWriter(xlsx, engine="xlsxwriter") as wr:
+        except PermissionError:
+            alt = os.path.join(self.cfg.output_folder, f"model_report_{self.cfg.run_id}.xlsx")
+            with pd.ExcelWriter(alt, engine="openpyxl") as wr:
                 self._write_excel(wr)
+            self._log(f"[warn] Excel locked: wrote to {os.path.basename(alt)} instead")
+        except Exception:
+            try:
+                with pd.ExcelWriter(xlsx, engine="xlsxwriter") as wr:
+                    self._write_excel(wr)
+            except PermissionError:
+                alt = os.path.join(self.cfg.output_folder, f"model_report_{self.cfg.run_id}.xlsx")
+                with pd.ExcelWriter(alt, engine="xlsxwriter") as wr:
+                    self._write_excel(wr)
+                self._log(f"[warn] Excel locked: wrote to {os.path.basename(alt)} instead")
         # Optional Parquet/CSV export (disabled by default)
         def save(df, name):
             try:
@@ -1306,7 +1424,7 @@ class RiskModelPipeline:
             except Exception:
                 pass
 
-        # dataset kolonu YOK; kesitler sheet adıyla ayrışır
+        # dataset kolonu YOK; kesitler sheet adÄ±yla ayrÄ±ÅŸÄ±r
         if self.final_vars_df_ is not None:
             self.final_vars_df_.to_excel(wr, sheet_name="final_vars", index=False)
             _as_table(wr, self.final_vars_df_, "final_vars", "tbl_final_vars")

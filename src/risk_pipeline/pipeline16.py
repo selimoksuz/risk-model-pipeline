@@ -28,10 +28,15 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, ParameterSampler
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.base import clone
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+from pygam import LogisticGAM
+from boruta import BorutaPy
 
 warnings.filterwarnings("ignore")
 try:
@@ -865,18 +870,22 @@ class RiskModelPipeline:
 
     # ----------------------- FS -----------------------
     def _feature_selection(self, X, y, candidate_vars, all_vars) -> List[str]:
-        if not candidate_vars: candidate_vars=all_vars[:min(10,len(all_vars))]
-        rf=RandomForestClassifier(n_estimators=max(200,100*self.cfg.n_jobs),min_samples_leaf=20,
-                                  n_jobs=self.cfg.n_jobs,random_state=self.cfg.random_state,
-                                  class_weight="balanced_subsample")
-        rf.fit(X[candidate_vars],y)
-        from sklearn.inspection import permutation_importance
-        perm=permutation_importance(rf,X[candidate_vars],y,n_repeats=5,random_state=self.cfg.random_state,n_jobs=self.cfg.n_jobs)
-        imp_mean=pd.Series(perm.importances_mean,index=candidate_vars)
-        thr=float(np.median(imp_mean.values)-np.std(imp_mean.values))
-        stable_vars=imp_mean[imp_mean>thr].index.tolist() or candidate_vars
-        selected=self._forward_1se_selection(X[stable_vars],y,"KS",self.cfg.cv_folds)
-        del rf,perm,imp_mean; gc.collect()
+        try:
+            rf = RandomForestClassifier(
+                n_estimators=max(200, 100 * self.cfg.n_jobs),
+                n_jobs=self.cfg.n_jobs,
+                random_state=self.cfg.random_state,
+                class_weight="balanced_subsample",
+            )
+            boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
+            boruta.fit(X[all_vars].values, y)
+            boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
+        except Exception:
+            boruta_vars = candidate_vars or all_vars[:min(10, len(all_vars))]
+        if not boruta_vars:
+            boruta_vars = all_vars[:min(10, len(all_vars))]
+        selected = self._forward_1se_selection(X[boruta_vars], y, "KS", self.cfg.cv_folds)
+        gc.collect()
         return selected
 
     def _forward_1se_selection(self, X: pd.DataFrame, y: np.ndarray, maximize_metric="KS", cv_folds=5) -> List[str]:
@@ -938,44 +947,149 @@ class RiskModelPipeline:
         return [v for v in sel if not v.startswith("__noise_")]
 
     # ----------------------- modelleme -----------------------
+    def _hyperparameter_tune(self, base_estimator, param_dist, X, y, time_limit: float) -> Any:
+        start = time.time()
+        best_score = -np.inf
+        best_params = {}
+        sampler = ParameterSampler(param_dist, n_iter=50, random_state=self.cfg.random_state)
+        skf = StratifiedKFold(n_splits=self.cfg.cv_folds, shuffle=True, random_state=self.cfg.random_state)
+        for params in sampler:
+            if time.time() - start > time_limit:
+                break
+            mdl = clone(base_estimator)
+            mdl.set_params(**params)
+            sc = []
+            for tr, va in skf.split(X, y):
+                mdl.fit(X.iloc[tr], y[tr])
+                if hasattr(mdl, "predict_proba"):
+                    p = mdl.predict_proba(X.iloc[va])[:, 1]
+                else:
+                    p = mdl.predict_mu(X.iloc[va])
+                ks, _ = ks_statistic(y[va], p)
+                sc.append(ks)
+                if time.time() - start > time_limit:
+                    break
+            if sc:
+                score = float(np.mean(sc))
+                if score > best_score:
+                    best_score = score
+                    best_params = params
+            if time.time() - start > time_limit:
+                break
+        mdl = clone(base_estimator)
+        mdl.set_params(**best_params)
+        mdl.fit(X, y)
+        return mdl
+
     def _train_and_evaluate_models(self, Xtr, ytr, Xte, yte, Xoot, yoot):
-        if not self.final_vars_: self.final_vars_=[Xtr.columns[0]]
-        models={"Logit_L2": LogisticRegression(penalty="l2",solver="lbfgs",max_iter=500,class_weight="balanced")}
-        if self.cfg.use_benchmarks:
-            models.update({
-                "RandomForest": RandomForestClassifier(n_estimators=max(300,150*self.cfg.n_jobs),min_samples_leaf=20,
-                                                       n_jobs=self.cfg.n_jobs,random_state=self.cfg.random_state,
-                                                       class_weight="balanced_subsample"),
-                "ExtraTrees": ExtraTreesClassifier(n_estimators=max(400,200*self.cfg.n_jobs),min_samples_leaf=20,
-                                                   n_jobs=self.cfg.n_jobs,random_state=self.cfg.random_state,
-                                                   class_weight="balanced"),
-            })
-        rows=[]; ks_tables={"traincv":None,"test":None,"oot":None}
-        skf=StratifiedKFold(n_splits=self.cfg.cv_folds,shuffle=True,random_state=self.cfg.random_state)
-        for name,mdl in models.items():
+        if not self.final_vars_:
+            self.final_vars_ = [Xtr.columns[0]]
+        models = {
+            "Logit_L2": (
+                LogisticRegression(solver="lbfgs", max_iter=1000, class_weight="balanced"),
+                {"C": np.logspace(-3, 3, 7)},
+            ),
+            "XGBoost": (
+                XGBClassifier(
+                    eval_metric="logloss",
+                    n_jobs=self.cfg.n_jobs,
+                    random_state=self.cfg.random_state,
+                    tree_method="hist",
+                    verbosity=0,
+                ),
+                {
+                    "n_estimators": [200, 500],
+                    "max_depth": [3, 5, 7],
+                    "learning_rate": [0.01, 0.1],
+                    "subsample": [0.7, 1.0],
+                },
+            ),
+            "LightGBM": (
+                LGBMClassifier(
+                    class_weight="balanced",
+                    n_jobs=self.cfg.n_jobs,
+                    random_state=self.cfg.random_state,
+                ),
+                {
+                    "n_estimators": [300, 500],
+                    "num_leaves": [31, 63],
+                    "max_depth": [-1, 7],
+                    "learning_rate": [0.01, 0.1],
+                    "subsample": [0.7, 1.0],
+                },
+            ),
+            "GAM": (
+                LogisticGAM(),
+                {"lam": np.logspace(-3, 3, 7)},
+            ),
+        }
+        rows = []
+        ks_tables = {"traincv": None, "test": None, "oot": None}
+        skf = StratifiedKFold(n_splits=self.cfg.cv_folds, shuffle=True, random_state=self.cfg.random_state)
+        for name, (base_mdl, params) in models.items():
+            print(f"[{now_str()}]   - {name} tuning{sys_metrics()}")
+            mdl = self._hyperparameter_tune(base_mdl, params, Xtr[self.final_vars_], ytr, 20 * 60)
             print(f"[{now_str()}]   - {name} CV başlıyor{sys_metrics()}")
-            sc=[]
-            for tr,va in skf.split(Xtr[self.final_vars_],ytr):
-                mdl.fit(Xtr.iloc[tr][self.final_vars_],ytr[tr])
-                p=mdl.predict_proba(Xtr.iloc[va][self.final_vars_])[:,1]
-                ks,_=ks_statistic(ytr[va],p); auc=roc_auc_score(ytr[va],p); sc.append((ks,auc))
-            ks_cv=float(np.mean([s[0] for s in sc])); auc_cv=float(np.mean([s[1] for s in sc])); gini_cv=gini_from_auc(auc_cv)
-            mdl.fit(Xtr[self.final_vars_],ytr); p_tr=mdl.predict_proba(Xtr[self.final_vars_])[:,1]
-            ks_tables["traincv"]=ks_table(ytr,p_tr,n_bands=self.cfg.ks_bands)
-            ks_te=auc_te=gini_te=None
-            if Xte is not None and yte is not None and Xte.shape[0]>0:
-                p_te=mdl.predict_proba(Xte[self.final_vars_])[:,1]
-                ks_te,_=ks_statistic(yte,p_te); auc_te=roc_auc_score(yte,p_te); gini_te=gini_from_auc(auc_te)
-                ks_tables["test"]=ks_table(yte,p_te,n_bands=self.cfg.ks_bands)
-            p_oot=mdl.predict_proba(Xoot[self.final_vars_])[:,1]
-            ks_oot,thr_oot=ks_statistic(yoot,p_oot); auc_oot=roc_auc_score(yoot,p_oot); gini_oot=gini_from_auc(auc_oot)
-            ks_tables["oot"]=ks_table(yoot,p_oot,n_bands=self.cfg.ks_bands)
-            rows.append({"model_name":name,"KS_TrainCV":ks_cv,"AUC_TrainCV":auc_cv,"Gini_TrainCV":gini_cv,
-                         "KS_Test":ks_te,"AUC_Test":auc_te,"Gini_Test":gini_te,
-                         "KS_OOT":ks_oot,"AUC_OOT":auc_oot,"Gini_OOT":gini_oot,"KS_OOT_threshold":thr_oot})
-            self.models_[name]=mdl
-        self.models_summary_=pd.DataFrame(rows).sort_values("KS_OOT",ascending=False).reset_index(drop=True)
-        self.ks_info_traincv_,self.ks_info_test_,self.ks_info_oot_=ks_tables["traincv"],ks_tables["test"],ks_tables["oot"]
+            sc = []
+            for tr, va in skf.split(Xtr[self.final_vars_], ytr):
+                m = clone(mdl)
+                m.fit(Xtr.iloc[tr][self.final_vars_], ytr[tr])
+                if hasattr(m, "predict_proba"):
+                    p = m.predict_proba(Xtr.iloc[va][self.final_vars_])[:, 1]
+                else:
+                    p = m.predict_mu(Xtr.iloc[va][self.final_vars_])
+                ks, _ = ks_statistic(ytr[va], p)
+                auc = roc_auc_score(ytr[va], p)
+                sc.append((ks, auc))
+            ks_cv = float(np.mean([s[0] for s in sc]))
+            auc_cv = float(np.mean([s[1] for s in sc]))
+            gini_cv = gini_from_auc(auc_cv)
+            mdl.fit(Xtr[self.final_vars_], ytr)
+            if hasattr(mdl, "predict_proba"):
+                p_tr = mdl.predict_proba(Xtr[self.final_vars_])[:, 1]
+            else:
+                p_tr = mdl.predict_mu(Xtr[self.final_vars_])
+            ks_tables["traincv"] = ks_table(ytr, p_tr, n_bands=self.cfg.ks_bands)
+            ks_te = auc_te = gini_te = None
+            if Xte is not None and yte is not None and Xte.shape[0] > 0:
+                if hasattr(mdl, "predict_proba"):
+                    p_te = mdl.predict_proba(Xte[self.final_vars_])[:, 1]
+                else:
+                    p_te = mdl.predict_mu(Xte[self.final_vars_])
+                ks_te, _ = ks_statistic(yte, p_te)
+                auc_te = roc_auc_score(yte, p_te)
+                gini_te = gini_from_auc(auc_te)
+                ks_tables["test"] = ks_table(yte, p_te, n_bands=self.cfg.ks_bands)
+            if hasattr(mdl, "predict_proba"):
+                p_oot = mdl.predict_proba(Xoot[self.final_vars_])[:, 1]
+            else:
+                p_oot = mdl.predict_mu(Xoot[self.final_vars_])
+            ks_oot, thr_oot = ks_statistic(yoot, p_oot)
+            auc_oot = roc_auc_score(yoot, p_oot)
+            gini_oot = gini_from_auc(auc_oot)
+            ks_tables["oot"] = ks_table(yoot, p_oot, n_bands=self.cfg.ks_bands)
+            rows.append(
+                {
+                    "model_name": name,
+                    "KS_TrainCV": ks_cv,
+                    "AUC_TrainCV": auc_cv,
+                    "Gini_TrainCV": gini_cv,
+                    "KS_Test": ks_te,
+                    "AUC_Test": auc_te,
+                    "Gini_Test": gini_te,
+                    "KS_OOT": ks_oot,
+                    "AUC_OOT": auc_oot,
+                    "Gini_OOT": gini_oot,
+                    "KS_OOT_threshold": thr_oot,
+                }
+            )
+            self.models_[name] = mdl
+        self.models_summary_ = pd.DataFrame(rows).sort_values("KS_OOT", ascending=False).reset_index(drop=True)
+        self.ks_info_traincv_, self.ks_info_test_, self.ks_info_oot_ = (
+            ks_tables["traincv"],
+            ks_tables["test"],
+            ks_tables["oot"],
+        )
 
     def _select_best_model(self):
         df=self.models_summary_

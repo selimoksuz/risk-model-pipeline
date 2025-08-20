@@ -1,7 +1,11 @@
 # risk-model-pipeline
 
-Production-ready scaffold for a modular risk modelling pipeline (WOE → PSI → FS → Model → Calibration → Report).  
+Production-ready scaffold for a modular risk modelling pipeline (WOE → PSI → FS → Model → Calibration → Report).
 This repo is structured for incremental development and easy Git usage.
+
+The reference pipeline trains Logistic Regression, XGBoost, LightGBM and GAM models
+with automatic hyper-parameter tuning (≤20 minutes per model) and performs feature
+selection via the Boruta algorithm.
 
 ## Quickstart
 

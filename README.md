@@ -1,7 +1,11 @@
 # risk-model-pipeline
 
-Production-ready scaffold for a modular risk modelling pipeline (WOE → PSI → FS → Model → Calibration → Report).  
+Production-ready scaffold for a modular risk modelling pipeline (WOE → PSI → FS → Model → Calibration → Report).
 This repo is structured for incremental development and easy Git usage.
+
+The reference pipeline trains Logistic Regression, XGBoost, LightGBM and GAM models
+with automatic hyper-parameter tuning (≤20 minutes per model) and performs feature
+selection via the Boruta algorithm.
 
 ## Quickstart
 
@@ -17,8 +21,8 @@ pip install -e .  # editable install
 # run CLI
 risk-pipeline --help
 
-# or run directly without installing the package
-python scripts/run_pipeline.py --help  # auto-adds src/ to PYTHONPATH
+# or run the bundled executor (logs -> outputs/pipeline.log)
+python scripts/executor.py
 ```
 
 ## Project layout

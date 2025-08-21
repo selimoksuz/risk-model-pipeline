@@ -31,12 +31,13 @@ import pandas as pd
 from sklearn.model_selection import StratifiedKFold, ParameterSampler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss
 from sklearn.base import clone
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from pygam import LogisticGAM
 from boruta import BorutaPy
+from .model.calibrate import fit_calibrator, apply_calibrator
 
 warnings.filterwarnings("ignore")
 try:
@@ -183,6 +184,23 @@ class Config:
     max_bin_share_target: float = 0.35
     max_abs_woe_warn: float = 3.0
     monotonic_enabled: bool = False
+    # new thresholds & calibration
+    calibration_data_path: Optional[str] = None
+    calibration_method: str = "isotonic"
+    iv_min: float = 0.02
+    iv_high_flag: float = 0.50
+    cluster_top_k: int = 2
+    rho_threshold: float = 0.8
+    vif_threshold: float = 5.0
+    psi_threshold_feature: float = 0.25
+    psi_threshold_score: float = 0.10
+    shap_sample: int = 25000
+    ensemble: bool = False
+    ensemble_top_k: int = 3
+    try_mlp: bool = False
+    hpo_method: str = "random"
+    hpo_timeout_sec: int = 1200
+    hpo_trials: int = 60
     # psi logging
     psi_verbose: bool = True
     psi_log_every: int = 5
@@ -252,6 +270,9 @@ class RiskModelPipeline:
         self.oot_scores_df_: Optional[pd.DataFrame] = None
 
         self.cluster_reps_: List[str] = []; self.baseline_vars_: List[str] = []; self.final_vars_: List[str] = []
+        self.high_iv_flags_: List[str] = []
+        self.calibrator_: Optional[Any] = None
+        self.calibration_report_: Optional[Dict[str, Any]] = None
 
         self.log_fh = None
         if self.cfg.log_file:
@@ -335,6 +356,9 @@ class RiskModelPipeline:
         else:
             psi_keep = list(self.woe_map.keys())
 
+        # IV filter after PSI
+        psi_keep = self._iv_filter(psi_keep)
+
         # Parsel 8 â€” Transform
         X_tr = X_te = X_oot = y_tr = y_te = y_oot = None
         if self.cfg.orchestrator.enable_transform:
@@ -385,6 +409,10 @@ class RiskModelPipeline:
         if self.cfg.orchestrator.enable_best_select:
             with Timer("14) En iyi model seÃ§imi", self._log):
                 self._select_best_model(); self._log(f"   - best={self.best_model_name_}")
+
+        if self.cfg.calibration_data_path:
+            with Timer("14b) Kalibrasyon", self._log):
+                self._calibrate_model()
 
         # Parsel 15 â€” Rapor tablolarÄ± & export
         if self.cfg.orchestrator.enable_report:
@@ -855,7 +883,7 @@ class RiskModelPipeline:
             for m in uniq_months:
                 mask_m=(train_months==m); comp=tr_codes[mask_m]; psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(comp,K), cfg.psi_eps)
                 status="KEEP"
-                if psi_val>cfg.psi_threshold: status="DROP"; sys_drop=True
+                if psi_val>cfg.psi_threshold_feature: status="DROP"; sys_drop=True
                 elif psi_val>cfg.psi_warn_low: status="WARN"; any_warn=True
                 psi_rows.append({"variable":var,"compare_scope":"train_vs_train_month","compare_label":str(m)[:10],
                                  "psi_value":psi_val,"status":status,"notes":""})
@@ -863,14 +891,14 @@ class RiskModelPipeline:
                     self._log(self._fmt_psi_line(var,"Train-v-TrainM",str(m)[:10],psi_val,status))
             if te_codes is not None:
                 psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(te_codes,K), cfg.psi_eps); status="KEEP"
-                if psi_val>cfg.psi_threshold: status="DROP"; sys_drop=True
+                if psi_val>cfg.psi_threshold_feature: status="DROP"; sys_drop=True
                 elif psi_val>cfg.psi_warn_low: status="WARN"; any_warn=True
                 psi_rows.append({"variable":var,"compare_scope":"train_vs_test","compare_label":"TEST_ALL",
                                  "psi_value":psi_val,"status":status,"notes":""})
                 if cfg.psi_verbose:
                     self._log(self._fmt_psi_line(var,"Train-v-Test  ","TEST_ALL",psi_val,status))
             psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(oot_codes,K), cfg.psi_eps); status="KEEP"
-            if psi_val>cfg.psi_threshold: status="DROP"; sys_drop=True
+            if psi_val>cfg.psi_threshold_feature: status="DROP"; sys_drop=True
             elif psi_val>cfg.psi_warn_low: status="WARN"; any_warn=True
             psi_rows.append({"variable":var,"compare_scope":"train_vs_oot","compare_label":"OOT_ALL",
                              "psi_value":psi_val,"status":status,"notes":""})
@@ -903,6 +931,23 @@ class RiskModelPipeline:
         del psi_df,dropped,keep,drop,warn; gc.collect()
         return keep_final
 
+    # ----------------------- IV filter -----------------------
+    def _iv_filter(self, vars_in: List[str]) -> List[str]:
+        if not vars_in:
+            return []
+        kept = []
+        self.high_iv_flags_ = []
+        for v in vars_in:
+            iv = self.woe_map.get(v).iv if v in self.woe_map else 0.0
+            if iv < self.cfg.iv_min:
+                continue
+            if iv > self.cfg.iv_high_flag:
+                self.high_iv_flags_.append(v)
+            kept.append(v)
+        if self.high_iv_flags_:
+            self._log(f"   - High IV flags: {','.join(self.high_iv_flags_)}")
+        return kept
+
     # ----------------------- Transform -----------------------
     def _transform(self, df: pd.DataFrame, keep_vars: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
         X={}; y=df[self.cfg.target_col].values
@@ -929,17 +974,26 @@ class RiskModelPipeline:
 
     # ----------------------- Corr & cluster -----------------------
     def _corr_and_cluster(self, X: pd.DataFrame, keep_vars: List[str]) -> List[str]:
-        if not keep_vars: return []
-        nz=[v for v in keep_vars if X[v].std(skipna=True)>0]
-        if not nz: return keep_vars[:1]
-        corr=X[nz].corr(method="spearman").fillna(0.0)
-        reps=[]; picked=set()
+        if not keep_vars:
+            return []
+        nz = [v for v in keep_vars if X[v].std(skipna=True) > 0]
+        if not nz:
+            return keep_vars[:1]
+        corr = X[nz].corr(method="spearman").fillna(0.0)
+        reps = []
+        picked = set()
+        top_k = self.cfg.cluster_top_k or 1
+        top_k = 1 if top_k < 1 else int(top_k)
         for v in nz:
-            if v in picked: continue
-            group=[g for g in nz if abs(corr.loc[v,g])>0.90]
-            for g in group: picked.add(g)
-            reps.append(v)
-        del corr; gc.collect()
+            if v in picked:
+                continue
+            group = [g for g in nz if abs(corr.loc[v, g]) > 0.90]
+            for g in group:
+                picked.add(g)
+            group_sorted = sorted(group, key=lambda g: self.woe_map.get(g, VariableWOE(g, "", iv=0.0)).iv, reverse=True)
+            reps.extend(group_sorted[:top_k])
+        del corr
+        gc.collect()
         return reps
 
     # ----------------------- FS -----------------------
@@ -991,25 +1045,68 @@ class RiskModelPipeline:
         return pick[0] if pick else selected
 
     # ----------------------- final corr filter -----------------------
-    def _final_corr_filter(self, X: pd.DataFrame, y: np.ndarray, thr: float = 0.7) -> List[str]:
-        if X.shape[1]==0: return []
-        vars_=list(X.columns); corr=X.corr(method="spearman").abs().fillna(0.0)
-        keep=[]; dropped=set()
-        for i,v in enumerate(vars_):
-            if v in dropped: continue
-            highly=[u for u in vars_[i+1:] if corr.loc[v,u]>thr]
-            cand=[v]+highly; best_v,best_s=None,-np.inf
+    def _final_corr_filter(self, X: pd.DataFrame, y: np.ndarray, thr: Optional[float] = None) -> List[str]:
+        if X.shape[1] == 0:
+            return []
+        rho_thr = self.cfg.rho_threshold if thr is None else thr
+        vars_ = list(X.columns)
+        corr = X.corr(method="spearman").abs().fillna(0.0)
+        keep = []
+        dropped = set()
+        for i, v in enumerate(vars_):
+            if v in dropped:
+                continue
+            highly = [u for u in vars_[i + 1 :] if corr.loc[v, u] > rho_thr]
+            cand = [v] + highly
+            metrics = []
             for c in cand:
                 try:
-                    m=LogisticRegression(penalty="l2",solver="lbfgs",max_iter=300,class_weight="balanced")
-                    m.fit(X[[c]],y); p=self._proba_1d(m, X[[c]]); ks,_=ks_statistic(y,p)
-                    if ks>best_s: best_s,best_v=ks,c
-                except Exception: continue
-            keep.append(best_v if best_v else v)
+                    m = LogisticRegression(penalty="l2", solver="lbfgs", max_iter=300, class_weight="balanced")
+                    m.fit(X[[c]], y)
+                    p = self._proba_1d(m, X[[c]])
+                    ks, _ = ks_statistic(y, p)
+                    psi_val = 0.0
+                    if self.psi_summary_ is not None:
+                        psi_val = float(self.psi_summary_[self.psi_summary_["variable"] == c]["psi_value"].max() or 0.0)
+                    iv_val = self.woe_map.get(c).iv if c in self.woe_map else 0.0
+                    metrics.append((c, ks, psi_val, iv_val))
+                except Exception:
+                    continue
+            if not metrics:
+                keep.append(v)
+                continue
+            metrics.sort(key=lambda t: (t[1], -t[2], t[3]), reverse=True)
+            best_v = metrics[0][0]
+            keep.append(best_v)
             for c in cand:
-                if c!=best_v: dropped.add(c)
-        del corr; gc.collect()
-        return list(dict.fromkeys(keep))
+                if c != best_v:
+                    dropped.add(c)
+                    self._log(f"   - {c} elendi; {best_v} ile korrelasyon>")
+        del corr
+        gc.collect()
+        final_keep = list(dict.fromkeys(keep))
+        # optional VIF
+        if self.cfg.vif_threshold and len(final_keep) > 1:
+            vifs = {}
+            Xk = X[final_keep]
+            for col in final_keep:
+                X_other = Xk.drop(columns=[col])
+                y_ = Xk[col].values
+                if X_other.shape[1] == 0:
+                    vifs[col] = 1.0
+                    continue
+                beta, *_ = np.linalg.lstsq(X_other.values, y_, rcond=None)
+                y_hat = X_other.values @ beta
+                ss_res = np.sum((y_ - y_hat) ** 2)
+                ss_tot = np.sum((y_ - np.mean(y_)) ** 2)
+                r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+                vif = 1.0 / (1.0 - r2) if (1 - r2) > 1e-6 else np.inf
+                vifs[col] = vif
+            final_keep = [c for c in final_keep if vifs.get(c, 0.0) <= self.cfg.vif_threshold]
+            dropped_vif = [c for c in vifs if vifs[c] > self.cfg.vif_threshold]
+            for c in dropped_vif:
+                self._log(f"   - {c} VIF>{self.cfg.vif_threshold:.2f} nedeniyle elendi")
+        return final_keep
 
     # ----------------------- noise sentinel -----------------------
     def _noise_sentinel_check(self, X, y, pre_final) -> List[str]:
@@ -1022,6 +1119,36 @@ class RiskModelPipeline:
             sel=self._forward_1se_selection(X[pre_final],y,"KS",self.cfg.cv_folds)
         del Xn; gc.collect()
         return [v for v in sel if not v.startswith("__noise_")]
+
+    # ----------------------- Calibration -----------------------
+    def _calibrate_model(self):
+        path = self.cfg.calibration_data_path
+        if not path:
+            self.calibrator_ = None
+            return
+        try:
+            if str(path).lower().endswith(".parquet") or str(path).lower().endswith(".parq"):
+                cal_df = pd.read_parquet(path)
+            else:
+                cal_df = pd.read_csv(path)
+        except Exception as e:
+            self._log(f"   - calibration data load failed: {e}")
+            self.calibrator_ = None
+            return
+        X_cal, y_cal = self._transform(cal_df, self.final_vars_)
+        mdl = self.models_.get(self.best_model_name_)
+        if mdl is None:
+            self.calibrator_ = None
+            return
+        raw = self._proba_1d(mdl, X_cal[self.final_vars_])
+        try:
+            self.calibrator_ = fit_calibrator(raw, y_cal, method=self.cfg.calibration_method)
+            cal_scores = apply_calibrator(self.calibrator_, raw)
+            brier = brier_score_loss(y_cal, cal_scores)
+            self.calibration_report_ = {"brier": float(brier)}
+        except Exception as e:
+            self._log(f"   - calibration failed: {e}")
+            self.calibrator_ = None
 
     # ----------------------- utils: robust proba -----------------------
     def _proba_1d(self, mdl, Xdf: pd.DataFrame) -> np.ndarray:

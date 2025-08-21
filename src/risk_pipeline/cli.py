@@ -1,8 +1,11 @@
-import typer
-from pathlib import Path
-import pandas as pd
-
-from .config.schema import Config
+﻿import os as _os_utf8, sys as _sys_utf8
+_os_utf8.environ.setdefault('PYTHONUTF8','1')
+try:
+    if hasattr(_sys_utf8.stdout, 'reconfigure'):
+        _sys_utf8.stdout.reconfigure(encoding='utf-8')
+        _sys_utf8.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    passfrom .config.schema import Config
 from .data.load import load_csv
 from .model.train import train_logreg
 from .reporting.report import save_metrics
@@ -179,3 +182,4 @@ def score(
             typer.echo("Calibrator load/apply failed; raw scores only")
     out.to_csv(output_csv, index=False)
     typer.echo(f"Wrote {len(out)} scores to {output_csv}")
+

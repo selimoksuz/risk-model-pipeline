@@ -1,4 +1,4 @@
-"""Unified pipeline runner writing logs to a file.
+﻿"""Unified pipeline runner writing logs to a file.
 
 This script reads the sample CSV under ``data/input.csv`` and executes the
 16-step risk model pipeline.  All logs produced by the pipeline are written to
@@ -12,7 +12,15 @@ import sys
 import os
 
 # Allow running without installing the package by adding ``src`` to ``sys.path``
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+# Force UTF-8 for console output on Windows
+import os as _os_utf8, sys as _sys_utf8
+_os_utf8.environ.setdefault('PYTHONUTF8','1')
+try:
+    if hasattr(_sys_utf8.stdout, 'reconfigure'):
+        _sys_utf8.stdout.reconfigure(encoding='utf-8')
+        _sys_utf8.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass.resolve().parents[1] / "src"))
 
 import pandas as pd
 from risk_pipeline.pipeline16 import Config, RiskModelPipeline, Orchestrator
@@ -57,4 +65,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

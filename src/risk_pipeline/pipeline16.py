@@ -24,8 +24,16 @@ from typing import List, Dict, Tuple, Optional, Any
 # ---- BLAS/OpenMP oversubscription Ã¶nleme ----
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-
+os.environ.setdefault("
+# Ensure UTF-8 console output on Windows
+os.environ.setdefault('PYTHONUTF8','1')
+try:
+    import sys as _sys_utf8
+    if hasattr(_sys_utf8.stdout, 'reconfigure'):
+        _sys_utf8.stdout.reconfigure(encoding='utf-8')
+        _sys_utf8.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, ParameterSampler
@@ -306,28 +314,28 @@ class RiskModelPipeline:
 
         # Parsel 2 â€” GiriÅŸ doÄŸrulama & sabitleme
         if self.cfg.orchestrator.enable_validate:
-            with Timer("2) GiriÅŸ doÄŸrulama & sabitleme", self._log):
+            with Timer("2) Giriş doğrulama & sabitleme", self._log):
                 self._activate("validate")
                 self._validate_and_freeze(self.df_)
                 self._downcast_inplace(self.df_)
 
         # Parsel 3 â€” DeÄŸiÅŸken sÄ±nÄ±flamasÄ±
         if self.cfg.orchestrator.enable_classify:
-            with Timer("3) DeÄŸiÅŸken sÄ±nÄ±flamasÄ±", self._log):
+            with Timer("3) Değişken sınıflaması", self._log):
                 self._activate("classify")
                 self.var_catalog_ = self._classify_variables(self.df_)
                 self._log(f"   - numeric={int((self.var_catalog_.variable_group=='numeric').sum())}, "
                           f"categorical={int((self.var_catalog_.variable_group=='categorical').sum())}")
 
         # Parsel 4 â€” Eksik & Nadir kural objesi
-        with Timer("4) Eksik & Nadir deÄŸer politikasÄ±", self._log):
+        with Timer("4) Eksik & Nadir değer politikası", self._log):
             self._activate("missing_policy")
             self.policy_ = {"rare_threshold": self.cfg.rare_threshold,
                             "unknown_to": "OTHER", "missing_label": "MISSING", "other_label": "OTHER"}
 
         # Parsel 5 â€” Zaman bÃ¶lmesi
         if self.cfg.orchestrator.enable_split:
-            with Timer("5) Zaman bÃ¶lmesi (Train/Test/OOT)", self._log):
+            with Timer("5) Zaman bölmesi (Train/Test/OOT)", self._log):
                 self._activate("split")
                 self.train_idx_, self.test_idx_, self.oot_idx_, anchor = self._split_time(self.df_)
                 self.artifacts["pool"]["anchor"] = str(anchor) if anchor is not None else None
@@ -338,7 +346,7 @@ class RiskModelPipeline:
 
         # Parsel 6 â€” WOE binleme
         if self.cfg.orchestrator.enable_woe:
-            with Timer("6) WOE binleme (yalnÄ±z Train; adaptif)", self._log):
+            with Timer("6) WOE binleme (yalnız Train; adaptif)", self._log):
                 self._activate("woe")
                 self.woe_map = self._fit_woe_mapping(self.df_.iloc[self.train_idx_], self.var_catalog_, self.policy_)
                 self._log(f"   - WOE hazÄ±r: {len(self.woe_map)} deÄŸiÅŸken")
@@ -346,7 +354,7 @@ class RiskModelPipeline:
 
         # Parsel 7 â€” PSI v2 FAST
         if self.cfg.orchestrator.enable_psi:
-            with Timer("7) PSI (vektÃ¶rize)", self._log):
+            with Timer("7) PSI (vektörize)", self._log):
                 self._activate("psi")
                 psi_keep = self._psi_screening(self.df_, self.train_idx_, self.test_idx_, self.oot_idx_)
                 if not psi_keep:
@@ -394,7 +402,7 @@ class RiskModelPipeline:
 
         # Parsel 12 â€” Noise sentinel
         if self.cfg.orchestrator.enable_noise and self.cfg.use_noise_sentinel:
-            with Timer("12) GÃ¼rÃ¼ltÃ¼ (noise) sentineli", self._log):
+            with Timer("12) Gürültü (noise) sentineli", self._log):
                 self.final_vars_ = self._noise_sentinel_check(X_tr, y_tr, pre_final) or pre_final
                 self._log(f"   - final deÄŸiÅŸken={len(self.final_vars_)}")
         else:
@@ -402,12 +410,12 @@ class RiskModelPipeline:
 
         # Parsel 13 â€” Modelleme
         if self.cfg.orchestrator.enable_model:
-            with Timer("13) Modelleme & deÄŸerlendirme", self._log):
+            with Timer("13) Modelleme & değerlendirme", self._log):
                 self._train_and_evaluate_models(X_tr, y_tr, X_te, y_te, X_oot, y_oot)
 
         # Parsel 14 â€” Best select
         if self.cfg.orchestrator.enable_best_select:
-            with Timer("14) En iyi model seÃ§imi", self._log):
+            with Timer("14) En iyi model seçimi", self._log):
                 self._select_best_model(); self._log(f"   - best={self.best_model_name_}")
 
         if self.cfg.calibration_data_path:
@@ -416,7 +424,7 @@ class RiskModelPipeline:
 
         # Parsel 15 â€” Rapor tablolarÄ± & export
         if self.cfg.orchestrator.enable_report:
-            with Timer("15) Rapor tablolarÄ±", self._log):
+            with Timer("15) Rapor tabloları", self._log):
                 self._build_report_tables(psi_keep)
                 self._build_top50_univariate(X_tr, y_tr)
                 self._persist_artifacts(X_oot, y_oot)
@@ -429,7 +437,7 @@ class RiskModelPipeline:
                 self._integrate_dictionary()
 
         self._finalize_meta()
-        self._log(f"[{now_str()}] â–  RUN tamam â€” run_id={self.cfg.run_id}{sys_metrics()}")
+        self._log(f"[{now_str()}] ■ RUN tamam — run_id={self.cfg.run_id}{sys_metrics()}
         if self.log_fh:
             self.log_fh.close()
         return self
@@ -1653,3 +1661,7 @@ class RiskModelPipeline:
         })
         meta_df.to_excel(wr, sheet_name="run_meta", index=False)
         _as_table(wr, meta_df, "run_meta", "tbl_run_meta")
+
+
+
+

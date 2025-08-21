@@ -9,6 +9,8 @@ from .reporting.report import save_metrics
 import json
 import joblib
 import pandas as pd
+import pickle
+from .model.calibrate import apply_calibrator
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
@@ -48,13 +50,36 @@ def run16(
     output_excel: str = typer.Option("model_report.xlsx", help="Excel file name inside output folder"),
     dictionary_path: str = typer.Option(None, help="Optional Excel for dictionary enrichment"),
     psi_verbose: bool = typer.Option(True, help="Verbose PSI logging"),
+    calibration_data: str = typer.Option(None, "--calibration-data", help="Calibration data path"),
+    calibration_method: str = typer.Option("isotonic", help="Calibration method"),
+    cluster_top_k: int = typer.Option(2, help="Variables per correlation cluster"),
+    rho_threshold: float = typer.Option(0.8, help="Final correlation Spearman threshold"),
+    vif_threshold: float = typer.Option(5.0, help="VIF threshold"),
+    iv_min: float = typer.Option(0.02, help="Minimum IV to keep variable"),
+    iv_high_flag: float = typer.Option(0.50, help="High IV flag threshold"),
+    psi_threshold_feature: float = typer.Option(0.25, help="PSI threshold for features"),
+    psi_threshold_score: float = typer.Option(0.10, help="PSI threshold for score"),
+    shap_sample: int = typer.Option(25000, help="Sample size for SHAP"),
+    ensemble: bool = typer.Option(False, "--ensemble/--no-ensemble", help="Enable ensemble of top models"),
+    ensemble_top_k: int = typer.Option(3, help="Top-k models for ensemble"),
+    try_mlp: bool = typer.Option(False, "--try-mlp/--no-try-mlp", help="Train simple MLP challenger"),
+    hpo_method: str = typer.Option("random", help="HPO method"),
+    hpo_timeout_sec: int = typer.Option(1200, help="HPO timeout seconds"),
+    hpo_trials: int = typer.Option(60, help="HPO trial count"),
 ):
     df = pd.read_csv(input_csv)
     cfg = Config16(
         id_col=id_col, time_col=time_col, target_col=target_col,
         use_test_split=use_test_split, oot_window_months=oot_months,
         output_excel_path=output_excel, output_folder=output_folder,
-        dictionary_path=dictionary_path, psi_verbose=psi_verbose
+        dictionary_path=dictionary_path, psi_verbose=psi_verbose,
+        calibration_data_path=calibration_data, calibration_method=calibration_method,
+        cluster_top_k=cluster_top_k, rho_threshold=rho_threshold,
+        vif_threshold=vif_threshold, iv_min=iv_min, iv_high_flag=iv_high_flag,
+        psi_threshold_feature=psi_threshold_feature, psi_threshold_score=psi_threshold_score,
+        shap_sample=shap_sample, ensemble=ensemble, ensemble_top_k=ensemble_top_k,
+        try_mlp=try_mlp, hpo_method=hpo_method,
+        hpo_timeout_sec=hpo_timeout_sec, hpo_trials=hpo_trials
     )
     pipe = RiskModelPipeline16(cfg)
     pipe.run(df)
@@ -69,6 +94,7 @@ def score(
     model_path: str = typer.Option(..., help="Path to best model file (.joblib or .pkl)"),
     id_col: str = typer.Option("app_id", help="ID column to keep in output"),
     output_csv: str = typer.Option("scores.csv", help="Output CSV path for scores"),
+    calibrator_path: str = typer.Option(None, help="Optional calibrator pickle path"),
 ):
     df = pd.read_csv(input_csv)
     with open(woe_mapping, "r", encoding="utf-8") as f:
@@ -144,5 +170,12 @@ def score(
     else:
         score = mdl.predict(X[cols])
     out = pd.DataFrame({id_col: df[id_col] if id_col in df.columns else range(len(df)), "score": score})
+    if calibrator_path:
+        try:
+            with open(calibrator_path, "rb") as f:
+                calib = pickle.load(f)
+            out["score_calibrated"] = apply_calibrator(calib, score)
+        except Exception:
+            typer.echo("Calibrator load/apply failed; raw scores only")
     out.to_csv(output_csv, index=False)
     typer.echo(f"Wrote {len(out)} scores to {output_csv}")

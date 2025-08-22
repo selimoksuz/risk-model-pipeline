@@ -1570,24 +1570,112 @@ class RiskModelPipeline:
     def export_reports(self):
         os.makedirs(self.cfg.output_folder, exist_ok=True)
         xlsx = os.path.join(self.cfg.output_folder, self.cfg.output_excel_path)
-        # Excel with robust fallback if file is locked
+
+        # Assemble sheets as DataFrames for single-file multi-sheet report
+        sheets = {}
+        if self.final_vars_df_ is not None:
+            sheets["final_vars"] = self.final_vars_df_
+        sheets["best_name"] = pd.DataFrame({"best_name": [self.best_model_name_]})
+        if self.models_summary_ is not None:
+            sheets["models_summary"] = self.models_summary_
+            if self.best_model_name_ is not None:
+                try:
+                    sheets["best_model"] = self.models_summary_.query("model_name==@self.best_model_name_")
+                except Exception:
+                    sheets["best_model"] = self.models_summary_.head(1)
+        if self.best_model_vars_df_ is not None:
+            sheets["best_model_vars_df"] = self.best_model_vars_df_
+        if self.best_model_woe_df_ is not None:
+            sheets["best_model_woe_df"] = self.best_model_woe_df_
+        if self.top20_iv_df_ is not None:
+            sheets["top20_iv_df"] = self.top20_iv_df_
+        if getattr(self, "top50_uni_", None) is not None:
+            sheets["top50_univariate"] = self.top50_uni_
+        if self.ks_info_traincv_ is not None:
+            sheets["ks_info_traincv"] = self.ks_info_traincv_
+        if self.ks_info_test_ is not None:
+            sheets["ks_info_test"] = self.ks_info_test_
+        if self.ks_info_oot_ is not None:
+            sheets["ks_info_oot"] = self.ks_info_oot_
+        if self.psi_summary_ is not None:
+            sheets["psi_summary"] = self.psi_summary_
+        if self.psi_dropped_ is not None:
+            sheets["psi_dropped_features"] = self.psi_dropped_
+
+        # Flatten WOE mapping as a sheet
         try:
-            with pd.ExcelWriter(xlsx, engine="openpyxl") as wr:
-                self._write_excel(wr)
-        except PermissionError:
-            alt = os.path.join(self.cfg.output_folder, f"model_report_{self.cfg.run_id}.xlsx")
-            with pd.ExcelWriter(alt, engine="openpyxl") as wr:
-                self._write_excel(wr)
-            self._log(f"[warn] Excel locked: wrote to {os.path.basename(alt)} instead")
+            rows = []
+            for v, vw in self.woe_map.items():
+                if vw.var_type == "numeric" and vw.numeric_bins is not None:
+                    for b in vw.numeric_bins:
+                        rows.append({
+                            "variable": v,
+                            "type": "numeric",
+                            "item_type": "bin",
+                            "left": b.left,
+                            "right": b.right,
+                            "label": None,
+                            "members": None,
+                            "woe": b.woe,
+                        })
+                elif vw.var_type == "categorical" and vw.categorical_groups is not None:
+                    for g in vw.categorical_groups:
+                        rows.append({
+                            "variable": v,
+                            "type": "categorical",
+                            "item_type": "group",
+                            "left": None,
+                            "right": None,
+                            "label": g.label,
+                            "members": ", ".join(map(str, g.members)) if g.members is not None else None,
+                            "woe": g.woe,
+                        })
+            if rows:
+                sheets["woe_mapping"] = pd.DataFrame(rows)
         except Exception:
+            pass
+
+        if self.oot_scores_df_ is not None and not self.oot_scores_df_.empty:
+            sheets["oot_scores"] = self.oot_scores_df_
+
+        # run_meta as key/value
+        try:
+            meta_df = pd.DataFrame({
+                "key": list(self.artifacts["pool"].keys()),
+                "value": [
+                    json.dumps(self.artifacts["pool"][k], ensure_ascii=False)
+                    if isinstance(self.artifacts["pool"][k], (dict, list))
+                    else self.artifacts["pool"][k]
+                    for k in self.artifacts["pool"].keys()
+                ],
+            })
+            sheets["run_meta"] = meta_df
+        except Exception:
+            pass
+
+        # Write multi-sheet Excel via stages.report
+        try:
+            from .stages import write_multi_sheet
+            write_multi_sheet(xlsx, sheets)
+        except Exception:
+            # Fallback to previous writer-based method
             try:
-                with pd.ExcelWriter(xlsx, engine="xlsxwriter") as wr:
-                    self._write_excel(wr)
-            except PermissionError:
+                with pd.ExcelWriter(xlsx, engine="openpyxl") as wr:
+                    for name, df in sheets.items():
+                        try:
+                            df.to_excel(wr, sheet_name=name[:31], index=False)
+                        except Exception:
+                            pass
+            except Exception:
                 alt = os.path.join(self.cfg.output_folder, f"model_report_{self.cfg.run_id}.xlsx")
                 with pd.ExcelWriter(alt, engine="xlsxwriter") as wr:
-                    self._write_excel(wr)
+                    for name, df in sheets.items():
+                        try:
+                            df.to_excel(wr, sheet_name=name[:31], index=False)
+                        except Exception:
+                            pass
                 self._log(f"[warn] Excel locked: wrote to {os.path.basename(alt)} instead")
+
         # Optional Parquet/CSV export (disabled by default)
         def save(df, name):
             try:

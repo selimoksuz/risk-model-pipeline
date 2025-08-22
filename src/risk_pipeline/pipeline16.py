@@ -1560,12 +1560,13 @@ class RiskModelPipeline:
             if self.shap_summary_:
                 with open(os.path.join(self.cfg.output_folder, f"shap_summary_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
                     json.dump(self.shap_summary_, f, ensure_ascii=False, indent=2)
-                pd.DataFrame(
-                    sorted(self.shap_summary_.items(), key=lambda t: t[1], reverse=True),
-                    columns=["variable", "shap"]
-                ).head(20).to_csv(
-                    os.path.join(self.cfg.output_folder, f"shap_top20_{self.cfg.run_id}.csv"), index=False
-                )
+                if self.cfg.write_csv:
+                    pd.DataFrame(
+                        sorted(self.shap_summary_.items(), key=lambda t: t[1], reverse=True),
+                        columns=["variable", "shap"]
+                    ).head(20).to_csv(
+                        os.path.join(self.cfg.output_folder, f"shap_top20_{self.cfg.run_id}.csv"), index=False
+                    )
         except Exception:
             pass
 
@@ -1611,7 +1612,10 @@ class RiskModelPipeline:
             if df is None or (hasattr(df, 'empty') and df.empty):
                 return
             try:
-                df.to_csv(os.path.join(self.cfg.output_folder, f"{name}_{self.cfg.run_id}.csv"), index=False)
+                if self.cfg.write_parquet:
+                    df.to_parquet(os.path.join(self.cfg.output_folder, f"{name}_{self.cfg.run_id}.parquet"), index=False)
+                elif self.cfg.write_csv:
+                    df.to_csv(os.path.join(self.cfg.output_folder, f"{name}_{self.cfg.run_id}.csv"), index=False)
             except Exception:
                 pass
 

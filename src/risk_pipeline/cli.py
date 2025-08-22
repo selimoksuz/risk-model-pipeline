@@ -104,7 +104,7 @@ def score(
     final_vars_json: str = typer.Option(..., help="Path to final vars JSON (final_vars_<run_id>.json)"),
     model_path: str = typer.Option(..., help="Path to best model file (.joblib or .pkl)"),
     id_col: str = typer.Option("app_id", help="ID column to keep in output"),
-    output_csv: str = typer.Option("scores.csv", help="Output CSV path for scores (combined)"),
+    output_csv: str = typer.Option(None, help="Optional CSV path for scores (combined); if omitted, CSV is not written"),
     output_xlsx: str = typer.Option(None, help="Optional Excel output path (writes combined raw+woe+preds)"),
     calibrator_path: str = typer.Option(None, help="Optional calibrator pickle path"),
     report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path to append 'external_scores' sheet"),
@@ -213,8 +213,9 @@ def score(
         out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
     ], axis=1)
 
-    combined.to_csv(output_csv, index=False)
-    typer.echo(f"Wrote {len(combined)} rows to {output_csv}")
+    if output_csv:
+        combined.to_csv(output_csv, index=False)
+        typer.echo(f"Wrote {len(combined)} rows to {output_csv}")
 
     # Write to Excel
     try:

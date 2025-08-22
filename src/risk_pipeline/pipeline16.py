@@ -997,44 +997,18 @@ class RiskModelPipeline:
         if X.shape[1] == 0:
             return []
         rho_thr = self.cfg.rho_threshold if thr is None else thr
-        vars_ = list(X.columns)
-        corr = X.corr(method="spearman").abs().fillna(0.0)
-        keep = []
-        dropped = set()
-        self.corr_dropped_ = []
-        for i, v in enumerate(vars_):
-            if v in dropped:
-                continue
-            highly = [u for u in vars_[i + 1 :] if corr.loc[v, u] > rho_thr]
-            cand = [v] + highly
-            metrics = []
-            for c in cand:
-                try:
-                    m = LogisticRegression(penalty="l2", solver="lbfgs", max_iter=300, class_weight="balanced")
-                    m.fit(X[[c]], y)
-                    p = self._proba_1d(m, X[[c]])
-                    ks, _ = ks_statistic(y, p)
-                    psi_val = 0.0
-                    if self.psi_summary_ is not None:
-                        psi_val = float(self.psi_summary_[self.psi_summary_["variable"] == c]["psi_value"].max() or 0.0)
-                    iv_val = self.woe_map.get(c).iv if c in self.woe_map else 0.0
-                    metrics.append((c, ks, psi_val, iv_val))
-                except Exception:
-                    continue
-            if not metrics:
-                keep.append(v)
-                continue
-            metrics.sort(key=lambda t: (t[1], -t[2], t[3]), reverse=True)
-            best_v = metrics[0][0]
-            keep.append(best_v)
-            for c in cand:
-                if c != best_v:
-                    dropped.add(c)
-                    self.corr_dropped_.append({"variable": c, "kept_with": best_v, "reason": "corr"})
-                    self._log(f"   - {c} elendi; {best_v} ile korrelasyon>")
-        del corr
-        gc.collect()
-        final_keep = list(dict.fromkeys(keep))
+        try:
+            from .stages import drop_correlated
+            kept, dropped_df = drop_correlated(X, threshold=rho_thr)
+            self.corr_dropped_ = []
+            if dropped_df is not None and not dropped_df.empty:
+                for _, r in dropped_df.iterrows():
+                    self.corr_dropped_.append({"variable": str(r.get("var2")), "kept_with": str(r.get("var1")), "rho": float(r.get("rho", 0.0))})
+            final_keep = kept
+        except Exception:
+            # fallback to keep-all if correlation computation fails
+            final_keep = list(X.columns)
+            self.corr_dropped_ = []
         # optional VIF
         if self.cfg.vif_threshold and len(final_keep) > 1:
             vifs = {}

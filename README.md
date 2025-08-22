@@ -69,6 +69,25 @@ Example:
   --output-csv outputs\scores.csv
 ```
 
+### monitor
+Monitor production drift via WOE transformation, model scoring and PSI metrics.
+
+Options:
+- `baseline`: Reference CSV of past production scores/features
+- `new`: New CSV to compare
+- `mapping`: WOE mapping JSON path
+- `final_vars`: Comma separated list of model variables
+- `model`: Trained model path
+- `--calibrator`: Optional calibrator path
+- `--expected-model-type`: Fail if loaded model class mismatches
+
+Example:
+```bash
+.venv\Scripts\python scripts/monitor_cli.py ^
+  baseline.csv new.csv mapping.json "var1,var2" model.joblib ^
+  --calibrator calib.pkl --expected-model-type LogisticRegression
+```
+
 ## Report (Excel) sheets
 - models_summary: model family metrics across splits
 - best_model: selected best model row; best_name sheet has the name

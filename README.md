@@ -95,3 +95,30 @@ Bkz: `notebooks/GettingStarted.ipynb` — örnek uçtan uca kullanım (veri üre
 .venv\Scripts\python scripts\make_sample_csv.py
 # writes: data/input.csv, data/calibration.csv, data/score.csv
 ```
+
+## Quickstart
+
+Windows:
+- `python -m venv .venv`
+- `.venv\Scripts\python -m pip install -U pip`
+- `.venv\Scripts\pip install -e .[dev]`
+- `.venv\Scripts\python scripts\make_sample_csv.py`
+- `.venv\Scripts\risk-pipeline run16 --input-csv data\input.csv --use-test-split --output-folder outputs --output-excel model_report.xlsx`
+
+Linux/macOS:
+- `python -m venv .venv && source .venv/bin/activate`
+- `pip install -U pip && pip install -e .[dev]`
+- `python scripts/make_sample_csv.py`
+- `risk-pipeline run16 --input-csv data/input.csv --use-test-split --output-folder outputs --output-excel model_report.xlsx`
+
+Notes:
+- Generated outputs under `outputs/` are git-ignored. Avoid committing artifacts.
+- For faster runs, tune `--hpo-trials`, `--hpo-timeout-sec`, `--shap-sample`.
+
+## Development
+- Tests: `pytest`
+- Lint/format: `flake8`, `black`, `isort`
+- Pre-commit hooks: `pre-commit install`
+
+## CI/CD
+- A minimal GitHub Actions workflow is provided under `.github/workflows/ci.yml` to run lint and tests on push/PR.

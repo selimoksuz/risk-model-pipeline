@@ -20,7 +20,10 @@ try:
         _sys_utf8.stdout.reconfigure(encoding='utf-8')
         _sys_utf8.stderr.reconfigure(encoding='utf-8')
 except Exception:
-    pass.resolve().parents[1] / "src"))
+    pass
+
+# Ensure 'src' is on sys.path when running from repo
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
 from risk_pipeline.pipeline16 import Config, RiskModelPipeline, Orchestrator

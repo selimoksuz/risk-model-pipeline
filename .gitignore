@@ -66,6 +66,8 @@ env/
 /data/*.csv
 /data/*.parquet
 /outputs/*
+/artifacts/*
+*.log
 
 # OS files
 Thumbs.db

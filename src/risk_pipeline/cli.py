@@ -102,6 +102,7 @@ def score(
     id_col: str = typer.Option("app_id", help="ID column to keep in output"),
     output_csv: str = typer.Option("scores.csv", help="Output CSV path for scores"),
     calibrator_path: str = typer.Option(None, help="Optional calibrator pickle path"),
+    report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path (unused; reserved for future thresholds)"),
 ):
     df = pd.read_csv(input_csv)
     with open(woe_mapping, "r", encoding="utf-8") as f:

@@ -18,6 +18,7 @@ from .model.calibrate import apply_calibrator
 import typer
 from pathlib import Path
 import os
+from .stages.scoring import build_scored_frame
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
@@ -166,52 +167,15 @@ def score(
                 out[v] = w.values
         return pd.DataFrame(out, index=df_in.index)
 
-    X = apply_woe(df, mapping)
-    cols = [c for c in final_vars if c in X.columns]
-    if not cols:
-        raise typer.BadParameter("No overlap between final_vars and available columns after WOE transform.")
-    import numpy as np
-    if hasattr(mdl, "predict_proba"):
-        proba = mdl.predict_proba(X[cols])
-        proba = np.asarray(proba)
-        if proba.ndim == 1:
-            score = proba
-        elif proba.shape[1] >= 2:
-            score = proba[:, 1]
-        else:
-            score = proba[:, 0]
-    else:
-        score = mdl.predict(X[cols])
-
-    # Build combined output frame
-    idx = pd.Index(range(len(df)))
-    id_series = df[id_col] if id_col in df.columns else pd.Series(idx, name=id_col)
-    raw_vars = [v for v in mapping.get("variables", {}).keys() if v in df.columns]
-    raw_df = df[raw_vars].copy() if raw_vars else pd.DataFrame(index=idx)
-    woe_df = X[raw_vars].copy() if raw_vars else pd.DataFrame(index=idx)
-    woe_df.columns = [f"{c}_woe" for c in woe_df.columns]
-
-    out = pd.DataFrame({id_col: id_series, "proba": score})
-    if "target" in df.columns:
-        out["target"] = df["target"].values
-    try:
-        out["predict"] = (out["proba"] >= 0.5).astype(int)
-    except Exception:
-        pass
+    # Build combined scored DataFrame in-memory
+    calib = None
     if calibrator_path:
         try:
             with open(calibrator_path, "rb") as f:
                 calib = pickle.load(f)
-            out["proba_calibrated"] = apply_calibrator(calib, out["proba"].values)
         except Exception:
-            typer.echo("Calibrator load/apply failed; raw probabilities only")
-
-    combined = pd.concat([
-        out[[id_col] + (["target"] if "target" in out.columns else [])].reset_index(drop=True),
-        raw_df.reset_index(drop=True),
-        woe_df.reset_index(drop=True),
-        out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
-    ], axis=1)
+            typer.echo("Calibrator load failed; continuing without calibration")
+    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib)
 
     if output_csv:
         combined.to_csv(output_csv, index=False)

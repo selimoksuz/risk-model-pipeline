@@ -48,7 +48,7 @@ from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from pygam import LogisticGAM
 from boruta import BorutaPy
-from .model.calibrate import fit_calibrator, apply_calibrator
+from .stages import fit_calibrator, apply_calibrator
 from .model.ensemble import soft_voting_ensemble
 from .reporting.shap_utils import compute_shap_values, summarize_shap
 
@@ -873,21 +873,30 @@ class RiskModelPipeline:
     def _iv_filter(self, vars_in: List[str]) -> List[str]:
         if not vars_in:
             return []
-        kept = []
-        self.high_iv_flags_ = []
+        # Build IV DataFrame from current WOE map
+        import pandas as pd
+        iv_rows = []
+        for v in vars_in:
+            iv_val = self.woe_map.get(v).iv if v in self.woe_map else 0.0
+            iv_rows.append({"variable": v, "iv": float(iv_val)})
+        iv_df = pd.DataFrame(iv_rows)
+        # Use stages.selection to pick by IV threshold
+        try:
+            from .stages import iv_rank_select
+            kept = iv_rank_select(iv_df, min_iv=self.cfg.iv_min, max_features=None)
+        except Exception:
+            kept = [r["variable"] for r in iv_rows if r["iv"] >= self.cfg.iv_min]
+        # Build decision log and high-iv flags
         self.iv_filter_log_ = []
+        self.high_iv_flags_ = []
         for v in vars_in:
             iv = self.woe_map.get(v).iv if v in self.woe_map else 0.0
-            entry = {"variable": v, "iv": iv, "decision": "keep"}
-            if iv < self.cfg.iv_min:
-                entry["decision"] = "drop_low_iv"
-                self.iv_filter_log_.append(entry)
-                continue
+            decision = "keep" if v in kept else "drop_low_iv"
             if iv > self.cfg.iv_high_flag:
                 self.high_iv_flags_.append(v)
-                entry["decision"] = "flag_high_iv"
-            self.iv_filter_log_.append(entry)
-            kept.append(v)
+                if decision == "keep":
+                    decision = "flag_high_iv"
+            self.iv_filter_log_.append({"variable": v, "iv": float(iv), "decision": decision})
         if self.high_iv_flags_:
             self._log(f"   - High IV flags: {','.join(self.high_iv_flags_)}")
         return kept

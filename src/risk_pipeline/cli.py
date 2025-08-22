@@ -16,6 +16,8 @@ import pandas as pd
 import pickle
 from .model.calibrate import apply_calibrator
 import typer
+from pathlib import Path
+import os
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
@@ -72,6 +74,7 @@ def run16(
     hpo_method: str = typer.Option("random", help="HPO method"),
     hpo_timeout_sec: int = typer.Option(1200, help="HPO timeout seconds"),
     hpo_trials: int = typer.Option(60, help="HPO trial count"),
+    log_file: str = typer.Option(None, help="Optional log file path (default: <output_folder>/pipeline.log)"),
 ):
     from .pipeline16 import Config as Config16, RiskModelPipeline as RiskModelPipeline16
     df = pd.read_csv(input_csv)
@@ -86,7 +89,8 @@ def run16(
         psi_threshold_feature=psi_threshold_feature, psi_threshold_score=psi_threshold_score,
         shap_sample=shap_sample, ensemble=ensemble, ensemble_top_k=ensemble_top_k,
         try_mlp=try_mlp, hpo_method=hpo_method,
-        hpo_timeout_sec=hpo_timeout_sec, hpo_trials=hpo_trials
+        hpo_timeout_sec=hpo_timeout_sec, hpo_trials=hpo_trials,
+        log_file=(log_file or str(Path(output_folder) / "pipeline.log"))
     )
     pipe = RiskModelPipeline16(cfg)
     pipe.run(df)
@@ -100,9 +104,10 @@ def score(
     final_vars_json: str = typer.Option(..., help="Path to final vars JSON (final_vars_<run_id>.json)"),
     model_path: str = typer.Option(..., help="Path to best model file (.joblib or .pkl)"),
     id_col: str = typer.Option("app_id", help="ID column to keep in output"),
-    output_csv: str = typer.Option("scores.csv", help="Output CSV path for scores"),
+    output_csv: str = typer.Option("scores.csv", help="Output CSV path for scores (combined)"),
+    output_xlsx: str = typer.Option(None, help="Optional Excel output path (writes combined raw+woe+preds)"),
     calibrator_path: str = typer.Option(None, help="Optional calibrator pickle path"),
-    report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path (unused; reserved for future thresholds)"),
+    report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path to append 'external_scores' sheet"),
 ):
     df = pd.read_csv(input_csv)
     with open(woe_mapping, "r", encoding="utf-8") as f:
@@ -177,14 +182,50 @@ def score(
             score = proba[:, 0]
     else:
         score = mdl.predict(X[cols])
-    out = pd.DataFrame({id_col: df[id_col] if id_col in df.columns else range(len(df)), "score": score})
+
+    # Build combined output frame
+    idx = pd.Index(range(len(df)))
+    id_series = df[id_col] if id_col in df.columns else pd.Series(idx, name=id_col)
+    raw_vars = [v for v in mapping.get("variables", {}).keys() if v in df.columns]
+    raw_df = df[raw_vars].copy() if raw_vars else pd.DataFrame(index=idx)
+    woe_df = X[raw_vars].copy() if raw_vars else pd.DataFrame(index=idx)
+    woe_df.columns = [f"{c}_woe" for c in woe_df.columns]
+
+    out = pd.DataFrame({id_col: id_series, "proba": score})
+    if "target" in df.columns:
+        out["target"] = df["target"].values
+    try:
+        out["predict"] = (out["proba"] >= 0.5).astype(int)
+    except Exception:
+        pass
     if calibrator_path:
         try:
             with open(calibrator_path, "rb") as f:
                 calib = pickle.load(f)
-            out["score_calibrated"] = apply_calibrator(calib, score)
+            out["proba_calibrated"] = apply_calibrator(calib, out["proba"].values)
         except Exception:
-            typer.echo("Calibrator load/apply failed; raw scores only")
-    out.to_csv(output_csv, index=False)
-    typer.echo(f"Wrote {len(out)} scores to {output_csv}")
+            typer.echo("Calibrator load/apply failed; raw probabilities only")
+
+    combined = pd.concat([
+        out[[id_col] + (["target"] if "target" in out.columns else [])].reset_index(drop=True),
+        raw_df.reset_index(drop=True),
+        woe_df.reset_index(drop=True),
+        out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
+    ], axis=1)
+
+    combined.to_csv(output_csv, index=False)
+    typer.echo(f"Wrote {len(combined)} rows to {output_csv}")
+
+    # Write to Excel
+    try:
+        if report_xlsx and os.path.exists(report_xlsx):
+            with pd.ExcelWriter(report_xlsx, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
+                combined.to_excel(w, sheet_name="external_scores", index=False)
+            typer.echo(f"Appended external_scores to {report_xlsx}")
+        elif output_xlsx:
+            with pd.ExcelWriter(output_xlsx, engine="openpyxl") as w:
+                combined.to_excel(w, sheet_name="scores", index=False)
+            typer.echo(f"Wrote Excel to {output_xlsx}")
+    except Exception as e:
+        typer.echo(f"Excel write failed: {e}")
 

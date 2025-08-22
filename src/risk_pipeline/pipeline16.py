@@ -293,7 +293,8 @@ class RiskModelPipeline:
         self.log_fh = None
         if self.cfg.log_file:
             os.makedirs(os.path.dirname(self.cfg.log_file) or ".", exist_ok=True)
-            self.log_fh = open(self.cfg.log_file, "w", encoding="utf-8")
+            # Use UTF-8 with BOM for better Windows Notepad compatibility
+            self.log_fh = open(self.cfg.log_file, "w", encoding="utf-8-sig")
 
     def _log(self, msg: str):
         # Robust console print (avoid Unicode errors) and always write to file

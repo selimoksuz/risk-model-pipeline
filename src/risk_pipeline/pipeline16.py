@@ -479,116 +479,29 @@ class RiskModelPipeline:
             except Exception: pass
 
     def _classify_variables(self, df: pd.DataFrame) -> pd.DataFrame:
-        fixed={self.cfg.id_col,self.cfg.time_col,self.cfg.target_col,"snapshot_month"}
-        candidates=[c for c in df.columns if c not in fixed]
-        rows=[]
-        for c in candidates:
-            s=df[c]; vtype="numeric" if pd.api.types.is_numeric_dtype(s) else "categorical"
-            uniques=s.nunique(dropna=True); ratio=uniques/max(len(s),1)
-            is_hcc=(uniques>100) or (ratio>0.2)
-            rows.append({"variable":c,"variable_group":vtype,"is_hcc":bool(is_hcc)})
-        return pd.DataFrame(rows)
-
+        from .stages import classify_variables
+        return classify_variables(df, id_col=self.cfg.id_col, time_col=self.cfg.time_col, target_col=self.cfg.target_col)
     def _split_time(self, df: pd.DataFrame) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, Optional[pd.Timestamp]]:
-        sm=df["snapshot_month"].dropna()
-        if len(sm)==0: return np.arange(len(df)), None, np.array([],dtype=int), None
-        try:
-            if self.cfg.oot_anchor_mode=="fixed_date":
-                if not self.cfg.oot_anchor_date: raise ValueError("fixed_date fakat tarih yok")
-                anchor=month_floor(pd.Timestamp(self.cfg.oot_anchor_date))
-            else:
-                anchor=month_floor(pd.Timestamp(sm.max()))
-        except Exception:
-            anchor=month_floor(pd.Timestamp(sm.max()))
-        n=int(max(0,self.cfg.oot_window_months))
-        if n<1:
-            oot_idx=np.array([],dtype=int); pre_idx=np.arange(len(df))
-        else:
-            oot_months={m for k in range(n) if not pd.isna((m:=safe_month_shift(anchor,k)))}
-            if not oot_months: oot_months={anchor}
-            try:
-                snaps=df["snapshot_month"].apply(month_floor); is_oot=snaps.isin(oot_months).values
-            except Exception:
-                is_oot=df["snapshot_month"].isin(oot_months).values
-            oot_idx=np.where(is_oot)[0]; pre_idx=np.where(~is_oot)[0]
-        test_idx=None; train_idx=pre_idx
-        if self.cfg.use_test_split and len(pre_idx)>0:
-            try:
-                pre=df.iloc[pre_idx].copy()
-                pre = pre.dropna(subset=["snapshot_month"])  # ensure months are valid
-                # Group rows by month and collect indices
-                month_groups = pre.groupby("snapshot_month").indices
-                months = list(month_groups.keys())
-                if len(months) >= 2:
-                    # Build month-level stats
-                    month_rows = {m: pre.index[month_groups[m]] for m in months}
-                    month_sizes = {m: len(month_rows[m]) for m in months}
-                    month_pos = {m: int((df.loc[month_rows[m], self.cfg.target_col] == 1).sum()) for m in months}
-                    total_rows = sum(month_sizes.values())
-                    total_pos = sum(month_pos.values())
-                    overall_rate = (total_pos / max(total_rows, 1)) if total_rows else 0.0
-                    frac = self.cfg.test_size_row_frac if (0 < self.cfg.test_size_row_frac < 1) else 0.2
-                    target_rows = int(round(frac * total_rows))
-
-                    # Random search over month subsets to match size and rate
-                    rng = np.random.default_rng(self.cfg.random_state)
-                    best = None
-                    best_score = float("inf")
-                    month_arr = np.array(months)
-                    # tolerance on size Â±10%
-                    low = int(0.9 * target_rows); high = int(1.1 * target_rows)
-                    for _ in range(1000):
-                        # sample each month with probability proportional to its size until within bounds
-                        probs = np.array([month_sizes[m] for m in month_arr], dtype=float)
-                        probs = probs / probs.sum()
-                        pick = []
-                        rows = 0
-                        tries = 0
-                        while rows < low and tries < len(months) * 3:
-                            m = rng.choice(month_arr, p=probs)
-                            if m not in pick:
-                                pick.append(m); rows += month_sizes[m]
-                            tries += 1
-                        if rows < low or rows > max(high, rows):
-                            # fallback single pass thresholding by cumulative size
-                            order = rng.permutation(month_arr)
-                            pick = []
-                            rows = 0
-                            for m in order:
-                                pick.append(m); rows += month_sizes[m]
-                                if rows >= low: break
-                        # compute score
-                        te_rows = rows
-                        te_pos = sum(month_pos[m] for m in pick)
-                        te_rate = te_pos / max(te_rows, 1)
-                        size_pen = abs(te_rows - target_rows) / max(target_rows, 1)
-                        rate_pen = abs(te_rate - overall_rate)
-                        score = rate_pen + 0.1 * size_pen
-                        if score < best_score and te_rows > 0 and te_rows < total_rows:
-                            best_score = score; best = pick
-                    if best:
-                        te_m = set(best); tr_m = set(months) - te_m
-                        tr_mask = pre["snapshot_month"].isin(tr_m).values; te_mask = pre["snapshot_month"].isin(te_m).values
-                        tr_local = pre_idx[np.where(tr_mask)[0]]; te_local = pre_idx[np.where(te_mask)[0]]
-                        if len(tr_local) >= 1 and len(te_local) >= 1:
-                            train_idx, test_idx = tr_local, te_local
-                        else:
-                            train_idx, test_idx = pre_idx, None
-                    else:
-                        train_idx, test_idx = pre_idx, None
-                else:
-                    train_idx, test_idx = pre_idx, None
-            except Exception:
-                train_idx, test_idx = pre_idx, None
-        return train_idx,test_idx,oot_idx,anchor
-
-    # --------------- helpers for categorical/numeric labels ----------------
+        from .stages import time_based_split
+        train_idx, test_idx, oot_idx = time_based_split(
+            df,
+            time_col=self.cfg.time_col,
+            target_col=self.cfg.target_col,
+            use_test_split=self.cfg.use_test_split,
+            oot_window_months=self.cfg.oot_window_months,
+            test_size_row_frac=self.cfg.test_size_row_frac,
+        )
+        anchor = None
+        return train_idx.values, (test_idx.values if test_idx is not None else None), oot_idx.values, anchor
     def _get_categories(self, cats_obj) -> List[Any]:
-        try: return list(cats_obj.categories)
+        try:
+            return list(cats_obj.categories)
         except AttributeError:
-            try: return list(cats_obj.cat.categories)
+            try:
+                return list(cats_obj.cat.categories)
             except Exception:
-                vals=pd.Series(cats_obj).dropna().unique().tolist(); return sorted(vals)
+                vals = pd.Series(cats_obj).dropna().unique().tolist()
+                return sorted(vals)
 
     def _make_unique(self, labels: List[str]) -> List[str]:
         uniq=[]; seen=set()
@@ -981,27 +894,31 @@ class RiskModelPipeline:
 
     # ----------------------- Transform -----------------------
     def _transform(self, df: pd.DataFrame, keep_vars: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
-        X={}; y=df[self.cfg.target_col].values
+        # Build a lightweight mapping from in-memory woe_map, then delegate to stages.apply_woe
+        mapping = {"variables": {}}
         for v in keep_vars:
-            vw=self.woe_map[v]; s=df[v]
-            if vw.var_type=="numeric":
-                w=pd.Series(index=s.index,dtype="float32"); miss=s.isna()
-                miss_bin=next((b for b in vw.numeric_bins if np.isnan(b.left) and np.isnan(b.right)),None)
-                w.loc[miss]=float(miss_bin.woe if miss_bin else 0.0)
-                for b in vw.numeric_bins:
-                    if np.isnan(b.left) and np.isnan(b.right): continue
-                    m=(~miss)&(s>=b.left)&(s<=b.right); w.loc[m]=float(b.woe)
-                X[v]=w.values
+            vw = self.woe_map.get(v)
+            if vw is None:
+                continue
+            if vw.var_type == "numeric":
+                mapping["variables"][v] = {
+                    "type": "numeric",
+                    "bins": [{"left": b.left, "right": b.right, "woe": b.woe} for b in (vw.numeric_bins or [])],
+                }
             else:
-                w=pd.Series(index=s.index,dtype="float32"); miss=s.isna(); assigned=miss.copy()
-                g_miss=next((g for g in vw.categorical_groups if g.label=="MISSING"),None)
-                w.loc[miss]=float(g_miss.woe if g_miss else 0.0)
-                for g in vw.categorical_groups:
-                    if g.label=="MISSING": continue
-                    m=(~miss)&(s.isin(g.members)); w.loc[m]=float(g.woe); assigned|=m
-                g_other=next((g for g in vw.categorical_groups if g.label=="OTHER"),None)
-                w.loc[~assigned]=float(g_other.woe if g_other else 0.0); X[v]=w.values
-        X=pd.DataFrame(X,index=df.index); return X,y
+                mapping["variables"][v] = {
+                    "type": "categorical",
+                    "groups": [{"label": g.label, "members": list(map(str, g.members)), "woe": g.woe} for g in (vw.categorical_groups or [])],
+                }
+        try:
+            from .stages import apply_woe as _apply_woe
+            X_all = _apply_woe(df, mapping)
+            X = X_all[[c for c in keep_vars if c in X_all.columns]].copy()
+        except Exception:
+            # Fallback: empty frame if mapping application fails
+            X = pd.DataFrame(index=df.index, columns=keep_vars)
+        y = df[self.cfg.target_col].values
+        return X, y
 
     # ----------------------- Corr & cluster -----------------------
     def _corr_and_cluster(self, X: pd.DataFrame, keep_vars: List[str]) -> List[str]:

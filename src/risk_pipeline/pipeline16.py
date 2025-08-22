@@ -39,13 +39,16 @@ import pandas as pd
 from sklearn.model_selection import StratifiedKFold, ParameterSampler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
-from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import roc_auc_score, roc_curve, brier_score_loss, average_precision_score
 from sklearn.base import clone
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from pygam import LogisticGAM
 from boruta import BorutaPy
 from .model.calibrate import fit_calibrator, apply_calibrator
+from .model.ensemble import soft_voting_ensemble
+from .reporting.shap_utils import compute_shap_values, summarize_shap, analyze_shap
 
 warnings.filterwarnings("ignore")
 try:
@@ -209,6 +212,9 @@ class Config:
     hpo_method: str = "random"
     hpo_timeout_sec: int = 1200
     hpo_trials: int = 60
+    recall_fpr: float = 0.05
+    fp_cost: float = 1.0
+    fn_cost: float = 5.0
     # psi logging
     psi_verbose: bool = True
     psi_log_every: int = 5
@@ -279,8 +285,17 @@ class RiskModelPipeline:
 
         self.cluster_reps_: List[str] = []; self.baseline_vars_: List[str] = []; self.final_vars_: List[str] = []
         self.high_iv_flags_: List[str] = []
+        self.iv_filter_log_: List[Dict[str, Any]] = []
+        self.corr_dropped_: List[Dict[str, Any]] = []
+        self.shap_summary_: Optional[Dict[str, float]] = None
+        self.shap_details_df_: Optional[pd.DataFrame] = None
+        self.shap_stability_: Optional[Dict[str, float]] = None
+        self.high_iv_flags_df_: Optional[pd.DataFrame] = None
+        self.iv_decisions_df_: Optional[pd.DataFrame] = None
+        self.corr_dropped_df_: Optional[pd.DataFrame] = None
         self.calibrator_: Optional[Any] = None
         self.calibration_report_: Optional[Dict[str, Any]] = None
+        self.model_card_: Optional[Dict[str, Any]] = None
 
         self.log_fh = None
         if self.cfg.log_file:
@@ -417,6 +432,24 @@ class RiskModelPipeline:
         if self.cfg.orchestrator.enable_best_select:
             with Timer("14) En iyi model seçimi", self._log):
                 self._select_best_model(); self._log(f"   - best={self.best_model_name_}")
+
+        if self.cfg.shap_sample and self.best_model_name_:
+            try:
+                mdl = self.models_.get(self.best_model_name_)
+                shap_vals, shap_X = compute_shap_values(
+                    mdl, X_tr[self.final_vars_], self.cfg.shap_sample, self.cfg.random_state
+                )
+                self.shap_summary_ = summarize_shap(shap_vals, self.final_vars_)
+                split_series = None
+                if "snapshot_month" in self.df_.columns:
+                    split_series = self.df_.loc[shap_X.index, "snapshot_month"]
+                self.shap_details_df_, self.shap_stability_ = analyze_shap(
+                    shap_vals, shap_X, split_series, self.psi_summary_
+                )
+            except Exception:
+                self.shap_summary_ = None
+                self.shap_details_df_ = None
+                self.shap_stability_ = None
 
         if self.cfg.calibration_data_path:
             with Timer("14b) Kalibrasyon", self._log):
@@ -945,12 +978,18 @@ class RiskModelPipeline:
             return []
         kept = []
         self.high_iv_flags_ = []
+        self.iv_filter_log_ = []
         for v in vars_in:
             iv = self.woe_map.get(v).iv if v in self.woe_map else 0.0
+            entry = {"variable": v, "iv": iv, "decision": "keep"}
             if iv < self.cfg.iv_min:
+                entry["decision"] = "drop_low_iv"
+                self.iv_filter_log_.append(entry)
                 continue
             if iv > self.cfg.iv_high_flag:
                 self.high_iv_flags_.append(v)
+                entry["decision"] = "flag_high_iv"
+            self.iv_filter_log_.append(entry)
             kept.append(v)
         if self.high_iv_flags_:
             self._log(f"   - High IV flags: {','.join(self.high_iv_flags_)}")
@@ -1061,6 +1100,7 @@ class RiskModelPipeline:
         corr = X.corr(method="spearman").abs().fillna(0.0)
         keep = []
         dropped = set()
+        self.corr_dropped_ = []
         for i, v in enumerate(vars_):
             if v in dropped:
                 continue
@@ -1089,6 +1129,7 @@ class RiskModelPipeline:
             for c in cand:
                 if c != best_v:
                     dropped.add(c)
+                    self.corr_dropped_.append({"variable": c, "kept_with": best_v, "reason": "corr"})
                     self._log(f"   - {c} elendi; {best_v} ile korrelasyon>")
         del corr
         gc.collect()
@@ -1114,6 +1155,7 @@ class RiskModelPipeline:
             dropped_vif = [c for c in vifs if vifs[c] > self.cfg.vif_threshold]
             for c in dropped_vif:
                 self._log(f"   - {c} VIF>{self.cfg.vif_threshold:.2f} nedeniyle elendi")
+                self.corr_dropped_.append({"variable": c, "kept_with": None, "reason": f"vif>{self.cfg.vif_threshold}"})
         return final_keep
 
     # ----------------------- noise sentinel -----------------------
@@ -1132,7 +1174,9 @@ class RiskModelPipeline:
     def _calibrate_model(self):
         path = self.cfg.calibration_data_path
         if not path:
+            self._log("   - no calibration data provided; skipping calibration")
             self.calibrator_ = None
+            self.calibration_report_ = None
             return
         try:
             if str(path).lower().endswith(".parquet") or str(path).lower().endswith(".parq"):
@@ -1143,6 +1187,15 @@ class RiskModelPipeline:
             self._log(f"   - calibration data load failed: {e}")
             self.calibrator_ = None
             return
+        if self.cfg.id_col in cal_df.columns:
+            cal_ids = set(cal_df[self.cfg.id_col].astype(str))
+            train_ids = set(self.df_.iloc[self.train_idx_][self.cfg.id_col].astype(str)) if self.train_idx_ is not None else set()
+            oot_ids = set(self.df_.iloc[self.oot_idx_][self.cfg.id_col].astype(str)) if self.oot_idx_ is not None else set()
+            test_ids = set(self.df_.iloc[self.test_idx_][self.cfg.id_col].astype(str)) if self.test_idx_ is not None and len(self.test_idx_)>0 else set()
+            if cal_ids & (train_ids | oot_ids | test_ids):
+                self._log("   - calibration data overlaps with train/test/oot; skipping calibration")
+                self.calibrator_ = None
+                return
         X_cal, y_cal = self._transform(cal_df, self.final_vars_)
         mdl = self.models_.get(self.best_model_name_)
         if mdl is None:
@@ -1153,7 +1206,33 @@ class RiskModelPipeline:
             self.calibrator_ = fit_calibrator(raw, y_cal, method=self.cfg.calibration_method)
             cal_scores = apply_calibrator(self.calibrator_, raw)
             brier = brier_score_loss(y_cal, cal_scores)
-            self.calibration_report_ = {"brier": float(brier)}
+            bins = np.linspace(0, 1, 11)
+            idx = np.digitize(cal_scores, bins) - 1
+            bin_true = []
+            bin_pred = []
+            bin_count = []
+            for i in range(len(bins) - 1):
+                m = idx == i
+                if m.any():
+                    bin_true.append(float(y_cal[m].mean()))
+                    bin_pred.append(float(cal_scores[m].mean()))
+                    bin_count.append(int(m.sum()))
+                else:
+                    bin_true.append(0.0)
+                    bin_pred.append(0.0)
+                    bin_count.append(0)
+            frac = np.array(bin_count) / max(len(cal_scores), 1)
+            ece = float(np.sum(np.abs(np.array(bin_true) - np.array(bin_pred)) * frac))
+            self.calibration_report_ = {
+                "brier": float(brier),
+                "ece": ece,
+                "reliability": {
+                    "bins": bins.tolist(),
+                    "bin_true": bin_true,
+                    "bin_pred": bin_pred,
+                    "bin_count": bin_count,
+                },
+            }
         except Exception as e:
             self._log(f"   - calibration failed: {e}")
             self.calibrator_ = None
@@ -1179,33 +1258,76 @@ class RiskModelPipeline:
             except Exception:
                 return np.asarray(mdl.predict(Xdf)).ravel()
 
+    def _cost_optimal_threshold(self, y_true: np.ndarray, scores: np.ndarray) -> float:
+        fpr, tpr, thr = roc_curve(y_true, scores)
+        base = y_true.mean() if len(y_true) else 0.5
+        costs = (
+            self.cfg.fp_cost * fpr * (1 - base)
+            + self.cfg.fn_cost * (1 - tpr) * base
+        )
+        i = int(np.argmin(costs)) if len(costs) else 0
+        return float(thr[i]) if len(thr) > i else 0.5
+
     # ----------------------- modelleme -----------------------
-    def _hyperparameter_tune(self, base_estimator, param_dist, X, y, time_limit: float) -> Any:
+    def _hyperparameter_tune(self, base_estimator, param_dist, X, y) -> Any:
+        method = (self.cfg.hpo_method or "random").lower()
+        timeout = self.cfg.hpo_timeout_sec
+        n_trials = self.cfg.hpo_trials
         start = time.time()
-        best_score = -np.inf
         best_params = {}
-        sampler = ParameterSampler(param_dist, n_iter=50, random_state=self.cfg.random_state)
+        best_score = -np.inf
         skf = StratifiedKFold(n_splits=self.cfg.cv_folds, shuffle=True, random_state=self.cfg.random_state)
-        for params in sampler:
-            if time.time() - start > time_limit:
-                break
-            mdl = clone(base_estimator)
-            mdl.set_params(**params)
-            sc = []
-            for tr, va in skf.split(X, y):
-                mdl.fit(X.iloc[tr], y[tr])
-                p = self._proba_1d(mdl, X.iloc[va])
-                ks, _ = ks_statistic(y[va], p)
-                sc.append(ks)
-                if time.time() - start > time_limit:
+
+        if method == "optuna":
+            try:
+                import optuna
+
+                def objective(trial):
+                    params = {}
+                    for p, space in param_dist.items():
+                        if isinstance(space, list):
+                            params[p] = trial.suggest_categorical(p, space)
+                        else:
+                            params[p] = trial.suggest_categorical(p, list(space))
+                    mdl = clone(base_estimator)
+                    mdl.set_params(**params)
+                    sc = []
+                    for tr, va in skf.split(X, y):
+                        mdl.fit(X.iloc[tr], y[tr])
+                        p = self._proba_1d(mdl, X.iloc[va])
+                        ks, _ = ks_statistic(y[va], p)
+                        sc.append(ks)
+                    return float(np.mean(sc)) if sc else -np.inf
+
+                study = optuna.create_study(direction="maximize")
+                study.optimize(objective, n_trials=n_trials, timeout=timeout)
+                best_params = study.best_trial.params if study.best_trial else {}
+            except Exception:
+                method = "random"
+
+        if method == "random":
+            sampler = ParameterSampler(param_dist, n_iter=n_trials, random_state=self.cfg.random_state)
+            for params in sampler:
+                if time.time() - start > timeout:
                     break
-            if sc:
-                score = float(np.mean(sc))
-                if score > best_score:
-                    best_score = score
-                    best_params = params
-            if time.time() - start > time_limit:
-                break
+                mdl = clone(base_estimator)
+                mdl.set_params(**params)
+                sc = []
+                for tr, va in skf.split(X, y):
+                    mdl.fit(X.iloc[tr], y[tr])
+                    p = self._proba_1d(mdl, X.iloc[va])
+                    ks, _ = ks_statistic(y[va], p)
+                    sc.append(ks)
+                    if time.time() - start > timeout:
+                        break
+                if sc:
+                    score = float(np.mean(sc))
+                    if score > best_score:
+                        best_score = score
+                        best_params = params
+                if time.time() - start > timeout:
+                    break
+
         mdl = clone(base_estimator)
         mdl.set_params(**best_params)
         mdl.fit(X, y)
@@ -1277,12 +1399,17 @@ class RiskModelPipeline:
                 {"lam": np.logspace(-3, 3, 7)},
             ),
         }
+        if self.cfg.try_mlp:
+            models["MLP"] = (
+                MLPClassifier(random_state=self.cfg.random_state, max_iter=200),
+                {"hidden_layer_sizes": [(50,), (100,)], "alpha": [0.0001, 0.001]},
+            )
         rows = []
         ks_tables = {"traincv": None, "test": None, "oot": None}
         skf = StratifiedKFold(n_splits=self.cfg.cv_folds, shuffle=True, random_state=self.cfg.random_state)
         for name, (base_mdl, params) in models.items():
             print(f"[{now_str()}]   - {name} tuning{sys_metrics()}")
-            mdl = self._hyperparameter_tune(base_mdl, params, Xtr[self.final_vars_], ytr, 20 * 60)
+            mdl = self._hyperparameter_tune(base_mdl, params, Xtr[self.final_vars_], ytr)
             print(f"[{now_str()}]   - {name} CV baÅŸlÄ±yor{sys_metrics()}")
             sc = []
             for tr, va in skf.split(Xtr[self.final_vars_], ytr):
@@ -1309,6 +1436,11 @@ class RiskModelPipeline:
             ks_oot, thr_oot = ks_statistic(yoot, p_oot)
             auc_oot = roc_auc_score(yoot, p_oot)
             gini_oot = gini_from_auc(auc_oot)
+            pr_auc_oot = average_precision_score(yoot, p_oot)
+            fpr_o, tpr_o, _ = roc_curve(yoot, p_oot)
+            mask = fpr_o <= self.cfg.recall_fpr
+            recall_at_fpr = float(np.max(tpr_o[mask])) if mask.any() else np.nan
+            cost_thr = self._cost_optimal_threshold(yoot, p_oot)
             ks_tables["oot"] = ks_table(yoot, p_oot, n_bands=self.cfg.ks_bands)
             rows.append(
                 {
@@ -1322,10 +1454,74 @@ class RiskModelPipeline:
                     "KS_OOT": ks_oot,
                     "AUC_OOT": auc_oot,
                     "Gini_OOT": gini_oot,
+                    "PR_AUC_OOT": pr_auc_oot,
+                    f"Recall@FPR{int(self.cfg.recall_fpr*100)}": recall_at_fpr,
                     "KS_OOT_threshold": thr_oot,
+                    "Cost_opt_threshold": cost_thr,
                 }
             )
             self.models_[name] = mdl
+        if self.cfg.ensemble and rows:
+            top_names = [r["model_name"] for r in sorted(rows, key=lambda r: r["KS_OOT"], reverse=True)][: self.cfg.ensemble_top_k]
+            top_models = [self.models_[n] for n in top_names if n in self.models_]
+            if len(top_models) >= 2:
+                class _EnsembleWrapper:
+                    def __init__(self, models):
+                        self.models = models
+                    def predict_proba(self, X):
+                        p = soft_voting_ensemble(self.models, X=X)
+                        return np.vstack([1 - p, p]).T
+
+                print(f"[{now_str()}]   - Ensemble tuning{sys_metrics()}")
+                sc = []
+                for tr, va in skf.split(Xtr[self.final_vars_], ytr):
+                    mdl_list = [clone(m).fit(Xtr.iloc[tr][self.final_vars_], ytr[tr]) for m in top_models]
+                    p = soft_voting_ensemble(mdl_list, X=Xtr.iloc[va][self.final_vars_])
+                    ks, _ = ks_statistic(ytr[va], p)
+                    auc = roc_auc_score(ytr[va], p)
+                    sc.append((ks, auc))
+                ks_cv = float(np.mean([s[0] for s in sc])) if sc else None
+                auc_cv = float(np.mean([s[1] for s in sc])) if sc else None
+                gini_cv = gini_from_auc(auc_cv) if auc_cv is not None else None
+                p_tr = soft_voting_ensemble(top_models, X=Xtr[self.final_vars_])
+                ks_tables["traincv"] = ks_table(ytr, p_tr, n_bands=self.cfg.ks_bands)
+                ks_te = auc_te = gini_te = None
+                if Xte is not None and yte is not None and Xte.shape[0] > 0:
+                    p_te = soft_voting_ensemble(top_models, X=Xte[self.final_vars_])
+                    ks_te, _ = ks_statistic(yte, p_te)
+                    auc_te = roc_auc_score(yte, p_te)
+                    gini_te = gini_from_auc(auc_te)
+                    ks_tables["test"] = ks_table(yte, p_te, n_bands=self.cfg.ks_bands)
+                p_oot = soft_voting_ensemble(top_models, X=Xoot[self.final_vars_])
+                ks_oot, thr_oot = ks_statistic(yoot, p_oot)
+                auc_oot = roc_auc_score(yoot, p_oot)
+                gini_oot = gini_from_auc(auc_oot)
+                pr_auc_oot = average_precision_score(yoot, p_oot)
+                fpr_o, tpr_o, _ = roc_curve(yoot, p_oot)
+                mask = fpr_o <= self.cfg.recall_fpr
+                recall_at_fpr = float(np.max(tpr_o[mask])) if mask.any() else np.nan
+                cost_thr = self._cost_optimal_threshold(yoot, p_oot)
+                ks_tables["oot"] = ks_table(yoot, p_oot, n_bands=self.cfg.ks_bands)
+                rows.append(
+                    {
+                        "model_name": "Ensemble",
+                        "KS_TrainCV": ks_cv,
+                        "AUC_TrainCV": auc_cv,
+                        "Gini_TrainCV": gini_cv,
+                        "KS_Test": ks_te,
+                        "AUC_Test": auc_te,
+                        "Gini_Test": gini_te,
+                        "KS_OOT": ks_oot,
+                        "AUC_OOT": auc_oot,
+                        "Gini_OOT": gini_oot,
+                        "PR_AUC_OOT": pr_auc_oot,
+                        f"Recall@FPR{int(self.cfg.recall_fpr*100)}": recall_at_fpr,
+                        "KS_OOT_threshold": thr_oot,
+                        "Cost_opt_threshold": cost_thr,
+                    }
+                )
+                self.models_["Ensemble"] = _EnsembleWrapper(top_models)
+
         self.models_summary_ = pd.DataFrame(rows).sort_values("KS_OOT", ascending=False).reset_index(drop=True)
         self.ks_info_traincv_, self.ks_info_test_, self.ks_info_oot_ = (
             ks_tables["traincv"],
@@ -1343,6 +1539,9 @@ class RiskModelPipeline:
     def _build_report_tables(self, psi_keep: List[str]):
         iv_rows = [{"variable": v, "IV": self.woe_map[v].iv, "variable_group": self.woe_map[v].var_type} for v in psi_keep]
         self.top20_iv_df_ = pd.DataFrame(iv_rows).sort_values("IV", ascending=False).head(20).reset_index(drop=True)
+        self.high_iv_flags_df_ = pd.DataFrame({"variable": self.high_iv_flags_}) if self.high_iv_flags_ else None
+        self.iv_decisions_df_ = pd.DataFrame(self.iv_filter_log_)
+        self.corr_dropped_df_ = pd.DataFrame(self.corr_dropped_)
 
         bm = self.best_model_name_
         mdl = self.models_.get(bm) if bm else None
@@ -1428,6 +1627,15 @@ class RiskModelPipeline:
                 json.dump(mapping, f, ensure_ascii=False, indent=2)
             with open(os.path.join(self.cfg.output_folder, f"final_vars_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
                 json.dump({"final_vars": self.final_vars_}, f, ensure_ascii=False, indent=2)
+            if self.shap_summary_:
+                with open(os.path.join(self.cfg.output_folder, f"shap_summary_{self.cfg.run_id}.json"), "w", encoding="utf-8") as f:
+                    json.dump(self.shap_summary_, f, ensure_ascii=False, indent=2)
+                pd.DataFrame(
+                    sorted(self.shap_summary_.items(), key=lambda t: t[1], reverse=True),
+                    columns=["variable", "shap"]
+                ).head(20).to_csv(
+                    os.path.join(self.cfg.output_folder, f"shap_top20_{self.cfg.run_id}.csv"), index=False
+                )
         except Exception:
             pass
 
@@ -1469,6 +1677,34 @@ class RiskModelPipeline:
                     tp = int(((pred == 1) & (y_oot == 1)).sum())
                 self.confusion_oot_ = pd.DataFrame([{"tn": tn, "fp": fp, "fn": fn, "tp": tp, "threshold": thr}])
 
+        def save(df, name):
+            if df is None or (hasattr(df, 'empty') and df.empty):
+                return
+            try:
+                base = os.path.join(self.cfg.output_folder, f"{name}_{self.cfg.run_id}")
+                df.to_csv(f"{base}.csv", index=False)
+                try:
+                    df.to_json(f"{base}.json", orient="records", force_ascii=False)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        save(self.high_iv_flags_df_, "high_iv_flags")
+        save(self.iv_decisions_df_, "iv_decisions")
+        save(self.corr_dropped_df_, "corr_dropped")
+        save(self.shap_details_df_, "shap_details")
+        if self.calibration_report_:
+            try:
+                with open(
+                    os.path.join(self.cfg.output_folder, f"calibration_{self.cfg.run_id}.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump(self.calibration_report_, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
     # ----------------------- Dictionary entegrasyonu -----------------------
     def _integrate_dictionary(self):
         if not self.cfg.dictionary_path:
@@ -1504,6 +1740,54 @@ class RiskModelPipeline:
         self.artifacts["pool"]["config"] = asdict(self.cfg)
         self.artifacts["pool"]["final_vars"] = self.final_vars_
         self.artifacts["pool"]["best_model_name"] = self.best_model_name_
+        if self.shap_summary_ is not None:
+            self.artifacts["pool"]["shap_summary"] = self.shap_summary_
+        if self.high_iv_flags_:
+            self.artifacts["pool"]["high_iv_flags"] = self.high_iv_flags_
+        if self.corr_dropped_:
+            self.artifacts["pool"]["corr_dropped"] = self.corr_dropped_
+        if self.iv_filter_log_:
+            self.artifacts["pool"]["iv_decisions"] = self.iv_filter_log_
+        if self.shap_stability_:
+            self.artifacts["pool"]["shap_stability"] = self.shap_stability_
+        if self.calibration_report_:
+            self.artifacts["pool"]["calibration"] = self.calibration_report_
+        if self.psi_summary_ is not None:
+            try:
+                self.artifacts["pool"]["psi_summary"] = self.psi_summary_.to_dict("records")
+            except Exception:
+                pass
+        self._build_model_card()
+
+    def _build_model_card(self):
+        card = {
+            "run_id": self.cfg.run_id,
+            "best_model": self.best_model_name_,
+            "target": self.cfg.target_col,
+            "time_range": {
+                "train_start": str(self.df_.iloc[self.train_idx_][self.cfg.time_col].min()) if self.train_idx_ is not None else None,
+                "train_end": str(self.df_.iloc[self.train_idx_][self.cfg.time_col].max()) if self.train_idx_ is not None else None,
+            },
+            "hpo": {"method": self.cfg.hpo_method, "trials": self.cfg.hpo_trials},
+        }
+        if self.high_iv_flags_:
+            card["high_iv_flags"] = self.high_iv_flags_
+        if self.corr_dropped_:
+            card["corr_dropped"] = self.corr_dropped_
+        if self.shap_stability_:
+            card["shap_stability"] = self.shap_stability_
+        if self.calibration_report_:
+            card["calibration"] = self.calibration_report_
+        self.model_card_ = card
+        try:
+            with open(
+                os.path.join(self.cfg.output_folder, f"model_card_{self.cfg.run_id}.json"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                json.dump(card, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def export_reports(self):
         os.makedirs(self.cfg.output_folder, exist_ok=True)
@@ -1611,6 +1895,18 @@ class RiskModelPipeline:
         if self.psi_dropped_ is not None:
             self.psi_dropped_.to_excel(wr, sheet_name="psi_dropped_features", index=False)
             _as_table(wr, self.psi_dropped_, "psi_dropped_features", "tbl_psi_dropped")
+        if self.high_iv_flags_df_ is not None:
+            self.high_iv_flags_df_.to_excel(wr, sheet_name="high_iv_flags", index=False)
+            _as_table(wr, self.high_iv_flags_df_, "high_iv_flags", "tbl_high_iv_flags")
+        if self.iv_decisions_df_ is not None:
+            self.iv_decisions_df_.to_excel(wr, sheet_name="iv_decisions", index=False)
+            _as_table(wr, self.iv_decisions_df_, "iv_decisions", "tbl_iv_decisions")
+        if self.corr_dropped_df_ is not None:
+            self.corr_dropped_df_.to_excel(wr, sheet_name="corr_dropped", index=False)
+            _as_table(wr, self.corr_dropped_df_, "corr_dropped", "tbl_corr_dropped")
+        if self.shap_details_df_ is not None:
+            self.shap_details_df_.to_excel(wr, sheet_name="shap_details", index=False)
+            _as_table(wr, self.shap_details_df_, "shap_details", "tbl_shap_details")
         # woe_mapping as a flattened table
         try:
             rows=[]

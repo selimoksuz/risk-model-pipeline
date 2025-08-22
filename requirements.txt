@@ -13,3 +13,4 @@ XlsxWriter>=3.2
 psutil>=5.9
 boruta>=0.3
 pygam>=0.9
+optuna>=3.6

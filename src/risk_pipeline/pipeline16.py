@@ -24,7 +24,9 @@ from typing import List, Dict, Tuple, Optional, Any
 # ---- BLAS/OpenMP oversubscription Ã¶nleme ----
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("
+# Guard against oversubscription in BLAS backends
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 # Ensure UTF-8 console output on Windows
 os.environ.setdefault('PYTHONUTF8','1')
 try:
@@ -451,7 +453,7 @@ class RiskModelPipeline:
                 self._integrate_dictionary()
 
         self._finalize_meta()
-        self._log(f"[{now_str()}] ■ RUN tamam — run_id={self.cfg.run_id}{sys_metrics()}
+        self._log(f"[{now_str()}] >> RUN tamam - run_id={self.cfg.run_id}{sys_metrics()}")
         if self.log_fh:
             self.log_fh.close()
         return self

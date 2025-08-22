@@ -5,7 +5,8 @@ try:
         _sys_utf8.stdout.reconfigure(encoding='utf-8')
         _sys_utf8.stderr.reconfigure(encoding='utf-8')
 except Exception:
-    passfrom .config.schema import Config
+    pass
+from .config.schema import Config
 from .data.load import load_csv
 from .model.train import train_logreg
 from .reporting.report import save_metrics
@@ -14,6 +15,7 @@ import joblib
 import pandas as pd
 import pickle
 from .model.calibrate import apply_calibrator
+import typer
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
@@ -30,6 +32,9 @@ def run(
 
     df = load_csv(input_csv)
     X = df.drop(columns=[target_col])
+    # Basit demo: sadece sayısal sütunları al ve eksikleri doldur
+    X = X.select_dtypes(include=["number"]).copy()
+    X = X.fillna(0)
     y = df[target_col]
     res = train_logreg(X, y, seed=cfg.run.seed)
     save_metrics({"auc": res["auc"]}, artifacts_dir)
@@ -38,8 +43,6 @@ def run(
 if __name__ == "__main__":
     app()
 
-
-from .pipeline16 import Config as Config16, RiskModelPipeline as RiskModelPipeline16
 
 @app.command()
 def run16(
@@ -70,6 +73,7 @@ def run16(
     hpo_timeout_sec: int = typer.Option(1200, help="HPO timeout seconds"),
     hpo_trials: int = typer.Option(60, help="HPO trial count"),
 ):
+    from .pipeline16 import Config as Config16, RiskModelPipeline as RiskModelPipeline16
     df = pd.read_csv(input_csv)
     cfg = Config16(
         id_col=id_col, time_col=time_col, target_col=target_col,

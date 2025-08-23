@@ -785,7 +785,7 @@ class RiskModelPipeline:
 
     # ----------------------- PSI v2 FAST -----------------------
     def _fmt_psi_line(self, var: str, scope: str, label: str, psi_val: float, status: str) -> str:
-        return f"      â–ª {var:<30s} | {scope:<17s} | {label:<12s} | PSI={psi_val:6.3f} | {status}"
+        return f"      - {var:<30s} | {scope:<17s} | {label:<12s} | PSI={psi_val:6.3f} | {status}"
 
     def _eta(self, start_ts: float, done: int, total: int) -> str:
         if done==0: return "ETA: hesaplanÄ±yor..."
@@ -793,82 +793,58 @@ class RiskModelPipeline:
         return f"ETA: ~{int(rem):d}s (kalan {total-done}/{total})"
 
     def _psi_screening(self, df, train_idx, test_idx, oot_idx) -> List[str]:
-        cfg=self.cfg; base_df=df.iloc[train_idx]; psi_rows=[]
-        def probs_from_codes(codes: np.ndarray, K: int) -> np.ndarray:
-            cnt=np.bincount(codes, minlength=K).astype(np.float64); s=cnt.sum()
-            return cnt/s if s>0 else np.full(K,1.0/max(K,1),dtype=np.float64)
-        def psi_codes(base_codes: np.ndarray, comp_codes: np.ndarray, K: int, eps: float)->float:
-            p=np.clip(probs_from_codes(base_codes,K),eps,1.0); q=np.clip(probs_from_codes(comp_codes,K),eps,1.0)
-            # Correct PSI formula uses log(p/q)
-            return float(np.sum((p-q)*np.log(p/q)))
-        train_months=base_df["snapshot_month"].to_numpy()
-        uniq_months=np.unique(train_months[~pd.isna(train_months)])
-        sample_months=uniq_months[:cfg.psi_sample_months] if cfg.psi_sample_months and len(uniq_months)>cfg.psi_sample_months else uniq_months
-        keep,drop,warn=[],[],[]
-        variables=list(self.woe_map.keys()); total=len(variables); t0=time.time()
-        if cfg.psi_verbose:
-            self._log(f"   â€¢ PSI baÅŸlayacak: {total} deÄŸiÅŸken | Train-ays={len(uniq_months)} | Test={'yok' if (test_idx is None or len(test_idx)==0) else 'var'} | OOT={len(oot_idx)}")
-        for i,var in enumerate(variables,1):
-            vw=self.woe_map[var]; v_start=time.time()
-            full_cat=self._apply_bins(df,var,vw)
-            codes_all=full_cat.cat.codes.to_numpy(np.int32); K=len(full_cat.cat.categories)
-            tr_codes=codes_all[train_idx]
-            te_codes=codes_all[test_idx] if (test_idx is not None and len(test_idx)>0) else None
-            oot_codes=codes_all[oot_idx]
-            sys_drop=False; any_warn=False
-            if cfg.psi_verbose:
-                self._log(f"    - {var}: Train-ay karÅŸÄ±laÅŸtÄ±rmalarÄ± ({len(uniq_months)} ay; Ã¶rnek log={len(sample_months)})")
-            for m in uniq_months:
-                mask_m=(train_months==m); comp=tr_codes[mask_m]; psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(comp,K), cfg.psi_eps)
-                status="KEEP"
-                if psi_val>cfg.psi_threshold_feature: status="DROP"; sys_drop=True
-                elif psi_val>cfg.psi_warn_low: status="WARN"; any_warn=True
-                psi_rows.append({"variable":var,"compare_scope":"train_vs_train_month","compare_label":str(m)[:10],
-                                 "psi_value":psi_val,"status":status,"notes":""})
-                if cfg.psi_verbose and (m in sample_months):
-                    self._log(self._fmt_psi_line(var,"Train-v-TrainM",str(m)[:10],psi_val,status))
-            if te_codes is not None:
-                psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(te_codes,K), cfg.psi_eps); status="KEEP"
-                if psi_val>cfg.psi_threshold_feature: status="DROP"; sys_drop=True
-                elif psi_val>cfg.psi_warn_low: status="WARN"; any_warn=True
-                psi_rows.append({"variable":var,"compare_scope":"train_vs_test","compare_label":"TEST_ALL",
-                                 "psi_value":psi_val,"status":status,"notes":""})
-                if cfg.psi_verbose:
-                    self._log(self._fmt_psi_line(var,"Train-v-Test  ","TEST_ALL",psi_val,status))
-            psi_val=psi_value(probs_from_codes(tr_codes,K), probs_from_codes(oot_codes,K), cfg.psi_eps); status="KEEP"
-            if psi_val>cfg.psi_threshold_feature: status="DROP"; sys_drop=True
-            elif psi_val>cfg.psi_warn_low: status="WARN"; any_warn=True
-            psi_rows.append({"variable":var,"compare_scope":"train_vs_oot","compare_label":"OOT_ALL",
-                             "psi_value":psi_val,"status":status,"notes":""})
-            if cfg.psi_verbose:
-                self._log(self._fmt_psi_line(var,"Train-v-OOT   ","OOT_ALL",psi_val,status))
-            if sys_drop:
-                drop.append(var); 
-                if cfg.psi_verbose: self._log(f"      âœ– {var} â†’ DROP (PSI eÅŸik aÅŸÄ±ldÄ±)")
+        cfg = self.cfg
+        variables = list(self.woe_map.keys())
+        mapping = {"variables": {}}
+        for v in variables:
+            vw = self.woe_map.get(v)
+            if vw is None:
+                continue
+            if vw.var_type == "numeric":
+                mapping["variables"][v] = {
+                    "type": "numeric",
+                    "bins": [{"left": b.left, "right": b.right, "woe": b.woe} for b in (vw.numeric_bins or [])],
+                }
             else:
-                keep.append(var)
-                if cfg.psi_verbose:
-                    if any_warn: warn.append(var); self._log(f"      ! {var} â†’ KEEP (WARN bÃ¶lgeleri var)")
-                    else: self._log(f"      âœ“ {var} â†’ KEEP")
-            if (i % max(1,cfg.psi_log_every))==0 or i==total:
-                self._log(f"    progress: {i}/{total} tamamlandÄ± â€” {self._eta(t0,i,total)}")
-            if cfg.psi_verbose: self._log(f"      (sÃ¼re: {time.time()-v_start:.2f}s)")
-            del full_cat, codes_all, tr_codes, te_codes, oot_codes
-        psi_df=pd.DataFrame(psi_rows).sort_values(["variable","compare_scope","compare_label"]).reset_index(drop=True)
-        self.psi_summary_=psi_df.copy()
-        dropped=psi_df.query("status=='DROP'").groupby("variable")["psi_value"].max().reset_index()
-        # Ensure the column is named consistently before further use
-        dropped = dropped.rename(columns={"psi_value":"max_psi"})
+                mapping["variables"][v] = {
+                    "type": "categorical",
+                    "groups": [{"label": g.label, "members": list(map(str, g.members)), "woe": g.woe} for g in (vw.categorical_groups or [])],
+                }
+        from .stages import apply_woe as _apply_woe, feature_psi as _feature_psi
+        tr_df = df.iloc[train_idx]
+        te_df = df.iloc[test_idx] if (test_idx is not None and len(test_idx) > 0) else None
+        oot_df = df.iloc[oot_idx]
+        tr_woe = _apply_woe(tr_df, mapping)
+        te_woe = _apply_woe(te_df, mapping) if te_df is not None else None
+        oot_woe = _apply_woe(oot_df, mapping)
+        psi_rows = []
+        dropped_vars = set(); warn_vars = set(); keep = []
+        psi_te = _feature_psi(tr_woe[variables], te_woe[variables], sample=None, bins=10) if te_woe is not None else {}
+        psi_oot = _feature_psi(tr_woe[variables], oot_woe[variables], sample=None, bins=10)
+        for v in variables:
+            if v in psi_te:
+                val = float(psi_te[v]); status = "KEEP"
+                if val > cfg.psi_threshold_feature: status = "DROP"; dropped_vars.add(v)
+                elif val > cfg.psi_warn_low: status = "WARN"; warn_vars.add(v)
+                psi_rows.append({"variable": v, "compare_scope": "train_vs_test", "compare_label": "TEST_ALL", "psi_value": val, "status": status, "notes": ""})
+            val = float(psi_oot.get(v, 0.0)); status = "KEEP"
+            if val > cfg.psi_threshold_feature: status = "DROP"; dropped_vars.add(v)
+            elif val > cfg.psi_warn_low: status = "WARN"; warn_vars.add(v)
+            psi_rows.append({"variable": v, "compare_scope": "train_vs_oot", "compare_label": "OOT_ALL", "psi_value": val, "status": status, "notes": ""})
+        for v in variables:
+            if v not in dropped_vars:
+                keep.append(v)
+        psi_df = pd.DataFrame(psi_rows).sort_values(["variable", "compare_scope", "compare_label"]).reset_index(drop=True)
+        self.psi_summary_ = psi_df.copy()
+        dropped = psi_df.query("status==\"DROP\"").groupby("variable")["psi_value"].max().reset_index()
+        if not dropped.empty and "psi_value" in dropped.columns:
+            dropped = dropped.rename(columns={"psi_value": "max_psi"})
         self.psi_dropped_ = dropped.copy()
-        keep_final=sorted(list(set(keep)-set(dropped["variable"].tolist())))
-        self._log(f"   â€¢ PSI Ã¶zet: KEEP={len(keep_final)} | DROP={len(dropped)} | WARN={len(set(warn)-set(dropped['variable']))}")
-        if cfg.psi_verbose and len(dropped)>0:
-            top_drop=dropped.sort_values("max_psi",ascending=False).head(10)
-            self._log("   â€¢ En yÃ¼ksek PSI ile DROP edilenler (ilk 10):")
-            for _,r in top_drop.iterrows(): self._log(f"      - {r['variable']}: max_psi={r['max_psi']:.3f}")
-        del psi_df,dropped,keep,drop,warn; gc.collect()
+        keep_final = sorted(list(set(keep) - set(dropped["variable"].tolist())))
+        self._log(f"   * PSI özet: KEEP={len(keep_final)} | DROP={len(dropped)} | WARN={len(warn_vars)}")
+        del psi_df, dropped
+        gc.collect()
         return keep_final
-
     # ----------------------- IV filter -----------------------
     def _iv_filter(self, vars_in: List[str]) -> List[str]:
         if not vars_in:

@@ -1063,17 +1063,34 @@ class RiskModelPipeline:
                 self._log("   - calibration data overlaps with train/test/oot; skipping calibration")
                 self.calibrator_ = None
                 return
-        X_cal, y_cal = self._transform(cal_df, self.final_vars_)
+        # Apply WOE transform using the same mapping as training data
+        from .stages import apply_woe
+        cal_df_woe = apply_woe(cal_df, self.woe_map)
+        
+        # Check which final variables are available after WOE transformation
+        available_vars = [var for var in self.final_vars_ if var in cal_df_woe.columns]
+        if not available_vars:
+            self._log(f"   - No final variables available in calibration data after WOE transform. Expected: {self.final_vars_}, Available: {list(cal_df_woe.columns)}")
+            self.calibrator_ = None
+            return
+        
+        if len(available_vars) < len(self.final_vars_):
+            self._log(f"   - Warning: Only {len(available_vars)}/{len(self.final_vars_)} final variables available in calibration data")
+        
+        X_cal = cal_df_woe[available_vars]
+        y_cal = cal_df[self.cfg.target_col].values
+        
         mdl = self.models_.get(self.best_model_name_)
         if mdl is None:
             self.calibrator_ = None
             return
-        raw = self._proba_1d(mdl, X_cal[self.final_vars_])
+        raw = self._proba_1d(mdl, X_cal)
         try:
             self.calibrator_ = fit_calibrator(raw, y_cal, method=self.cfg.calibration_method)
             cal_scores = apply_calibrator(self.calibrator_, raw)
             brier = brier_score_loss(y_cal, cal_scores)
             self.calibration_report_ = {"brier": float(brier)}
+            self._log(f"   - Calibration successful: Brier score = {brier:.4f}")
         except Exception as e:
             self._log(f"   - calibration failed: {e}")
             self.calibrator_ = None

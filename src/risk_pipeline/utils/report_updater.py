@@ -137,7 +137,7 @@ def create_comprehensive_report(pipeline_results: Dict, scoring_results: Dict, o
                 f"{scoring_results.get('gini', 0):.4f}",
                 f"{scoring_results.get('ks', 0):.4f}",
                 f"{scoring_results.get('default_rate', 0):.3f}",
-                f"{scoring_results.get('psi_score', 0):.4f}" if scoring_results.get('psi_score', float('inf')) != float('inf') else 'N/A'
+                f"{scoring_results.get('psi_score', 0):.4f}" if scoring_results.get('psi_score') is not None else 'N/A'
             ]
         })
         

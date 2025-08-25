@@ -19,12 +19,12 @@ def main():
     print(f"Scoring data: {scoring_df.shape[0]:,} rows x {scoring_df.shape[1]} columns")
     
     # Get the latest run artifacts
-    output_folder = "outputs_full"
-    run_id = "20250825_161434_9a9a0547"  # From last run
+    output_folder = "outputs"
+    run_id = "20250825_150724_3205a13a"  # From available run
     
     print(f"Loading model artifacts from {output_folder}...")
     try:
-        model, final_features, woe_mapping = load_model_artifacts(output_folder, run_id)
+        model, final_features, woe_mapping, calibrator = load_model_artifacts(output_folder, run_id)
         print(f"✅ Model loaded: {type(model).__name__}")
         
         # Handle different final_features formats
@@ -112,6 +112,7 @@ def main():
         model=model, 
         final_features=original_final_features,
         woe_mapping=woe_mapping,
+        calibrator=calibrator,  # Add calibrator
         training_scores=training_scores,
         feature_mapping=feature_mapping
     )
@@ -138,7 +139,7 @@ def main():
     
     # Create detailed report
     print("\nCreating detailed report...")
-    report_df = create_scoring_report(results)
+    reports = create_scoring_report(results)
     
     # Save results
     results_folder = f"{output_folder}/scoring_results"
@@ -149,8 +150,10 @@ def main():
     scoring_with_scores['predicted_score'] = results['scores']
     scoring_with_scores.to_csv(f"{results_folder}/scoring_results.csv", index=False)
     
-    # Save summary report
-    report_df.to_csv(f"{results_folder}/scoring_summary.csv", index=False)
+    # Save all report types
+    for report_name, report_df in reports.items():
+        report_df.to_csv(f"{results_folder}/report_{report_name}.csv", index=False)
+        print(f"   - report_{report_name}.csv")
     
     print(f"✅ Results saved to: {results_folder}/")
     print("   - scoring_results.csv (detailed scores)")
@@ -158,11 +161,13 @@ def main():
     
     # Update Excel report with scoring metrics
     print("\nUpdating Excel report with scoring metrics...")
-    excel_path = f"{output_folder}/full_pipeline_report.xlsx"
+    excel_path = f"{output_folder}/risk_report_{run_id}.xlsx"
     
     if os.path.exists(excel_path):
         from risk_pipeline.utils.report_updater import update_excel_with_scoring
-        success = update_excel_with_scoring(excel_path, results, report_df)
+        # Use summary report for Excel update (backward compatibility)
+        summary_report = reports.get('summary', list(reports.values())[0])
+        success = update_excel_with_scoring(excel_path, results, summary_report)
         
         if success:
             print(f"✅ Excel report updated: {excel_path}")

@@ -71,7 +71,7 @@ def main():
     run_id = pipeline_results['run_id']
     
     # Load model artifacts
-    model, final_features, woe_mapping = load_model_artifacts(output_folder, run_id)
+    model, final_features, woe_mapping, calibrator = load_model_artifacts(output_folder, run_id)
     
     # Fix feature format
     if isinstance(final_features, dict):
@@ -114,6 +114,7 @@ def main():
         model=model,
         final_features=final_features,
         woe_mapping=woe_mapping,
+        calibrator=calibrator,
         training_scores=training_scores,
         feature_mapping=feature_mapping
     )

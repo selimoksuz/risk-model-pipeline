@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 from typing import Tuple
+from sklearn.model_selection import train_test_split
 
 
 def month_floor(ts) -> pd.Timestamp:
@@ -47,9 +48,29 @@ def time_based_split(
         rem = dfx.index[dfx["__month"] < cutoff]
     test_idx = None
     if use_test_split and len(rem) > 0:
-        k = max(1, int(len(rem) * test_size_row_frac))
-        test_idx = rem[:k]
-        train_idx = rem[k:]
+        # Stratified split to preserve target distribution
+        rem_df = dfx.loc[rem]
+        if target_col in rem_df.columns and rem_df[target_col].nunique() > 1:
+            try:
+                # Use stratified split to maintain target distribution
+                train_indices, test_indices = train_test_split(
+                    rem, 
+                    test_size=test_size_row_frac,
+                    stratify=rem_df[target_col],
+                    random_state=42
+                )
+                train_idx = pd.Index(train_indices)
+                test_idx = pd.Index(test_indices)
+            except ValueError:
+                # Fallback to simple split if stratification fails (e.g., too few samples)
+                k = max(1, int(len(rem) * test_size_row_frac))
+                test_idx = rem[-k:]  # Take from end to maintain time order
+                train_idx = rem[:-k]
+        else:
+            # No target column or only one class - simple split
+            k = max(1, int(len(rem) * test_size_row_frac))
+            test_idx = rem[-k:]  # Take from end to maintain time order
+            train_idx = rem[:-k]
     else:
         train_idx = rem
     return pd.Index(train_idx), (pd.Index(test_idx) if test_idx is not None else None), pd.Index(oot_idx)

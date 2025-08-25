@@ -4,13 +4,13 @@ from datetime import datetime
 
 rng = np.random.default_rng(42)
 
-# sample size a bit larger for stability
-n = 500
+# sample size for realistic modeling (larger for better stability)
+n = 10000
 # app_id sequential
 a_pp = np.arange(100000, 100000 + n)
 
-# monthly dates across 12 months, ensuring last 3 months present
-months = pd.date_range('2024-01-01', periods=12, freq='MS')
+# monthly dates across 18 months, ensuring last 3 months present (more historical data)
+months = pd.date_range('2023-01-01', periods=18, freq='MS')
 app_dt = rng.choice(months, size=n, replace=True)
 
 # numeric features (base)
@@ -26,6 +26,13 @@ num1_corr70 = 0.7*num1 + rng.normal(0, 0.714, size=n)
 # another strong correlation pair
 num2_corr92 = num2 + rng.normal(0, 0.15, size=n)
 
+# additional numeric features (more realistic feature count)
+income = rng.lognormal(mean=10, sigma=0.5, size=n)  # income-like distribution
+age = rng.integers(18, 80, size=n)  # age
+debt_ratio = rng.beta(2, 5, size=n)  # debt ratio (0-1)
+credit_score = rng.normal(700, 100, size=n).clip(300, 850)  # credit score
+months_employed = rng.exponential(24, size=n).clip(0, 240)  # employment months
+
 # categorical with rare categories
 cat1_levels = np.array(['A','B','C','RareX'])
 cat1_probs  = np.array([0.45,0.35,0.18,0.02])
@@ -39,13 +46,34 @@ cat3_levels = np.array(['S','T','U','V','RareZ'])
 cat3_probs  = np.array([0.30,0.30,0.20,0.18,0.02])
 cat3 = rng.choice(cat3_levels, p=cat3_probs, size=n)
 
-# generate target with meaningful signal
+# additional categorical features  
+education_levels = np.array(['HighSchool', 'Bachelor', 'Master', 'PhD', 'Other'])
+education_probs = np.array([0.40, 0.35, 0.15, 0.05, 0.05])
+education = rng.choice(education_levels, p=education_probs, size=n)
+
+region_levels = np.array(['North', 'South', 'East', 'West', 'Central', 'Remote'])
+region_probs = np.array([0.25, 0.25, 0.20, 0.20, 0.08, 0.02])
+region = rng.choice(region_levels, p=region_probs, size=n)
+
+employment_type = np.array(['FullTime', 'PartTime', 'SelfEmployed', 'Unemployed'])
+employment_probs = np.array([0.70, 0.15, 0.10, 0.05])
+employment = rng.choice(employment_type, p=employment_probs, size=n)
+
+# generate target with meaningful signal from multiple features
 z = (
     0.8*num1 - 0.6*num2 + 0.3*num3
     + 0.9*(cat1=='A').astype(float)
     + 0.7*(cat2=='X').astype(float)
     + 0.4*(cat3=='S').astype(float)
-    - 0.5  # bias for reasonable class balance
+    # realistic financial risk factors (normalized scales)
+    - 0.00005*income  # higher income = lower risk (scaled for log-normal income)
+    - 0.008*age  # older = lower risk  
+    + 1.5*debt_ratio  # higher debt ratio = higher risk
+    - 0.002*credit_score  # higher credit score = lower risk
+    - 0.005*months_employed  # longer employment = lower risk
+    + 0.4*(education=='HighSchool').astype(float)  # education effect
+    + 0.6*(employment=='Unemployed').astype(float)  # employment effect
+    - 0.2  # bias for reasonable class balance
 )
 z = z + rng.normal(0, 0.5, size=n)
 prob = 1/(1 + np.exp(-z))
@@ -63,25 +91,36 @@ mask = oot_mask.values
 cat2_shifted.loc[mask] = rng.choice(cat2_levels, p=np.array([0.10,0.20,0.68,0.02]), size=mask.sum())
 
 # introduce missingness per-feature (not all features missing in same row)
-miss_rate = 0.10
+miss_rate = 0.08  # slightly lower for larger dataset
 mask_num1 = rng.random(n) < miss_rate
 mask_num2 = rng.random(n) < miss_rate
 mask_num3 = rng.random(n) < miss_rate
+mask_income = rng.random(n) < miss_rate*0.5  # income less likely to be missing
+mask_credit = rng.random(n) < miss_rate*0.3  # credit score less likely missing
 mask_cat1 = rng.random(n) < miss_rate
 mask_cat2 = rng.random(n) < miss_rate
 mask_cat3 = rng.random(n) < miss_rate
+mask_education = rng.random(n) < miss_rate*0.2  # education rarely missing
 
 num1[mask_num1] = np.nan
 num2[mask_num2] = np.nan
 num3_shifted[mask_num3] = np.nan
+income[mask_income] = np.nan
+credit_score[mask_credit] = np.nan
+
 cat1 = pd.Series(cat1)
 cat2 = cat2_shifted
 cat3 = pd.Series(cat3)
+education = pd.Series(education)
+region = pd.Series(region)
+employment = pd.Series(employment)
+
 cat1[mask_cat1] = pd.NA
 cat2[mask_cat2] = pd.NA
 cat3[mask_cat3] = pd.NA
+education[mask_education] = pd.NA
 
-# ensure no row has all 6 features missing simultaneously
+# ensure no row has all features missing simultaneously
 features_df = pd.DataFrame({
     'num1': num1,
     'num2': num2,
@@ -89,9 +128,17 @@ features_df = pd.DataFrame({
     'num1_corr95': num1_corr95,
     'num1_corr70': num1_corr70,
     'num2_corr92': num2_corr92,
+    'income': income,
+    'age': age,
+    'debt_ratio': debt_ratio,
+    'credit_score': credit_score,
+    'months_employed': months_employed,
     'cat1': cat1,
     'cat2': cat2,
     'cat3': cat3,
+    'education': education,
+    'region': region,
+    'employment': employment,
 })
 all_missing = features_df.isna().sum(axis=1) == features_df.shape[1]
 if all_missing.any():

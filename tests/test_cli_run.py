@@ -17,7 +17,7 @@ def test_cli_run_creates_metrics(tmp_path: Path):
     df.to_csv(csv_path, index=False)
 
     out_dir = tmp_path / 'artifacts'
-    cli_run.callback(
+    cli_run(
         config_json=None,
         input_csv=str(csv_path),
         target_col='target',

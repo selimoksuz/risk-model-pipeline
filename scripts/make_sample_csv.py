@@ -13,18 +13,28 @@ a_pp = np.arange(100000, 100000 + n)
 months = pd.date_range('2023-01-01', periods=18, freq='MS')
 app_dt = rng.choice(months, size=n, replace=True)
 
+# Determine OOT mask early for drift simulation
+app_dt_series = pd.Series(app_dt)
+oot_mask = app_dt_series >= app_dt_series.max() - pd.offsets.MonthBegin(2)
+
 # numeric features (base)
 num1 = rng.normal(0, 1, size=n)
 num2 = rng.normal(0, 1.2, size=n)
 num3 = rng.gamma(shape=2.0, scale=0.8, size=n)
 
-# add correlated features
-# ~0.95 correlation with num1
+# add correlated features with different drift patterns
+# ~0.95 correlation with num1, but different drift in OOT
 num1_corr95 = num1 + rng.normal(0, 0.1, size=n)
-# ~0.7 correlation with num1
+# Add slight shift in OOT to create PSI difference
+num1_corr95[oot_mask.values] = num1_corr95[oot_mask.values] + rng.normal(0.1, 0.05, size=oot_mask.sum())
+
+# ~0.7 correlation with num1, stable across time
 num1_corr70 = 0.7*num1 + rng.normal(0, 0.714, size=n)
-# another strong correlation pair
+
+# another strong correlation pair with moderate shift
 num2_corr92 = num2 + rng.normal(0, 0.15, size=n)
+# Small shift in OOT  
+num2_corr92[oot_mask.values] = num2_corr92[oot_mask.values] + 0.2
 
 # additional numeric features (more realistic feature count)
 income = rng.lognormal(mean=10, sigma=0.5, size=n)  # income-like distribution
@@ -79,16 +89,22 @@ z = z + rng.normal(0, 0.5, size=n)
 prob = 1/(1 + np.exp(-z))
 target = rng.binomial(1, prob, size=n)
 
-# induce PSI shifts on selected variables for OOT (last 3 months)
-app_dt_series = pd.Series(app_dt)
-oot_mask = app_dt_series >= app_dt_series.max() - pd.offsets.MonthBegin(2)
-# numeric shift (increase mean in OOT)
+# Apply additional MODERATE shifts on selected variables for OOT (last 3 months)
+# SUBTLE numeric shift (moderate drift for realistic PSI)
 num3_shifted = num3.copy()
-num3_shifted[oot_mask.values] = num3_shifted[oot_mask.values] + 2.0
-# categorical distribution shift in OOT
+# Only 30% mean increase instead of +2.0 (too extreme)
+num3_shifted[oot_mask.values] = num3_shifted[oot_mask.values] + 0.3
+
+# SUBTLE categorical distribution shift in OOT  
 cat2_shifted = pd.Series(cat2).copy()
 mask = oot_mask.values
-cat2_shifted.loc[mask] = rng.choice(cat2_levels, p=np.array([0.10,0.20,0.68,0.02]), size=mask.sum())
+# Moderate shift: 0.40->0.30, 0.40->0.35, 0.18->0.33 (more realistic)
+cat2_shifted.loc[mask] = rng.choice(cat2_levels, p=np.array([0.30,0.35,0.33,0.02]), size=mask.sum())
+
+# Add moderate income drift (economic conditions change)
+income_shifted = income.copy()
+# 10% income increase in OOT months (economic growth)
+income_shifted[oot_mask.values] = income_shifted[oot_mask.values] * 1.1
 
 # introduce missingness per-feature (not all features missing in same row)
 miss_rate = 0.08  # slightly lower for larger dataset
@@ -105,7 +121,7 @@ mask_education = rng.random(n) < miss_rate*0.2  # education rarely missing
 num1[mask_num1] = np.nan
 num2[mask_num2] = np.nan
 num3_shifted[mask_num3] = np.nan
-income[mask_income] = np.nan
+income_shifted[mask_income] = np.nan
 credit_score[mask_credit] = np.nan
 
 cat1 = pd.Series(cat1)
@@ -128,7 +144,7 @@ features_df = pd.DataFrame({
     'num1_corr95': num1_corr95,
     'num1_corr70': num1_corr70,
     'num2_corr92': num2_corr92,
-    'income': income,
+    'income': income_shifted,
     'age': age,
     'debt_ratio': debt_ratio,
     'credit_score': credit_score,

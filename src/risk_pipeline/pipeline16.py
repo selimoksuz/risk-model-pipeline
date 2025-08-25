@@ -18,6 +18,8 @@ KullanÄ±m (Ã¶rnek en altta):
 """
 
 import os, sys, json, time, gc, warnings, uuid
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Tuple, Optional, Any
 
@@ -1207,6 +1209,8 @@ class RiskModelPipeline:
                     class_weight="balanced",
                     n_jobs=self.cfg.n_jobs,
                     random_state=self.cfg.random_state,
+                    verbosity=-1,  # Suppress warnings
+                    min_child_samples=10,  # Avoid overfitting warnings
                 ),
                 {
                     "n_estimators": [300, 500],
@@ -1217,7 +1221,7 @@ class RiskModelPipeline:
                 },
             ),
             "GAM": (
-                LogisticGAM(),
+                LogisticGAM(max_iter=200),  # Prevent convergence warnings
                 {"lam": np.logspace(-3, 3, 7)},
             ),
         }

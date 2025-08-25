@@ -299,12 +299,19 @@ class RiskModelPipeline:
             self.log_fh = open(self.cfg.log_file, "w", encoding="utf-8-sig")
 
     def _log(self, msg: str):
-        # Robust console print (avoid Unicode errors) and always write to file
+        # Robust console print with proper UTF-8 encoding for Turkish characters
         try:
-            print(msg)
+            print(msg, flush=True)
+        except UnicodeEncodeError:
+            try:
+                # Try UTF-8 encoding first
+                print(msg.encode('utf-8', errors='replace').decode('utf-8'), flush=True)
+            except Exception:
+                # Fallback to ASCII
+                print(str(msg).encode("ascii", "ignore").decode("ascii"), flush=True)
         except Exception:
             try:
-                print(str(msg).encode("ascii", "ignore").decode("ascii"))
+                print(str(msg), flush=True)
             except Exception:
                 pass
         if self.log_fh:

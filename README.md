@@ -1,17 +1,38 @@
-﻿# risk-model-pipeline
+# Risk Model Pipeline
 
-Production-ready scaffold for modular risk modelling (WOE -> PSI -> FS -> Model -> Calibration -> Report). Turkish-friendly logs and Excel report with rich sheets.
+A comprehensive risk modeling pipeline for credit scoring with WOE transformation, model calibration, and advanced reporting capabilities.
+
+## ✨ Key Features
+
+- **Multiple Input Methods**: CSV/Parquet files or pandas DataFrames
+- **6 ML Algorithms**: Logistic Regression, RandomForest, XGBoost, LightGBM, ExtraTrees, GAM
+- **Advanced Preprocessing**: WOE transformation, feature selection, correlation clustering
+- **Model Calibration**: Isotonic/sigmoid calibration support
+- **Mixed Target Scoring**: Handles records with/without targets separately
+- **Rich Reporting**: Excel reports with 15+ sheets including performance metrics, SHAP values
+- **Production Ready**: CLI interface, comprehensive logging, PSI monitoring
 
 ## Installation
 
+### Option 1: Install from GitHub
 ```bash
+pip install git+https://github.com/selimoksuz/risk-model-pipeline.git
+```
+
+### Option 2: Clone and Install Locally
+```bash
+git clone https://github.com/selimoksuz/risk-model-pipeline.git
+cd risk-model-pipeline
+
+# Create virtual environment (recommended)
 python -m venv .venv
+
 # Windows
-.venv\Scripts\python -m pip install -U pip
-.venv\Scripts\pip install -e .
-# Linux/macOS
+.venv\Scripts\activate
+# Linux/macOS  
 source .venv/bin/activate
-pip install -U pip
+
+# Install package
 pip install -e .
 ```
 
@@ -45,6 +66,96 @@ Example:
   --output-folder outputs ^
   --output-excel model_report.xlsx
 ```
+
+## Python/Notebook Usage
+
+### Quick Start with DataFrames
+
+```python
+import pandas as pd
+from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe
+
+# Prepare your data
+train_df = pd.DataFrame({
+    'app_id': range(1000),
+    'app_dt': pd.date_range('2024-01-01', periods=1000),
+    'target': np.random.binomial(1, 0.2, 1000),  # Binary target
+    'age': np.random.randint(18, 70, 1000),
+    'income': np.random.lognormal(10, 0.5, 1000),
+    # ... more features
+})
+
+# Optional: Calibration data as DataFrame (no CSV needed!)
+calibration_df = pd.DataFrame({
+    'app_id': range(2000, 2200),
+    'app_dt': pd.date_range('2024-06-01', periods=200),
+    'target': np.random.binomial(1, 0.25, 200),
+    # ... same features as training
+})
+
+# Run pipeline
+results = run_pipeline_from_dataframe(
+    df=train_df,
+    calibration_df=calibration_df,  # Optional DataFrame calibration
+    id_col="app_id",
+    time_col="app_dt",
+    target_col="target",
+    hpo_trials=30,
+    hpo_timeout_sec=300,
+    output_folder="outputs",
+    output_excel="model_report.xlsx"
+)
+
+print(f"Best Model: {results['best_model']}")
+print(f"Selected Features: {results['final_features']}")
+```
+
+### Scoring New Data
+
+```python
+from risk_pipeline.utils.scoring import score_data
+import joblib, json
+
+# Load model artifacts
+model = joblib.load('outputs/best_model_xxx.joblib')
+woe_mapping = json.load(open('outputs/woe_mapping_xxx.json'))
+final_features = json.load(open('outputs/final_vars_xxx.json'))
+
+# Prepare scoring data (can have mixed targets)
+scoring_df = pd.DataFrame({
+    'app_id': range(5000, 5500),
+    'app_dt': pd.date_range('2024-08-01', periods=500),
+    'target': [np.nan] * 300 + list(np.random.binomial(1, 0.3, 200)),  # 60% without target
+    # ... features
+})
+
+# Score
+results = score_data(
+    scoring_df=scoring_df,
+    model=model,
+    final_features=final_features,
+    woe_mapping=woe_mapping,
+    calibrator=None,  # Optional
+    training_scores=None  # Optional for PSI
+)
+
+print(f"Scored: {results['n_total']} records")
+print(f"With target: {results['n_with_target']} (performance metrics calculated)")
+print(f"Without target: {results['n_without_target']} (scores only)")
+if 'with_target' in results:
+    print(f"AUC: {results['with_target']['auc']:.3f}")
+```
+
+### Advanced Examples
+
+See [notebooks/usage_example.ipynb](notebooks/usage_example.ipynb) for:
+- Model training without calibration
+- Model training with calibration
+- Scoring with pre-trained models
+- Adding calibration to existing models
+- Batch scoring for large datasets
+- PSI monitoring over time
+- Custom model integration
 
 ### score
 Score an external dataset using the WOE mapping + final vars + best model. Reads F1 threshold from report if provided.

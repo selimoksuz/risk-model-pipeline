@@ -16,6 +16,8 @@ def run_pipeline_from_dataframe(
     output_excel: str = "model_report.xlsx",
     use_test_split: bool = True,
     oot_months: int = 3,
+    calibration_df: pd.DataFrame = None,  # NEW: DataFrame calibration support
+    calibration_data_path: str = None,  # Keep file path support too
     **kwargs
 ) -> dict:
     """
@@ -30,6 +32,8 @@ def run_pipeline_from_dataframe(
         output_excel: Excel report filename
         use_test_split: Whether to create internal TEST split
         oot_months: Number of months for OOT window
+        calibration_df: Optional calibration DataFrame
+        calibration_data_path: Optional calibration file path (CSV/parquet)
         **kwargs: Additional config parameters
         
     Returns:
@@ -45,6 +49,8 @@ def run_pipeline_from_dataframe(
         oot_window_months=oot_months,
         output_folder=output_folder,
         output_excel_path=output_excel,
+        calibration_df=calibration_df,  # Pass DataFrame if provided
+        calibration_data_path=calibration_data_path,  # Pass file path if provided
         **kwargs
     )
     

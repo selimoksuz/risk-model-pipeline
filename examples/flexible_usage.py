@@ -74,7 +74,7 @@ def train_with_calibration_example():
         'income': np.random.lognormal(10, 0.5, 1000)
     })
     
-    # Calibration data
+    # Calibration data as DataFrame (no CSV needed!)
     cal_df = pd.DataFrame({
         'app_id': range(2000, 2300),
         'app_dt': pd.date_range('2024-06-01', periods=300),
@@ -82,14 +82,13 @@ def train_with_calibration_example():
         'age': np.random.randint(18, 70, 300),
         'income': np.random.lognormal(10, 0.5, 300)
     })
-    cal_df.to_csv('temp_calibration.csv', index=False)
     
-    # Model + Kalibrasyon
+    # Model + Kalibrasyon (DataFrame support!)
     config = Config(
         id_col="app_id",
         time_col="app_dt",
         target_col="target",
-        calibration_data_path="temp_calibration.csv",  # Kalibrasyon AÇIK
+        calibration_df=cal_df,  # DataFrame directly! No CSV needed
         calibration_method="isotonic",
         hpo_trials=2,
         hpo_timeout_sec=10
@@ -100,10 +99,7 @@ def train_with_calibration_example():
     
     print(f"\nModel eğitildi ve kalibre edildi!")
     print(f"Calibrator: {hasattr(pipeline, 'calibrator_') and pipeline.calibrator_ is not None}")
-    
-    # Temizlik
-    if os.path.exists('temp_calibration.csv'):
-        os.remove('temp_calibration.csv')
+    print(f"Note: Calibration provided as DataFrame, no CSV file needed!")
     
     return pipeline, results
 

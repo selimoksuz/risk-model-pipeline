@@ -201,6 +201,7 @@ class Config:
     monotonic_enabled: bool = False
     # new thresholds & calibration
     calibration_data_path: Optional[str] = None
+    calibration_df: Optional[pd.DataFrame] = None  # NEW: DataFrame support
     calibration_method: str = "isotonic"
     iv_min: float = 0.02
     iv_high_flag: float = 0.50
@@ -444,7 +445,7 @@ class RiskModelPipeline:
             except Exception:
                 self.shap_summary_ = None
 
-        if self.cfg.calibration_data_path:
+        if self.cfg.calibration_data_path or self.cfg.calibration_df is not None:
             with Timer("14b) Kalibrasyon", self._log):
                 self._calibrate_model()
 
@@ -1041,17 +1042,28 @@ class RiskModelPipeline:
 
     # ----------------------- Calibration -----------------------
     def _calibrate_model(self):
-        path = self.cfg.calibration_data_path
-        if not path:
-            self.calibrator_ = None
-            return
-        try:
-            if str(path).lower().endswith(".parquet") or str(path).lower().endswith(".parq"):
-                cal_df = pd.read_parquet(path)
-            else:
-                cal_df = pd.read_csv(path)
-        except Exception as e:
-            self._log(f"   - calibration data load failed: {e}")
+        # Support both DataFrame and file path
+        cal_df = None
+        
+        # First check if DataFrame is provided
+        if self.cfg.calibration_df is not None:
+            cal_df = self.cfg.calibration_df.copy()
+            self._log(f"   - Using calibration DataFrame: {cal_df.shape}")
+        # Otherwise check for file path
+        elif self.cfg.calibration_data_path:
+            path = self.cfg.calibration_data_path
+            try:
+                if str(path).lower().endswith(".parquet") or str(path).lower().endswith(".parq"):
+                    cal_df = pd.read_parquet(path)
+                else:
+                    cal_df = pd.read_csv(path)
+                self._log(f"   - Loaded calibration data from {path}: {cal_df.shape}")
+            except Exception as e:
+                self._log(f"   - calibration data load failed: {e}")
+                self.calibrator_ = None
+                return
+        else:
+            # No calibration data provided
             self.calibrator_ = None
             return
         if self.cfg.id_col in cal_df.columns:

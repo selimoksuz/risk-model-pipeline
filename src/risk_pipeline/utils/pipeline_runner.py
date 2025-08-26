@@ -18,6 +18,8 @@ def run_pipeline_from_dataframe(
     oot_months: int = 3,
     calibration_df: pd.DataFrame = None,  # NEW: DataFrame calibration support
     calibration_data_path: str = None,  # Keep file path support too
+    data_dictionary_df: pd.DataFrame = None,  # DataFrame with alan_adi, alan_aciklamasi
+    data_dictionary_path: str = None,  # Excel file with variable descriptions
     **kwargs
 ) -> dict:
     """
@@ -34,6 +36,8 @@ def run_pipeline_from_dataframe(
         oot_months: Number of months for OOT window
         calibration_df: Optional calibration DataFrame
         calibration_data_path: Optional calibration file path (CSV/parquet)
+        data_dictionary_df: Optional DataFrame with alan_adi and alan_aciklamasi columns
+        data_dictionary_path: Optional Excel file with variable descriptions
         **kwargs: Additional config parameters
         
     Returns:
@@ -51,6 +55,8 @@ def run_pipeline_from_dataframe(
         output_excel_path=output_excel,
         calibration_df=calibration_df,  # Pass DataFrame if provided
         calibration_data_path=calibration_data_path,  # Pass file path if provided
+        data_dictionary_df=data_dictionary_df,  # Pass data dictionary DataFrame
+        data_dictionary_path=data_dictionary_path,  # Pass data dictionary path
         **kwargs
     )
     

@@ -214,6 +214,8 @@ class Config:
     # new thresholds & calibration
     calibration_data_path: Optional[str] = None
     calibration_df: Optional[pd.DataFrame] = None  # NEW: DataFrame support
+    data_dictionary_path: Optional[str] = None  # Path to Excel with variable descriptions
+    data_dictionary_df: Optional[pd.DataFrame] = None  # DataFrame with alan_adi, alan_aciklamasi columns
     calibration_method: str = "isotonic"
     iv_min: float = 0.02
     iv_high_flag: float = 0.50
@@ -325,6 +327,29 @@ class RiskModelPipeline:
                 except Exception:
                     pass
     def _activate(self, name: str): self.artifacts["active_steps"].append(name)
+    
+    def _load_data_dictionary(self) -> Dict[str, str]:
+        """Load data dictionary from DataFrame or Excel file"""
+        var_descriptions = {}
+        
+        # Try DataFrame first
+        if self.cfg.data_dictionary_df is not None:
+            df = self.cfg.data_dictionary_df
+            if 'alan_adi' in df.columns and 'alan_aciklamasi' in df.columns:
+                var_descriptions = dict(zip(df['alan_adi'], df['alan_aciklamasi']))
+                self._log(f"   - Data dictionary loaded from DataFrame: {len(var_descriptions)} variables")
+        
+        # Try file path
+        elif self.cfg.data_dictionary_path and os.path.exists(self.cfg.data_dictionary_path):
+            try:
+                df = pd.read_excel(self.cfg.data_dictionary_path)
+                if 'alan_adi' in df.columns and 'alan_aciklamasi' in df.columns:
+                    var_descriptions = dict(zip(df['alan_adi'], df['alan_aciklamasi']))
+                    self._log(f"   - Data dictionary loaded from {self.cfg.data_dictionary_path}: {len(var_descriptions)} variables")
+            except Exception as e:
+                self._log(f"   - Warning: Could not load data dictionary: {e}")
+        
+        return var_descriptions
 
     # ==================== ORCHESTRATED RUN ====================
     def run(self, df: pd.DataFrame):
@@ -1393,44 +1418,85 @@ class RiskModelPipeline:
         if bm is None or mdl is None:
             self.best_model_vars_df_ = None
         else:
+            # Load data dictionary for variable descriptions
+            var_descriptions = self._load_data_dictionary()
+            
             if hasattr(mdl, "coef_"):
                 coefs = mdl.coef_[0]
                 self.best_model_vars_df_ = pd.DataFrame({"variable": self.final_vars_, "coef_or_importance": coefs}) \
                     .assign(
                         sign=lambda d: np.sign(d["coef_or_importance"]).astype(int),
-                        variable_group=lambda d: d["variable"].map(lambda v: self.woe_map[v].var_type if v in self.woe_map else None)
+                        variable_group=lambda d: d["variable"].map(lambda v: self.woe_map[v].var_type if v in self.woe_map else None),
+                        description=lambda d: d["variable"].map(lambda v: var_descriptions.get(v, ""))
                     ).sort_values("coef_or_importance", key=lambda s: np.abs(s), ascending=False).reset_index(drop=True)
             elif hasattr(mdl, "feature_importances_"):
                 imps = mdl.feature_importances_
                 self.best_model_vars_df_ = pd.DataFrame({"variable": self.final_vars_, "coef_or_importance": imps}) \
                     .assign(
                         sign=lambda d: np.where(d["coef_or_importance"] >= 0, 1, -1),
-                        variable_group=lambda d: d["variable"].map(lambda v: self.woe_map[v].var_type if v in self.woe_map else None)
+                        variable_group=lambda d: d["variable"].map(lambda v: self.woe_map[v].var_type if v in self.woe_map else None),
+                        description=lambda d: d["variable"].map(lambda v: var_descriptions.get(v, ""))
                     ).sort_values("coef_or_importance", ascending=False).reset_index(drop=True)
             else:
                 self.best_model_vars_df_ = pd.DataFrame({"variable": self.final_vars_})
+                self.best_model_vars_df_["description"] = self.best_model_vars_df_["variable"].map(lambda v: var_descriptions.get(v, ""))
 
+        # Load data dictionary for WOE report
+        var_descriptions = self._load_data_dictionary()
+        
         w_rows = []
         for v in self.final_vars_:
             vw = self.woe_map[v]
+            var_rows = []
+            var_desc = var_descriptions.get(v, "")
+            
             if vw.var_type == "numeric":
                 for b in vw.numeric_bins:
-                    label = "MISSING" if (np.isnan(b.left) and np.isnan(b.right)) else f"[{b.left},{b.right})"
-                    w_rows.append({
-                        "variable": v, "variable_group": "numeric",
-                        "group": label, "values": label,
-                        "count": b.count, "event": b.event, "non_event": b.non_event,
-                        "event_rate": b.event_rate, "woe": b.woe
+                    if np.isnan(b.left) and np.isnan(b.right):
+                        label = "MISSING"
+                        bin_from = None
+                        bin_to = None
+                    else:
+                        label = f"[{b.left},{b.right})"
+                        bin_from = b.left
+                        bin_to = b.right
+                    
+                    var_rows.append({
+                        "variable": v, 
+                        "variable_description": var_desc,
+                        "variable_group": "numeric",
+                        "group": label, 
+                        "bin_from": bin_from,
+                        "bin_to": bin_to,
+                        "values": label,
+                        "count": b.count, 
+                        "event": b.event, 
+                        "non_event": b.non_event,
+                        "event_rate": b.event_rate, 
+                        "woe": b.woe
                     })
             else:
                 for g in vw.categorical_groups:
                     vals = g.label if g.label in ("MISSING", "OTHER") else "{"+",".join(map(str, g.members))+"}"
-                    w_rows.append({
-                        "variable": v, "variable_group": "categorical",
-                        "group": g.label, "values": vals,
-                        "count": g.count, "event": g.event, "non_event": g.non_event,
-                        "event_rate": g.event_rate, "woe": g.woe
+                    var_rows.append({
+                        "variable": v, 
+                        "variable_description": var_desc,
+                        "variable_group": "categorical",
+                        "group": g.label, 
+                        "bin_from": None,
+                        "bin_to": None,
+                        "values": vals,
+                        "count": g.count, 
+                        "event": g.event, 
+                        "non_event": g.non_event,
+                        "event_rate": g.event_rate, 
+                        "woe": g.woe
                     })
+            
+            # Sort by event_rate (default rate) for monotonic ordering
+            var_rows.sort(key=lambda x: x["event_rate"])
+            w_rows.extend(var_rows)
+        
         self.best_model_woe_df_ = pd.DataFrame(w_rows) if w_rows else None
 
         self.final_vars_df_ = pd.DataFrame({

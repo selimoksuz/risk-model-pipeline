@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# C extensions
+*.so
+
 # Distribution / packaging
 .Python
 build/
@@ -16,10 +19,17 @@ lib64/
 parts/
 sdist/
 var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-*.wheel
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
 
 # Installer logs
 pip-log.txt
@@ -41,33 +51,71 @@ coverage.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb_checkpoints/
 
-# PyCharm / VSCode
-.idea/
-.vscode/
-*.code-workspace
+# pyenv
+.python-version
 
-# macOS
-.DS_Store
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
 
 # mypy
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# local env
-.env
-.venv
-venv/
-ENV/
-env/
+# Pyre type checker
+.pyre/
 
-# generated data and outputs
-/data/*.csv
-/data/*.parquet
-/outputs/*
-/artifacts/*
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific
+outputs/
+outputs_*/
+test_output/
+test_outputs/
+test_*.py
 *.log
+*.pkl
+*.joblib
+monitor_report.json
+checkpoints/
+nul
+
+# Data files (keep only sample data)
+data/*.csv
+data/*.parquet
+data/*.xlsx
+!data/sample_*.csv
+!data/example_*.csv
+
+# Temporary notebooks
+notebooks/test_*.ipynb
+notebooks/outputs_*/
+notebooks/*.html
 
 # OS files
+.DS_Store
 Thumbs.db
+desktop.ini

@@ -1,16 +1,36 @@
-pandas>=2.2
-numpy>=1.26
-scikit-learn>=1.4
-xgboost>=2.0
-lightgbm>=4.3
-matplotlib>=3.8
-shap>=0.45
-typer>=0.12
-pydantic>=2.7
-pyyaml>=6.0
-openpyxl>=3.1
-XlsxWriter>=3.2
-psutil>=5.9
+# Core dependencies
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+
+# ML Libraries
+xgboost>=2.0.0
+lightgbm>=4.3.0
+pygam>=0.9.0
 boruta>=0.3
-pygam>=0.9
-optuna>=3.6
+
+# Model interpretation
+shap>=0.45.0
+
+# Data handling & Excel
+openpyxl>=3.1.0
+xlsxwriter>=3.2.0
+
+# Visualization
+matplotlib>=3.8.0
+
+# CLI & Config
+typer>=0.12.0
+pydantic>=2.7.0
+pyyaml>=6.0
+
+# Utilities
+joblib>=1.3.0
+psutil>=5.9.0
+
+# Optimization
+optuna>=3.6.0
+scipy>=1.12.0
+
+# Statistical analysis
+statsmodels>=0.14.0

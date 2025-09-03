@@ -1,235 +1,267 @@
 # Risk Model Pipeline
 
-A comprehensive risk modeling pipeline for credit scoring with WOE transformation, model calibration, and advanced reporting capabilities.
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ Key Features
+Production-ready risk modeling pipeline with dual approach: WOE (Weight of Evidence) transformation and raw variables processing. Designed for credit risk, fraud detection, and other binary classification problems in financial services.
 
-- **Multiple Input Methods**: CSV/Parquet files or pandas DataFrames
-- **6 ML Algorithms**: Logistic Regression, RandomForest, XGBoost, LightGBM, ExtraTrees, GAM
-- **Advanced Preprocessing**: WOE transformation, feature selection, correlation clustering
-- **Model Calibration**: Isotonic/sigmoid calibration support
-- **Mixed Target Scoring**: Handles records with/without targets separately
-- **Rich Reporting**: Excel reports with 15+ sheets including performance metrics, SHAP values
-- **Production Ready**: CLI interface, comprehensive logging, PSI monitoring
+## 🚀 Key Features
 
-## Installation
+### Dual Pipeline Architecture
+- **WOE Pipeline**: Interpretable models with binning and Weight of Evidence transformation
+- **Raw Pipeline**: High-performance models with automated imputation and outlier handling
+- Run both pipelines simultaneously for comprehensive model comparison
 
-### Option 1: Install from GitHub
-```bash
-pip install git+https://github.com/selimoksuz/risk-model-pipeline.git
-```
+### Advanced Risk Modeling
+- **Adaptive WOE Binning**: Intelligent binning with monotonic constraints
+- **PSI Monitoring**: Population Stability Index for drift detection  
+- **Feature Engineering**: Boruta selection, forward selection with 1SE rule
+- **Correlation Clustering**: Automatic handling of multicollinearity
+- **Model Calibration**: Isotonic/Platt calibration for probability adjustment
 
-### Option 2: Clone and Install Locally
+### Production Ready
+- **Multi-language Support**: Full UTF-8 support for Turkish and other languages
+- **Comprehensive Reporting**: Excel reports with WOE tables, model metrics, SHAP values
+- **Data Dictionary Integration**: Variable descriptions and business context
+- **Flexible Configuration**: YAML/JSON configuration with dataclass validation
+
+## 📦 Installation
+
+### From Source
 ```bash
 git clone https://github.com/selimoksuz/risk-model-pipeline.git
 cd risk-model-pipeline
-
-# Create virtual environment (recommended)
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-# Linux/macOS  
-source .venv/bin/activate
-
-# Install package
 pip install -e .
 ```
 
-## Commands
-
-### run16
-Train full pipeline from a CSV.
-
-Key options:
-- --input-csv: Path to input CSV (must include ID, time, target + features)
-- --id-col: ID column (default: app_id)
-- --time-col: Time column (default: app_dt)
-- --target-col: Binary target {0,1} (default: target)
-- --oot-months: OOT window in months (default: 3)
-- --use-test-split/--no-use-test-split: make internal TEST from pre-OOT months
-- --output-folder: output folder (default: outputs)
-- --output-excel: Excel report name (default: model_report.xlsx)
-- --log-file: optional custom log path; default is outputs/pipeline.log
-- --calibration-data: external CSV/Parquet for calibration
-- --calibration-method: isotonic|sigmoid (default: isotonic)
-- --score-data: external CSV/Parquet for scoring (PSI + metrics if target exists)
-- PSI/IV/Corr/FS knobs: --psi-threshold-feature, --psi-threshold-score, --rho-threshold, --vif-threshold, --iv-min, etc.
-
-Example:
+### Using pip
 ```bash
-.venv\Scripts\risk-pipeline run16 ^
-  --input-csv data\input.csv ^
-  --use-test-split ^
-  --calibration-data data\calibration.csv ^
-  --score-data data\score.csv ^
-  --output-folder outputs ^
-  --output-excel model_report.xlsx
+pip install -r requirements.txt
 ```
 
-## Python/Notebook Usage
-
-### Quick Start with DataFrames
+## 🎯 Quick Start
 
 ```python
+from risk_pipeline.pipeline16 import Config, RiskModelPipeline
 import pandas as pd
-from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe
 
-# Prepare your data
-train_df = pd.DataFrame({
-    'app_id': range(1000),
-    'app_dt': pd.date_range('2024-01-01', periods=1000),
-    'target': np.random.binomial(1, 0.2, 1000),  # Binary target
-    'age': np.random.randint(18, 70, 1000),
-    'income': np.random.lognormal(10, 0.5, 1000),
-    # ... more features
-})
+# Load your data
+df = pd.read_csv("your_data.csv")
 
-# Optional: Calibration data as DataFrame (no CSV needed!)
-calibration_df = pd.DataFrame({
-    'app_id': range(2000, 2200),
-    'app_dt': pd.date_range('2024-06-01', periods=200),
-    'target': np.random.binomial(1, 0.25, 200),
-    # ... same features as training
-})
+# Configure pipeline
+config = Config(
+    id_col='app_id',
+    time_col='app_dt', 
+    target_col='target',
+    
+    # Enable dual pipeline
+    enable_dual_pipeline=True,
+    
+    # Output settings
+    output_folder='outputs',
+    output_excel_path='risk_model_report.xlsx'
+)
 
 # Run pipeline
-results = run_pipeline_from_dataframe(
-    df=train_df,
-    calibration_df=calibration_df,  # Optional DataFrame calibration
-    id_col="app_id",
-    time_col="app_dt",
-    target_col="target",
-    hpo_trials=30,
-    hpo_timeout_sec=300,
-    output_folder="outputs",
-    output_excel="model_report.xlsx"
-)
+pipeline = RiskModelPipeline(config)
+pipeline.run(df)
 
-print(f"Best Model: {results['best_model']}")
-print(f"Selected Features: {results['final_features']}")
+# Export comprehensive reports
+pipeline.export_reports()
 ```
 
-### Scoring New Data
+## 📊 Pipeline Workflow
 
+```
+Data Input → Validation → Feature Classification → Missing Value Policy
+    ↓
+Time-based Split (Train/Test/OOT)
+    ↓
+    ├── WOE Pipeline
+    │   ├── Adaptive Binning
+    │   ├── WOE Transformation
+    │   ├── PSI Calculation
+    │   └── Feature Selection
+    │
+    └── Raw Pipeline (if enabled)
+        ├── Imputation (median/mean/mode)
+        ├── Outlier Handling (IQR/Z-score)
+        ├── Feature Scaling
+        └── Feature Selection
+    ↓
+Model Training (Logistic, RF, XGBoost, LightGBM, GAM)
+    ↓
+Model Evaluation & Selection
+    ↓
+Calibration (Optional)
+    ↓
+Comprehensive Reporting (Excel + Parquet)
+```
+
+## 🛠️ Configuration Options
+
+### Basic Configuration
 ```python
-from risk_pipeline.utils.scoring import score_data
-import joblib, json
-
-# Load model artifacts
-model = joblib.load('outputs/best_model_xxx.joblib')
-woe_mapping = json.load(open('outputs/woe_mapping_xxx.json'))
-final_features = json.load(open('outputs/final_vars_xxx.json'))
-
-# Prepare scoring data (can have mixed targets)
-scoring_df = pd.DataFrame({
-    'app_id': range(5000, 5500),
-    'app_dt': pd.date_range('2024-08-01', periods=500),
-    'target': [np.nan] * 300 + list(np.random.binomial(1, 0.3, 200)),  # 60% without target
-    # ... features
-})
-
-# Score
-results = score_data(
-    scoring_df=scoring_df,
-    model=model,
-    final_features=final_features,
-    woe_mapping=woe_mapping,
-    calibrator=None,  # Optional
-    training_scores=None  # Optional for PSI
+config = Config(
+    # Data columns
+    id_col='customer_id',
+    time_col='application_date',
+    target_col='default_flag',
+    
+    # Splitting strategy
+    use_test_split=True,
+    test_size_row_frac=0.2,
+    oot_window_months=3,
+    
+    # Feature engineering thresholds
+    rare_threshold=0.01,      # Minimum category frequency
+    psi_threshold=0.25,        # PSI stability threshold
+    iv_min=0.02,              # Minimum Information Value
+    rho_threshold=0.95,       # Correlation threshold
+    
+    # Model settings
+    cv_folds=5,
+    hpo_timeout_sec=600,
+    hpo_trials=50,
 )
-
-print(f"Scored: {results['n_total']} records")
-print(f"With target: {results['n_with_target']} (performance metrics calculated)")
-print(f"Without target: {results['n_without_target']} (scores only)")
-if 'with_target' in results:
-    print(f"AUC: {results['with_target']['auc']:.3f}")
 ```
 
-### Advanced Examples
+### Dual Pipeline Configuration
+```python
+config = Config(
+    # Enable dual pipeline
+    enable_dual_pipeline=True,
+    
+    # Raw pipeline settings
+    raw_imputation_strategy='median',  # median, mean, zero
+    raw_outlier_method='iqr',         # iqr, zscore, percentile
+    raw_outlier_threshold=1.5,        # IQR multiplier
+)
+```
 
-See [notebooks/usage_example.ipynb](notebooks/usage_example.ipynb) for:
-- Model training without calibration
-- Model training with calibration
-- Scoring with pre-trained models
-- Adding calibration to existing models
-- Batch scoring for large datasets
-- PSI monitoring over time
-- Custom model integration
+### Data Dictionary Support
+```python
+# Create data dictionary
+data_dict = pd.DataFrame([
+    {'alan_adi': 'income', 'alan_aciklamasi': 'Monthly income'},
+    {'alan_adi': 'age', 'alan_aciklamasi': 'Customer age'},
+])
 
-### score
-Score an external dataset using the WOE mapping + final vars + best model. Reads F1 threshold from report if provided.
+config = Config(
+    data_dictionary_df=data_dict,
+    # or from file
+    data_dictionary_path='data_dictionary.xlsx'
+)
+```
 
-Options:
-- --input-csv: CSV with features
-- --woe-mapping: outputs/woe_mapping_<run_id>.json
-- --final-vars-json: outputs/final_vars_<run_id>.json
-- --model-path: outputs/best_model_<run_id>.joblib
-- --report-xlsx: outputs/model_report.xlsx (to read thresholds F1)
-- --output-csv: output path for scores.csv
-- --calibrator-path: optional pickled calibrator
+## 📈 Model Outputs
 
-Example:
+### Excel Report Sheets
+- **models_summary**: All model performances with CV/Test/OOT metrics
+- **woe_mapping**: Complete WOE transformation tables
+- **psi_summary**: Feature-level PSI analysis
+- **best_model_vars**: Selected features with importance scores
+- **ks_info_[train/test/oot]**: KS tables and performance bands
+- **shap_summary**: SHAP-based feature importance
+- **run_meta**: Pipeline execution metadata
+
+### Metrics Provided
+- **Gini Coefficient**: Primary performance metric
+- **KS Statistic**: Kolmogorov-Smirnov with optimal threshold
+- **AUC-ROC**: Area under ROC curve
+- **PSI**: Population Stability Index
+- **IV**: Information Value per feature
+- **WOE**: Weight of Evidence per bin/category
+
+## 📂 Project Structure
+
+```
+risk-model-pipeline/
+├── src/
+│   └── risk_pipeline/
+│       ├── pipeline16.py      # Main pipeline orchestrator
+│       ├── stages.py          # Core pipeline stages
+│       ├── model/             # Model implementations
+│       ├── reporting/         # Report generation
+│       └── cli.py            # Command-line interface
+├── notebooks/
+│   ├── 00_master_end_to_end.ipynb    # Complete example
+│   ├── 01-05_simulation_*.ipynb      # Various scenarios
+│   ├── 06_realistic_gini_test.ipynb  # Performance testing
+│   └── 07_dual_pipeline_test.ipynb   # Dual pipeline demo
+├── tests/                     # Unit and integration tests
+├── examples/                  # Example configurations
+└── data/                     # Sample datasets
+```
+
+## 🔧 Advanced Usage
+
+### Custom Model Configuration
+```python
+# Modify model hyperparameter grids
+pipeline.models_config = {
+    "XGBoost": {
+        "n_estimators": [100, 300, 500],
+        "max_depth": [3, 5, 7],
+        "learning_rate": [0.01, 0.05, 0.1]
+    }
+}
+```
+
+### Scoring on New Data
+```python
+# Score new applications
+new_data = pd.read_csv("new_applications.csv")
+scores = pipeline.score(new_data)
+
+# With calibration
+calibrated_scores = pipeline.score(new_data, apply_calibration=True)
+```
+
+### Custom Feature Engineering
+```python
+# Add custom features before pipeline
+df['custom_feature'] = df['feature1'] / df['feature2']
+
+# Configure to keep custom features
+config.keep_custom_features = ['custom_feature']
+```
+
+## 🧪 Testing
+
+Run the test suite:
 ```bash
-.venv\Scripts\risk-pipeline score ^
-  --input-csv data\score.csv ^
-  --woe-mapping outputs\woe_mapping_<run_id>.json ^
-  --final-vars-json outputs\final_vars_<run_id>.json ^
-  --model-path outputs\best_model_<run_id>.joblib ^
-  --report-xlsx outputs\model_report.xlsx ^
-  --output-csv outputs\scores.csv
+pytest tests/
 ```
 
-## Report (Excel) sheets
-- models_summary: model family metrics across splits
-- best_model: selected best model row; best_name sheet has the name
-- psi_summary, psi_dropped_features: PSI screening results
-- ks_info_traincv, ks_info_test, ks_info_oot: KS bands/metrics
-- final_vars, best_model_vars_df, best_model_woe_df: selections and WOE details
-- woe_mapping: flattened WOE bins/groups
-- thresholds: OOT-based F1-optimal threshold (threshold, precision, recall, f1)
-- woe_bin_counts: per-variable WOE bin/group counts
-- external_scores: scored external dataset (if provided)
-- external_psi_features: Train vs external WOE-PSI per feature (if provided)
-- external_psi_score/external_metrics: score PSI and AUC/Gini/KS (if target exists)
-- run_meta: run configuration and meta
-
-## Logs
-- outputs/pipeline.log (UTF-8 BOM), Türkçe karakterler okunaklı; konsolda ASCII işaretler (>>, **, -).
-- Özet loglar: WOE bin/grup sayıları, corr cluster temsilcisi, FS sonrası sayı, F1-eşik bilgisi.
-
-## Notebook
-Bkz: `notebooks/GettingStarted.ipynb` — örnek uçtan uca kullanım (veri üret, pipeline, sheet’leri inceleme, skor üretme).
-
-## Sample data
+Run specific test scenarios:
 ```bash
-.venv\Scripts\python scripts\make_sample_csv.py
-# writes: data/input.csv, data/calibration.csv, data/score.csv
+python -m pytest tests/test_pipeline.py::test_dual_pipeline
 ```
 
-## Quickstart
+## 📝 License
 
-Windows:
-- `python -m venv .venv`
-- `.venv\Scripts\python -m pip install -U pip`
-- `.venv\Scripts\pip install -e .[dev]`
-- `.venv\Scripts\python scripts\make_sample_csv.py`
-- `.venv\Scripts\risk-pipeline run16 --input-csv data\input.csv --use-test-split --output-folder outputs --output-excel model_report.xlsx`
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Linux/macOS:
-- `python -m venv .venv && source .venv/bin/activate`
-- `pip install -U pip && pip install -e .[dev]`
-- `python scripts/make_sample_csv.py`
-- `risk-pipeline run16 --input-csv data/input.csv --use-test-split --output-folder outputs --output-excel model_report.xlsx`
+## 🤝 Contributing
 
-Notes:
-- Generated outputs under `outputs/` are git-ignored. Avoid committing artifacts.
-- For faster runs, tune `--hpo-trials`, `--hpo-timeout-sec`, `--shap-sample`.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Development
-- Tests: `pytest`
-- Lint/format: `flake8`, `black`, `isort`
-- Pre-commit hooks: `pre-commit install`
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## CI/CD
-- A minimal GitHub Actions workflow is provided under `.github/workflows/ci.yml` to run lint and tests on push/PR.
+## 📧 Contact
+
+Selim Oksuz - [GitHub](https://github.com/selimoksuz)
+
+Project Link: [https://github.com/selimoksuz/risk-model-pipeline](https://github.com/selimoksuz/risk-model-pipeline)
+
+## 🙏 Acknowledgments
+
+- Weight of Evidence methodology from credit risk literature
+- Boruta feature selection algorithm
+- SHAP for model interpretability
+- scikit-learn, XGBoost, LightGBM communities

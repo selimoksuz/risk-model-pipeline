@@ -213,9 +213,9 @@ class Config:
     monotonic_enabled: bool = False
     # new thresholds & calibration
     calibration_data_path: Optional[str] = None
-    calibration_df: Optional[pd.DataFrame] = None  # NEW: DataFrame support
+    calibration_df: Optional[pd.DataFrame] = field(default=None)  # NEW: DataFrame support
     data_dictionary_path: Optional[str] = None  # Path to Excel with variable descriptions
-    data_dictionary_df: Optional[pd.DataFrame] = None  # DataFrame with alan_adi, alan_aciklamasi columns
+    data_dictionary_df: Optional[pd.DataFrame] = field(default=None)  # DataFrame with alan_adi, alan_aciklamasi columns
     calibration_method: str = "isotonic"
     iv_min: float = 0.02
     iv_high_flag: float = 0.50

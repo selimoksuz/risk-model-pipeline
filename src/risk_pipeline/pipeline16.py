@@ -61,10 +61,7 @@ from sklearn.base import clone
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from pygam import LogisticGAM
-try:
-    from boruta import BorutaPy
-except ImportError:
-    BorutaPy = None  # Optional dependency
+from boruta import BorutaPy
 from .stages import fit_calibrator, apply_calibrator
 from .model.ensemble import soft_voting_ensemble
 from .reporting.shap_utils import compute_shap_values, summarize_shap
@@ -969,19 +966,16 @@ class RiskModelPipeline:
     # ----------------------- FS -----------------------
     def _feature_selection(self, X, y, candidate_vars, all_vars) -> List[str]:
         try:
-            if BorutaPy is not None:
-                rf = RandomForestClassifier(
-                    n_estimators=max(200, 100 * self.cfg.n_jobs),
-                    n_jobs=self.cfg.n_jobs,
-                    random_state=self.cfg.random_state,
-                    class_weight="balanced_subsample",
-                )
-                boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
-                boruta.fit(X[all_vars].values, y)
-                boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
-                self._log(f"   - Boruta: {len(boruta_vars)}/{len(all_vars)} kaldi")
-            else:
-                raise ImportError("Boruta not installed")
+            rf = RandomForestClassifier(
+                n_estimators=max(200, 100 * self.cfg.n_jobs),
+                n_jobs=self.cfg.n_jobs,
+                random_state=self.cfg.random_state,
+                class_weight="balanced_subsample",
+            )
+            boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
+            boruta.fit(X[all_vars].values, y)
+            boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
+            self._log(f"   - Boruta: {len(boruta_vars)}/{len(all_vars)} kaldi")
         except Exception as e:
             boruta_vars = candidate_vars or all_vars[:min(10, len(all_vars))]
             self._log("   - Boruta kullanilamadi, aday/kesit ile devam ediliyor")
@@ -1225,7 +1219,12 @@ class RiskModelPipeline:
 
     def _train_and_evaluate_models(self, Xtr, ytr, Xte, yte, Xoot, yoot):
         if not self.final_vars_:
-            self.final_vars_ = [Xtr.columns[0]]
+            if len(Xtr.columns) > 0:
+                self.final_vars_ = [Xtr.columns[0]]
+            else:
+                self._log("HATA: Model egitimi icin hic degisken bulunamadi!")
+                self.final_vars_ = []
+                return
         models = {
             "Logit_L2": (
                 LogisticRegression(solver="lbfgs", max_iter=1000, class_weight="balanced"),
@@ -1414,7 +1413,10 @@ class RiskModelPipeline:
     # ----------------------- Rapor tablolari + univariate top50 -----------------------
     def _build_report_tables(self, psi_keep: List[str]):
         iv_rows = [{"variable": v, "IV": self.woe_map[v].iv, "variable_group": self.woe_map[v].var_type} for v in psi_keep]
-        self.top20_iv_df_ = pd.DataFrame(iv_rows).sort_values("IV", ascending=False).head(20).reset_index(drop=True)
+        if iv_rows:
+            self.top20_iv_df_ = pd.DataFrame(iv_rows).sort_values("IV", ascending=False).head(20).reset_index(drop=True)
+        else:
+            self.top20_iv_df_ = pd.DataFrame(columns=["variable", "IV", "variable_group"])
         self.high_iv_flags_df_ = pd.DataFrame({"variable": self.high_iv_flags_}) if self.high_iv_flags_ else None
         self.iv_decisions_df_ = pd.DataFrame(self.iv_filter_log_)
         self.corr_dropped_df_ = pd.DataFrame(self.corr_dropped_)

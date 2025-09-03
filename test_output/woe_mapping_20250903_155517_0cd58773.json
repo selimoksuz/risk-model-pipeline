@@ -1,0 +1,38 @@
+{
+  "variables": {
+    "age": {
+      "type": "numeric",
+      "bins": [
+        {
+          "left": -Infinity,
+          "right": Infinity,
+          "woe": 0.0
+        }
+      ]
+    },
+    "income": {
+      "type": "numeric",
+      "bins": [
+        {
+          "left": -Infinity,
+          "right": Infinity,
+          "woe": 0.0
+        }
+      ]
+    },
+    "snapshot_month": {
+      "type": "categorical",
+      "groups": [
+        {
+          "label": "G_2023-01-01 00:00",
+          "members": [
+            "2023-01-01 00:00:00"
+          ],
+          "woe": 0.0
+        }
+      ]
+    }
+  },
+  "jeffreys_alpha": 0.5,
+  "run_id": "20250903_155517_0cd58773"
+}

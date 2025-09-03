@@ -1524,7 +1524,10 @@ class RiskModelPipeline:
                 auc = np.nan
             gini = 2 * auc - 1 if np.isfinite(auc) else np.nan
             rows.append({"variable": v, "AUC_uni": auc, "Gini_uni": gini})
-        self.top50_uni_ = pd.DataFrame(rows).sort_values("Gini_uni", ascending=False).head(50).reset_index(drop=True)
+        if rows:
+            self.top50_uni_ = pd.DataFrame(rows).sort_values("Gini_uni", ascending=False).head(50).reset_index(drop=True)
+        else:
+            self.top50_uni_ = pd.DataFrame(columns=["variable", "AUC_uni", "Gini_uni"])
 
     def _persist_artifacts(self, X_oot: Optional[pd.DataFrame], y_oot: Optional[np.ndarray]):
         os.makedirs(self.cfg.output_folder, exist_ok=True)

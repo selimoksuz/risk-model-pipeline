@@ -1166,7 +1166,7 @@ class RiskModelPipeline:
         selected = self._forward_1se_selection(X[boruta_vars], y, "KS", self.cfg.cv_folds)
         
         # Minimum değişken sayısı kontrolü (performans kaybını önlemek için)
-        min_features = 5
+        min_features = 3  # Reduced to 3 to ensure GAM can run
         if len(selected) < min_features and len(boruta_vars) >= min_features:
             # Çok az değişken seçildiyse, en iyi IV'lı değişkenleri ekle
             iv_scores = {}
@@ -1362,6 +1362,13 @@ class RiskModelPipeline:
         best_params = {}
         best_score = -np.inf
         skf = StratifiedKFold(n_splits=self.cfg.cv_folds, shuffle=True, random_state=self.cfg.random_state)
+        
+        # Special handling for GAM with low feature count
+        from pygam import LogisticGAM
+        if isinstance(base_estimator, LogisticGAM) and X.shape[1] < 3:
+            # Return base model without tuning for GAM with <3 features
+            self._log(f"   - GAM: Skipping HPO (only {X.shape[1]} features)")
+            return base_estimator
 
         if method == "optuna":
             try:
@@ -1500,6 +1507,10 @@ class RiskModelPipeline:
         ks_tables = {"traincv": None, "test": None, "oot": None}
         skf = StratifiedKFold(n_splits=self.cfg.cv_folds, shuffle=True, random_state=self.cfg.random_state)
         for name, (base_mdl, params) in models.items():
+            # Skip GAM if we have less than 3 features (GAM requires at least 3)
+            if name == "GAM" and len(self.final_vars_) < 3:
+                self._log(f"   - Skipping GAM (requires >=3 features, have {len(self.final_vars_)})")
+                continue
             print(f"[{now_str()}]   - {name} tuning{sys_metrics()}")
             mdl = self._hyperparameter_tune(base_mdl, params, Xtr[self.final_vars_], ytr)
             print(f"[{now_str()}]   - {name} CV basliyor{sys_metrics()}")

@@ -245,6 +245,11 @@ class Config:
     use_benchmarks: bool = True
     use_noise_sentinel: bool = True
     ks_bands: int = 10
+    # DUAL PIPELINE SETTINGS
+    enable_dual_pipeline: bool = False  # Enable dual pipeline (WOE + Raw)
+    raw_imputation_strategy: str = "median"  # Imputation for raw pipeline: median, mean, zero
+    raw_outlier_method: str = "iqr"  # Outlier method for raw pipeline: iqr, zscore, percentile
+    raw_outlier_threshold: float = 3.0  # Threshold for outlier removal
     # orchestrator & run id
     run_id: str = ""
     orchestrator: Orchestrator = field(default_factory=Orchestrator)  # <<< mutable default FIX
@@ -299,6 +304,17 @@ class RiskModelPipeline:
         self.confusion_oot_: Optional[pd.DataFrame] = None
         self.oot_scores_df_: Optional[pd.DataFrame] = None
 
+        # Dual pipeline attributes
+        self.raw_fit_params_: Optional[Dict] = None
+        self.raw_models_: Dict[str, Any] = {}
+        self.raw_models_summary_: Optional[pd.DataFrame] = None
+        self.raw_baseline_vars_: List[str] = []
+        self.raw_final_vars_: List[str] = []
+        self.woe_models_: Dict[str, Any] = {}
+        self.woe_models_summary_: Optional[pd.DataFrame] = None
+        self.woe_best_model_name_: Optional[str] = None
+        self.woe_final_vars_: List[str] = []
+
         self.cluster_reps_: List[str] = []; self.baseline_vars_: List[str] = []; self.final_vars_: List[str] = []
         self.high_iv_flags_: List[str] = []
         self.iv_filter_log_: List[Dict[str, Any]] = []
@@ -307,11 +323,16 @@ class RiskModelPipeline:
         self.calibrator_: Optional[Any] = None
         self.calibration_report_: Optional[Dict[str, Any]] = None
 
+        self.logger = self.setup_logger(cfg)
         self.log_fh = None
         if self.cfg.log_file:
             os.makedirs(os.path.dirname(self.cfg.log_file) or ".", exist_ok=True)
             # Use UTF-8 with BOM for better Windows Notepad compatibility
             self.log_fh = open(self.cfg.log_file, "w", encoding="utf-8-sig")
+    
+    def setup_logger(self, cfg: Config):
+        """Setup logger for the pipeline"""
+        return print  # Simple logger that uses print function
 
     def _log(self, msg: str):
         # Use safe_print for proper UTF-8 handling
@@ -451,10 +472,73 @@ class RiskModelPipeline:
         else:
             self.final_vars_ = pre_final
 
-        # Parsel 13 â€” Modelleme
+        # Parsel 13 â€" Modelleme
         if self.cfg.orchestrator.enable_model:
-            with Timer("13) Modelleme & degerlendirme", self._log):
+            with Timer("13) Modelleme & degerlendirme (WOE)", self._log):
                 self._train_and_evaluate_models(X_tr, y_tr, X_te, y_te, X_oot, y_oot)
+        
+        # DUAL PIPELINE: Run raw variable pipeline if enabled
+        if self.cfg.enable_dual_pipeline:
+            self._log("\n" + "="*80)
+            self._log("DUAL PIPELINE: RAW VARIABLES (Ham Degiskenler)")
+            self._log("="*80)
+            
+            # Store WOE results
+            self.woe_models_ = self.models_.copy()
+            self.woe_models_summary_ = self.models_summary_.copy() if self.models_summary_ is not None else None
+            self.woe_best_model_name_ = self.best_model_name_
+            self.woe_final_vars_ = self.final_vars_.copy() if self.final_vars_ else []
+            
+            # Prepare raw data
+            X_tr_raw = X_te_raw = X_oot_raw = None
+            with Timer("8b) Raw transform (Train/Test/OOT)", self._log):
+                # Use original features for raw pipeline
+                X_tr_raw, y_tr = self._transform_raw(self.df_.iloc[self.train_idx_], psi_keep)
+                if self.test_idx_ is not None and len(self.test_idx_)>0:
+                    X_te_raw, y_te = self._transform_raw(self.df_.iloc[self.test_idx_], psi_keep, 
+                                                         fit_params=self.raw_fit_params_)
+                X_oot_raw, y_oot = self._transform_raw(self.df_.iloc[self.oot_idx_], psi_keep, 
+                                                       fit_params=self.raw_fit_params_)
+                self._log(f"   - X_train_raw={X_tr_raw.shape}, X_test_raw={None if X_te_raw is None else X_te_raw.shape}, X_oot_raw={X_oot_raw.shape}")
+            
+            # Feature selection for raw pipeline
+            if self.cfg.orchestrator.enable_fs:
+                with Timer("10b) Feature selection RAW (Forward+1SE)", self._log):
+                    self.raw_baseline_vars_ = self._feature_selection(X_tr_raw, y_tr, psi_keep, psi_keep) or psi_keep[:min(5, len(psi_keep))]
+                    self._log(f"   - raw baseline degisken={len(self.raw_baseline_vars_)}")
+            else:
+                self.raw_baseline_vars_ = psi_keep
+            
+            # Final correlation filter for raw
+            raw_pre_final = self.raw_baseline_vars_
+            if self.cfg.orchestrator.enable_final_corr:
+                with Timer("11b) Nihai korelasyon filtresi RAW", self._log):
+                    raw_pre_final = self._final_corr_filter(X_tr_raw[self.raw_baseline_vars_], y_tr) or self.raw_baseline_vars_
+                    self._log(f"   - raw corr sonrasi={len(raw_pre_final)}")
+            
+            # Noise sentinel for raw
+            if self.cfg.orchestrator.enable_noise and self.cfg.use_noise_sentinel:
+                with Timer("12b) Gurultu sentineli RAW", self._log):
+                    self.raw_final_vars_ = self._noise_sentinel_check(X_tr_raw, y_tr, raw_pre_final) or raw_pre_final
+                    self._log(f"   - raw final degisken={len(self.raw_final_vars_)}")
+            else:
+                self.raw_final_vars_ = raw_pre_final
+            
+            # Clear models for raw pipeline
+            self.models_ = {}
+            self.final_vars_ = self.raw_final_vars_
+            
+            # Train raw models
+            if self.cfg.orchestrator.enable_model:
+                with Timer("13b) Modelleme & degerlendirme (RAW)", self._log):
+                    self._train_and_evaluate_models(X_tr_raw, y_tr, X_te_raw, y_te, X_oot_raw, y_oot)
+            
+            # Store raw results
+            self.raw_models_ = self.models_.copy()
+            self.raw_models_summary_ = self.models_summary_.copy() if self.models_summary_ is not None else None
+            
+            # Combine results from both pipelines
+            self._combine_dual_pipeline_results()
 
         # Parsel 14 â€” Best select
         if self.cfg.orchestrator.enable_best_select:
@@ -937,6 +1021,103 @@ class RiskModelPipeline:
             # Fallback: empty frame if mapping application fails
             X = pd.DataFrame(index=df.index, columns=keep_vars)
         y = df[self.cfg.target_col].values
+        return X, y
+    
+    # ----------------------- Raw Transform (for dual pipeline) -----------------------
+    def _transform_raw(self, df: pd.DataFrame, keep_vars: List[str], fit_params: Optional[Dict] = None) -> Tuple[pd.DataFrame, np.ndarray]:
+        """Transform data using raw variables with imputation and outlier handling"""
+        from sklearn.impute import SimpleImputer
+        from sklearn.preprocessing import StandardScaler
+        
+        # Select raw features
+        X = df[keep_vars].copy()
+        y = df[self.cfg.target_col].values
+        
+        # Separate numeric and categorical columns
+        numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_cols = X.select_dtypes(exclude=[np.number]).columns.tolist()
+        
+        if fit_params is None:
+            # Fit mode: learn imputation and outlier parameters
+            fit_params = {}
+            
+            # Impute numeric columns
+            if numeric_cols:
+                imputer = SimpleImputer(strategy=self.cfg.raw_imputation_strategy)
+                X_num_imputed = pd.DataFrame(
+                    imputer.fit_transform(X[numeric_cols]),
+                    columns=numeric_cols,
+                    index=X.index
+                )
+                fit_params['numeric_imputer'] = imputer
+                
+                # Handle outliers
+                if self.cfg.raw_outlier_method == "iqr":
+                    Q1 = X_num_imputed.quantile(0.25)
+                    Q3 = X_num_imputed.quantile(0.75)
+                    IQR = Q3 - Q1
+                    lower_bound = Q1 - self.cfg.raw_outlier_threshold * IQR
+                    upper_bound = Q3 + self.cfg.raw_outlier_threshold * IQR
+                    fit_params['outlier_bounds'] = (lower_bound, upper_bound)
+                    X_num_imputed = X_num_imputed.clip(lower=lower_bound, upper=upper_bound, axis=1)
+                elif self.cfg.raw_outlier_method == "zscore":
+                    scaler = StandardScaler()
+                    X_scaled = scaler.fit_transform(X_num_imputed)
+                    fit_params['scaler'] = scaler
+                    X_scaled = np.clip(X_scaled, -self.cfg.raw_outlier_threshold, self.cfg.raw_outlier_threshold)
+                    X_num_imputed = pd.DataFrame(
+                        scaler.inverse_transform(X_scaled),
+                        columns=numeric_cols,
+                        index=X.index
+                    )
+                elif self.cfg.raw_outlier_method == "percentile":
+                    lower_p = 1
+                    upper_p = 99
+                    lower_bound = X_num_imputed.quantile(lower_p/100)
+                    upper_bound = X_num_imputed.quantile(upper_p/100)
+                    fit_params['outlier_bounds'] = (lower_bound, upper_bound)
+                    X_num_imputed = X_num_imputed.clip(lower=lower_bound, upper=upper_bound, axis=1)
+                
+                X[numeric_cols] = X_num_imputed
+            
+            # Impute categorical columns (mode)
+            if categorical_cols:
+                for col in categorical_cols:
+                    mode_val = X[col].mode()[0] if not X[col].mode().empty else "MISSING"
+                    fit_params[f'mode_{col}'] = mode_val
+                    X[col] = X[col].fillna(mode_val)
+            
+            self.raw_fit_params_ = fit_params
+        else:
+            # Transform mode: use learned parameters
+            if numeric_cols and 'numeric_imputer' in fit_params:
+                X_num_imputed = pd.DataFrame(
+                    fit_params['numeric_imputer'].transform(X[numeric_cols]),
+                    columns=numeric_cols,
+                    index=X.index
+                )
+                
+                # Apply outlier clipping
+                if 'outlier_bounds' in fit_params:
+                    lower_bound, upper_bound = fit_params['outlier_bounds']
+                    X_num_imputed = X_num_imputed.clip(lower=lower_bound, upper=upper_bound, axis=1)
+                elif 'scaler' in fit_params:
+                    X_scaled = fit_params['scaler'].transform(X_num_imputed)
+                    X_scaled = np.clip(X_scaled, -self.cfg.raw_outlier_threshold, self.cfg.raw_outlier_threshold)
+                    X_num_imputed = pd.DataFrame(
+                        fit_params['scaler'].inverse_transform(X_scaled),
+                        columns=numeric_cols,
+                        index=X.index
+                    )
+                
+                X[numeric_cols] = X_num_imputed
+            
+            # Apply categorical imputation
+            if categorical_cols:
+                for col in categorical_cols:
+                    if f'mode_{col}' in fit_params:
+                        X[col] = X[col].fillna(fit_params[f'mode_{col}'])
+        
         return X, y
 
     # ----------------------- Corr & cluster -----------------------
@@ -1423,6 +1604,47 @@ class RiskModelPipeline:
             ks_tables["test"],
             ks_tables["oot"],
         )
+    
+    def _combine_dual_pipeline_results(self):
+        """Combine results from both WOE and RAW pipelines"""
+        if not self.cfg.enable_dual_pipeline:
+            return
+        
+        # Combine model summaries
+        if self.woe_models_summary_ is not None and self.raw_models_summary_ is not None:
+            woe_summary = self.woe_models_summary_.copy()
+            woe_summary['pipeline'] = 'WOE'
+            woe_summary['model_name'] = woe_summary['model_name'].apply(lambda x: f"WOE_{x}")
+            
+            raw_summary = self.raw_models_summary_.copy()
+            raw_summary['pipeline'] = 'RAW'
+            raw_summary['model_name'] = raw_summary['model_name'].apply(lambda x: f"RAW_{x}")
+            
+            self.models_summary_ = pd.concat([woe_summary, raw_summary], ignore_index=True)
+            
+            # Combine models
+            combined_models = {}
+            for name, model in self.woe_models_.items():
+                combined_models[f"WOE_{name}"] = model
+            for name, model in self.raw_models_.items():
+                combined_models[f"RAW_{name}"] = model
+            self.models_ = combined_models
+            
+            # Log summary
+            self._log("\n" + "="*80)
+            self._log("DUAL PIPELINE SUMMARY")
+            self._log("="*80)
+            self._log(f"WOE Pipeline: {len(self.woe_final_vars_)} variables, {len(self.woe_models_)} models")
+            self._log(f"RAW Pipeline: {len(self.raw_final_vars_)} variables, {len(self.raw_models_)} models")
+            
+            # Best models from each pipeline
+            if self.woe_models_summary_ is not None and not self.woe_models_summary_.empty:
+                best_woe = self.woe_models_summary_.nlargest(1, 'Gini_OOT').iloc[0]
+                self._log(f"Best WOE Model: {best_woe['model_name']} - Gini OOT: {best_woe['Gini_OOT']:.4f}")
+            
+            if self.raw_models_summary_ is not None and not self.raw_models_summary_.empty:
+                best_raw = self.raw_models_summary_.nlargest(1, 'Gini_OOT').iloc[0]
+                self._log(f"Best RAW Model: {best_raw['model_name']} - Gini OOT: {best_raw['Gini_OOT']:.4f}")
 
     def _select_best_model(self):
         df=self.models_summary_

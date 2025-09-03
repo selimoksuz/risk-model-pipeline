@@ -61,7 +61,10 @@ from sklearn.base import clone
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from pygam import LogisticGAM
-from boruta import BorutaPy
+try:
+    from boruta import BorutaPy
+except ImportError:
+    BorutaPy = None  # Optional dependency
 from .stages import fit_calibrator, apply_calibrator
 from .model.ensemble import soft_voting_ensemble
 from .reporting.shap_utils import compute_shap_values, summarize_shap
@@ -966,16 +969,19 @@ class RiskModelPipeline:
     # ----------------------- FS -----------------------
     def _feature_selection(self, X, y, candidate_vars, all_vars) -> List[str]:
         try:
-            rf = RandomForestClassifier(
-                n_estimators=max(200, 100 * self.cfg.n_jobs),
-                n_jobs=self.cfg.n_jobs,
-                random_state=self.cfg.random_state,
-                class_weight="balanced_subsample",
-            )
-            boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
-            boruta.fit(X[all_vars].values, y)
-            boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
-            self._log(f"   - Boruta: {len(boruta_vars)}/{len(all_vars)} kaldi")
+            if BorutaPy is not None:
+                rf = RandomForestClassifier(
+                    n_estimators=max(200, 100 * self.cfg.n_jobs),
+                    n_jobs=self.cfg.n_jobs,
+                    random_state=self.cfg.random_state,
+                    class_weight="balanced_subsample",
+                )
+                boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
+                boruta.fit(X[all_vars].values, y)
+                boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
+                self._log(f"   - Boruta: {len(boruta_vars)}/{len(all_vars)} kaldi")
+            else:
+                raise ImportError("Boruta not installed")
         except Exception as e:
             boruta_vars = candidate_vars or all_vars[:min(10, len(all_vars))]
             self._log("   - Boruta kullanilamadi, aday/kesit ile devam ediliyor")

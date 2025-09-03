@@ -980,8 +980,28 @@ class RiskModelPipeline:
             boruta_vars = candidate_vars or all_vars[:min(10, len(all_vars))]
             self._log("   - Boruta kullanilamadi, aday/kesit ile devam ediliyor")
         if not boruta_vars:
-            boruta_vars = all_vars[:min(10, len(all_vars))]
+            # Boruta başarısız olursa daha fazla değişken bırak
+            boruta_vars = all_vars[:min(20, len(all_vars))]  # 10'dan 20'ye çıkarıldı
         selected = self._forward_1se_selection(X[boruta_vars], y, "KS", self.cfg.cv_folds)
+        
+        # Minimum değişken sayısı kontrolü (performans kaybını önlemek için)
+        min_features = 5
+        if len(selected) < min_features and len(boruta_vars) >= min_features:
+            # Çok az değişken seçildiyse, en iyi IV'lı değişkenleri ekle
+            iv_scores = {}
+            for var in boruta_vars:
+                if var not in selected and var in self.woe_map:
+                    iv_scores[var] = self.woe_map[var].iv
+            
+            # IV'ye göre sırala ve eksik değişkenleri ekle
+            sorted_vars = sorted(iv_scores.items(), key=lambda x: x[1], reverse=True)
+            for var, iv in sorted_vars:
+                if len(selected) < min_features:
+                    selected.append(var)
+                else:
+                    break
+            self._log(f"   - Minimum {min_features} değişken için eklendi")
+        
         self._log(f"   - Forward+1SE secti: {len(selected)}")
         gc.collect()
         return selected

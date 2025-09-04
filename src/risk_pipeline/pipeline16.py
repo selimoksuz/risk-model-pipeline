@@ -1029,29 +1029,57 @@ class RiskModelPipeline:
 
     # ----------------------- Transform -----------------------
     def _transform(self, df: pd.DataFrame, keep_vars: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
-        # Build a lightweight mapping from in-memory woe_map, then delegate to stages.apply_woe
-        mapping = {"variables": {}}
+        # Apply WoE transformation directly without relying on stages module
+        X = pd.DataFrame(index=df.index)
+        
         for v in keep_vars:
             vw = self.woe_map.get(v)
             if vw is None:
+                # If variable not in WoE map, skip it
                 continue
-            if vw.var_type == "numeric":
-                mapping["variables"][v] = {
-                    "type": "numeric",
-                    "bins": [{"left": b.left, "right": b.right, "woe": b.woe} for b in (vw.numeric_bins or [])],
-                }
-            else:
-                mapping["variables"][v] = {
-                    "type": "categorical",
-                    "groups": [{"label": g.label, "members": list(map(str, g.members)), "woe": g.woe} for g in (vw.categorical_groups or [])],
-                }
-        try:
-            from .stages import apply_woe as _apply_woe
-            X_all = _apply_woe(df, mapping)
-            X = X_all[[c for c in keep_vars if c in X_all.columns]].copy()
-        except Exception:
-            # Fallback: empty frame if mapping application fails
-            X = pd.DataFrame(index=df.index, columns=keep_vars)
+                
+            if vw.var_type == "numeric" and vw.numeric_bins:
+                # Apply numeric WoE transformation
+                woe_values = pd.Series(index=df.index, dtype=float)
+                col_data = df[v].copy()
+                
+                # Handle missing values
+                missing_mask = col_data.isna()
+                woe_values[missing_mask] = 0.0  # Default WoE for missing
+                
+                # Apply WoE for each bin
+                for bin_info in vw.numeric_bins:
+                    if bin_info.left == -np.inf:
+                        mask = (~missing_mask) & (col_data <= bin_info.right)
+                    elif bin_info.right == np.inf:
+                        mask = (~missing_mask) & (col_data > bin_info.left)
+                    else:
+                        mask = (~missing_mask) & (col_data > bin_info.left) & (col_data <= bin_info.right)
+                    woe_values[mask] = bin_info.woe
+                    
+                X[v] = woe_values
+                
+            elif vw.var_type == "categorical" and vw.categorical_groups:
+                # Apply categorical WoE transformation
+                woe_values = pd.Series(index=df.index, dtype=float)
+                col_data = df[v].copy()
+                
+                # Default WoE for unseen categories
+                woe_values[:] = 0.0
+                
+                # Apply WoE for each group
+                for group_info in vw.categorical_groups:
+                    if group_info.members:
+                        mask = col_data.isin(group_info.members)
+                        woe_values[mask] = group_info.woe
+                        
+                X[v] = woe_values
+        
+        # Ensure all keep_vars are in X (fill with 0 if missing)
+        for v in keep_vars:
+            if v not in X.columns:
+                X[v] = 0.0
+                
         y = safe_values_to_numpy(df[self.cfg.target_col])
         return X, y
     

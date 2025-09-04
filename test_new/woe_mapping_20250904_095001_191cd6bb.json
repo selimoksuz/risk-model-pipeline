@@ -1,0 +1,282 @@
+{
+  "risk_score": {
+    "variable": "risk_score",
+    "var_type": "numeric",
+    "iv": 2.5712434520354384,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "numeric_bins": [
+      {
+        "left": -Infinity,
+        "right": 0.10543759663899739,
+        "woe": 4.0,
+        "event_count": 19,
+        "nonevent_count": -120,
+        "event_rate": -0.195,
+        "iv_contrib": 0.26666524657269197
+      },
+      {
+        "left": 0.10543759663899739,
+        "right": 0.15617618958155313,
+        "woe": 4.0,
+        "event_count": 18,
+        "nonevent_count": -119,
+        "event_rate": -0.185,
+        "iv_contrib": 0.26021801992746874
+      },
+      {
+        "left": 0.15617618958155313,
+        "right": 0.1972597241401672,
+        "woe": 4.0,
+        "event_count": 20,
+        "nonevent_count": -121,
+        "event_rate": -0.205,
+        "iv_contrib": 0.2731124732179152
+      },
+      {
+        "left": 0.1972597241401672,
+        "right": 0.23976371188958484,
+        "woe": 4.0,
+        "event_count": 18,
+        "nonevent_count": -118,
+        "event_rate": -0.18686868686868688,
+        "iv_contrib": 0.2588085766575603
+      },
+      {
+        "left": 0.23976371188958484,
+        "right": 0.28892165422439575,
+        "woe": 4.0,
+        "event_count": 25,
+        "nonevent_count": -126,
+        "event_rate": -0.255,
+        "iv_contrib": 0.3053486064440314
+      },
+      {
+        "left": 0.28892165422439575,
+        "right": 0.33806416392326355,
+        "woe": 4.0,
+        "event_count": 27,
+        "nonevent_count": -128,
+        "event_rate": -0.275,
+        "iv_contrib": 0.318243059734478
+      },
+      {
+        "left": 0.33806416392326355,
+        "right": 0.40373332301775616,
+        "woe": 4.0,
+        "event_count": 24,
+        "nonevent_count": -124,
+        "event_rate": -0.2474747474747475,
+        "iv_contrib": 0.2974919365288998
+      },
+      {
+        "left": 0.40373332301775616,
+        "right": 0.4924542009830473,
+        "woe": 4.0,
+        "event_count": 25,
+        "nonevent_count": -126,
+        "event_rate": -0.255,
+        "iv_contrib": 0.3053486064440314
+      },
+      {
+        "left": 0.4924542009830473,
+        "right": Infinity,
+        "woe": 4.0,
+        "event_count": 22,
+        "nonevent_count": -123,
+        "event_rate": -0.225,
+        "iv_contrib": 0.2860069265083617
+      }
+    ]
+  },
+  "payment_score": {
+    "variable": "payment_score",
+    "var_type": "numeric",
+    "iv": 2.5712434520354384,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "numeric_bins": [
+      {
+        "left": -Infinity,
+        "right": 0.33777692914009094,
+        "woe": 4.0,
+        "event_count": 18,
+        "nonevent_count": -119,
+        "event_rate": -0.185,
+        "iv_contrib": 0.26021801992746874
+      },
+      {
+        "left": 0.33777692914009094,
+        "right": 0.4227012097835541,
+        "woe": 4.0,
+        "event_count": 26,
+        "nonevent_count": -127,
+        "event_rate": -0.265,
+        "iv_contrib": 0.3117958330892547
+      },
+      {
+        "left": 0.4227012097835541,
+        "right": 0.4892020523548126,
+        "woe": 4.0,
+        "event_count": 24,
+        "nonevent_count": -125,
+        "event_rate": -0.245,
+        "iv_contrib": 0.29890137979880815
+      },
+      {
+        "left": 0.4892020523548126,
+        "right": 0.5576621890068054,
+        "woe": 4.0,
+        "event_count": 16,
+        "nonevent_count": -116,
+        "event_rate": -0.16666666666666666,
+        "iv_contrib": 0.24591412336711382
+      },
+      {
+        "left": 0.5576621890068054,
+        "right": 0.632771631081899,
+        "woe": 4.0,
+        "event_count": 21,
+        "nonevent_count": -122,
+        "event_rate": -0.215,
+        "iv_contrib": 0.27955969986313844
+      },
+      {
+        "left": 0.632771631081899,
+        "right": 0.6982380747795103,
+        "woe": 4.0,
+        "event_count": 28,
+        "nonevent_count": -129,
+        "event_rate": -0.285,
+        "iv_contrib": 0.3246902863797012
+      },
+      {
+        "left": 0.6982380747795103,
+        "right": 0.7602204283078511,
+        "woe": 4.0,
+        "event_count": 19,
+        "nonevent_count": -119,
+        "event_rate": -0.19696969696969696,
+        "iv_contrib": 0.26525580330278353
+      },
+      {
+        "left": 0.7602204283078511,
+        "right": 0.8379215002059937,
+        "woe": 4.0,
+        "event_count": 30,
+        "nonevent_count": -131,
+        "event_rate": -0.305,
+        "iv_contrib": 0.3375847396701477
+      },
+      {
+        "left": 0.8379215002059937,
+        "right": Infinity,
+        "woe": 4.0,
+        "event_count": 16,
+        "nonevent_count": -117,
+        "event_rate": -0.165,
+        "iv_contrib": 0.2473235666370222
+      }
+    ]
+  },
+  "debt_ratio": {
+    "variable": "debt_ratio",
+    "var_type": "numeric",
+    "iv": 2.571243452035438,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "numeric_bins": [
+      {
+        "left": -Infinity,
+        "right": 0.15625488261381784,
+        "woe": 4.0,
+        "event_count": 20,
+        "nonevent_count": -121,
+        "event_rate": -0.205,
+        "iv_contrib": 0.2731124732179152
+      },
+      {
+        "left": 0.15625488261381784,
+        "right": 0.2190432051817576,
+        "woe": 4.0,
+        "event_count": 22,
+        "nonevent_count": -123,
+        "event_rate": -0.225,
+        "iv_contrib": 0.2860069265083617
+      },
+      {
+        "left": 0.2190432051817576,
+        "right": 0.2837667763233185,
+        "woe": 4.0,
+        "event_count": 24,
+        "nonevent_count": -125,
+        "event_rate": -0.245,
+        "iv_contrib": 0.29890137979880815
+      },
+      {
+        "left": 0.2837667763233185,
+        "right": 0.3425499399503072,
+        "woe": 4.0,
+        "event_count": 18,
+        "nonevent_count": -118,
+        "event_rate": -0.18686868686868688,
+        "iv_contrib": 0.2588085766575603
+      },
+      {
+        "left": 0.3425499399503072,
+        "right": 0.4032421112060547,
+        "woe": 4.0,
+        "event_count": 22,
+        "nonevent_count": -123,
+        "event_rate": -0.225,
+        "iv_contrib": 0.2860069265083617
+      },
+      {
+        "left": 0.4032421112060547,
+        "right": 0.4741109907627105,
+        "woe": 4.0,
+        "event_count": 26,
+        "nonevent_count": -127,
+        "event_rate": -0.265,
+        "iv_contrib": 0.3117958330892547
+      },
+      {
+        "left": 0.4741109907627105,
+        "right": 0.5538947979609171,
+        "woe": 4.0,
+        "event_count": 20,
+        "nonevent_count": -120,
+        "event_rate": -0.20707070707070707,
+        "iv_contrib": 0.2717030299480068
+      },
+      {
+        "left": 0.5538947979609171,
+        "right": 0.6470051606496176,
+        "woe": 4.0,
+        "event_count": 24,
+        "nonevent_count": -125,
+        "event_rate": -0.245,
+        "iv_contrib": 0.29890137979880815
+      },
+      {
+        "left": 0.6470051606496176,
+        "right": Infinity,
+        "woe": 4.0,
+        "event_count": 22,
+        "nonevent_count": -123,
+        "event_rate": -0.225,
+        "iv_contrib": 0.2860069265083617
+      }
+    ]
+  },
+  "snapshot_month": {
+    "variable": "snapshot_month",
+    "var_type": "categorical",
+    "iv": 2.6093410231422065,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "categorical_groups": [
+      {
+        "label": "2022-01-01 00:00:00",
+        "members": [
+          

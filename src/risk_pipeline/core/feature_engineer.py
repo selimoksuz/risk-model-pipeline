@@ -277,31 +277,68 @@ class FeatureEngineer:
             vw = self.woe_map[var]
             x = df[var] if var in df.columns else pd.Series(index=df.index)
             
-            # Initialize with missing WOE
-            woe_values = pd.Series(
-                vw.missing_woe if vw.missing_woe else 0.0,
-                index=df.index
-            )
+            # Initialize with 0.0 (will be overwritten for valid values)
+            woe_values = pd.Series(0.0, index=df.index)
             
             if vw.var_type == "numeric" and vw.numeric_bins:
                 # Apply numeric bins
                 x_numeric = pd.to_numeric(x, errors='coerce')
                 
+                # Find missing WOE if exists
+                missing_woe = 0.0
                 for bin_obj in vw.numeric_bins:
+                    # Check if this is the missing bin (both left and right are NaN)
+                    if hasattr(bin_obj, 'left') and hasattr(bin_obj, 'right'):
+                        if pd.isna(bin_obj.left) and pd.isna(bin_obj.right):
+                            missing_woe = bin_obj.woe
+                            break
+                
+                # Apply missing WOE
+                missing_mask = pd.isna(x_numeric)
+                woe_values[missing_mask] = missing_woe
+                
+                # Apply WOE for non-missing values
+                for bin_obj in vw.numeric_bins:
+                    # Skip missing bin
+                    if hasattr(bin_obj, 'left') and hasattr(bin_obj, 'right'):
+                        if pd.isna(bin_obj.left) and pd.isna(bin_obj.right):
+                            continue
+                    
                     if bin_obj.left == -np.inf:
-                        mask = x_numeric <= bin_obj.right
+                        mask = (~missing_mask) & (x_numeric <= bin_obj.right)
                     elif bin_obj.right == np.inf:
-                        mask = x_numeric > bin_obj.left
+                        mask = (~missing_mask) & (x_numeric > bin_obj.left)
                     else:
-                        mask = (x_numeric > bin_obj.left) & (x_numeric <= bin_obj.right)
+                        mask = (~missing_mask) & (x_numeric > bin_obj.left) & (x_numeric <= bin_obj.right)
                     
                     woe_values[mask] = bin_obj.woe
                     
             elif vw.var_type == "categorical" and vw.categorical_groups:
-                # Apply categorical groups
+                # Find special groups
+                other_woe = 0.0
+                missing_woe = 0.0
+                
                 for group in vw.categorical_groups:
-                    mask = x.isin(group.members)
-                    woe_values[mask] = group.woe
+                    if hasattr(group, 'label'):
+                        if group.label == "OTHER":
+                            other_woe = group.woe
+                        elif group.label == "MISSING":
+                            missing_woe = group.woe
+                
+                # Apply missing WOE
+                missing_mask = pd.isna(x)
+                woe_values[missing_mask] = missing_woe
+                
+                # Set default for unseen categories (OTHER)
+                woe_values[~missing_mask] = other_woe
+                
+                # Apply categorical groups for known values
+                for group in vw.categorical_groups:
+                    if hasattr(group, 'label') and group.label in ["OTHER", "MISSING"]:
+                        continue
+                    if hasattr(group, 'members') and group.members:
+                        mask = x.isin(group.members)
+                        woe_values[mask] = group.woe
             
             result[var] = woe_values
         

@@ -95,7 +95,11 @@ outputs/
 outputs_*/
 test_output/
 test_outputs/
+test_*/
 test_*.py
+quick_test.py
+compare_*.py
+REFACTOR_PLAN.md
 *.log
 *.pkl
 *.joblib

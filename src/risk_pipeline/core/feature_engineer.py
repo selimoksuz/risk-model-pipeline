@@ -67,7 +67,7 @@ class FeatureEngineer:
                     min_share=0.02,
                     max_share=0.98,
                     alpha=getattr(self.cfg, 'jeffreys_alpha', 0.5),
-                    max_abs_woe=getattr(self.cfg, 'max_abs_woe', 4.0),
+                    max_abs_woe=getattr(self.cfg, 'max_abs_woe', None),
                     monotonic=getattr(self.cfg, 'woe_monotonic', False)
                 )
             else:

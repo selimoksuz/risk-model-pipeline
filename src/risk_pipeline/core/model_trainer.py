@@ -54,8 +54,8 @@ class ModelTrainer:
             ),
             "RandomForest": (
                 RandomForestClassifier(
-                    n_jobs=self.cfg.n_jobs,
-                    random_state=self.cfg.random_state,
+                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
+                    random_state=getattr(self.cfg, 'random_state', 42),
                     class_weight="balanced_subsample",
                 ),
                 {
@@ -66,8 +66,8 @@ class ModelTrainer:
             ),
             "ExtraTrees": (
                 ExtraTreesClassifier(
-                    n_jobs=self.cfg.n_jobs,
-                    random_state=self.cfg.random_state,
+                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
+                    random_state=getattr(self.cfg, 'random_state', 42),
                     class_weight="balanced",
                 ),
                 {
@@ -82,8 +82,8 @@ class ModelTrainer:
             models["XGBoost"] = (
                 XGBClassifier(
                     eval_metric="logloss",
-                    n_jobs=self.cfg.n_jobs,
-                    random_state=self.cfg.random_state,
+                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
+                    random_state=getattr(self.cfg, 'random_state', 42),
                     tree_method="hist",
                     verbosity=0,
                 ),
@@ -99,8 +99,8 @@ class ModelTrainer:
             models["LightGBM"] = (
                 LGBMClassifier(
                     class_weight="balanced",
-                    n_jobs=self.cfg.n_jobs,
-                    random_state=self.cfg.random_state,
+                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
+                    random_state=getattr(self.cfg, 'random_state', 42),
                     verbosity=-1,
                     min_child_samples=10,
                 ),
@@ -119,7 +119,7 @@ class ModelTrainer:
                 {"lam": np.logspace(-3, 3, 7)},
             )
         
-        if self.cfg.try_mlp:
+        if getattr(self.cfg, 'try_mlp', False):
             models["MLP"] = (
                 MLPClassifier(
                     random_state=self.cfg.random_state, 
@@ -146,9 +146,10 @@ class ModelTrainer:
             print(f"   - GAM: Skipping HPO (only {X.shape[1]} features)")
             return base_estimator
         
-        method = "optuna" if self.cfg.use_optuna else "random"
-        timeout = self.cfg.hpo_timeout_sec
-        n_trials = self.cfg.hpo_trials
+        # Use hpo_method from Config or default to optuna
+        method = getattr(self.cfg, 'hpo_method', 'optuna')
+        timeout = getattr(self.cfg, 'hpo_timeout_sec', 60)
+        n_trials = getattr(self.cfg, 'hpo_trials', 10)
         
         if method == "optuna" and optuna:
             try:
@@ -176,7 +177,7 @@ class ModelTrainer:
     ):
         """Hyperparameter tuning using Optuna"""
         skf = StratifiedKFold(
-            n_splits=self.cfg.cv_folds, 
+            n_splits=getattr(self.cfg, 'cv_folds', 5), 
             shuffle=True, 
             random_state=self.cfg.random_state
         )
@@ -203,7 +204,7 @@ class ModelTrainer:
             
             return float(np.mean(scores)) if scores else -np.inf
         
-        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=self.cfg.random_state))
+        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=getattr(self.cfg, 'random_state', 42)))
         study.optimize(objective, n_trials=n_trials, timeout=timeout)
         
         best_params = study.best_trial.params if study.best_trial else {}
@@ -220,13 +221,13 @@ class ModelTrainer:
     ):
         """Hyperparameter tuning using random search"""
         skf = StratifiedKFold(
-            n_splits=self.cfg.cv_folds, 
+            n_splits=getattr(self.cfg, 'cv_folds', 5), 
             shuffle=True, 
             random_state=self.cfg.random_state
         )
         
         # Generate random parameter combinations
-        np.random.seed(self.cfg.random_state)
+        np.random.seed(getattr(self.cfg, 'random_state', 42))
         param_combinations = []
         
         for _ in range(n_trials):
@@ -307,7 +308,7 @@ class ModelTrainer:
         rows = []
         
         skf = StratifiedKFold(
-            n_splits=self.cfg.cv_folds, 
+            n_splits=getattr(self.cfg, 'cv_folds', 5), 
             shuffle=True, 
             random_state=self.cfg.random_state
         )
@@ -428,7 +429,7 @@ class ModelTrainer:
             self.calibrator_ = fit_calibrator(
                 raw_proba, 
                 y_cal, 
-                method=self.cfg.calibration_method
+                method=getattr(self.cfg, 'calibration_method', 'isotonic')
             )
             
             calibrated_proba = apply_calibrator(self.calibrator_, raw_proba)

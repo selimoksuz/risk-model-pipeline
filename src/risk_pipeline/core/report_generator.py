@@ -5,8 +5,28 @@ import json
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, date
 import joblib
+
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder for handling pandas/numpy types"""
+    def default(self, obj):
+        if isinstance(obj, (pd.Timestamp, datetime, date)):
+            return obj.isoformat()
+        elif isinstance(obj, pd.Series):
+            return obj.tolist()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif pd.isna(obj):
+            return None
+        return super().default(obj)
 
 class ReportGenerator:
     """Handles report generation and export"""
@@ -49,24 +69,28 @@ class ReportGenerator:
             # Linear models
             coefs = model.coef_[0] if model.coef_.ndim > 1 else model.coef_
             
-            for i, feature in enumerate(feature_names):
+            # Ensure coefs and feature_names have same length
+            min_len = min(len(coefs), len(feature_names))
+            for i in range(min_len):
                 rows.append({
-                    "variable": feature,
+                    "variable": feature_names[i],
                     "coef_or_importance": coefs[i],
                     "sign": np.sign(coefs[i]),
-                    "variable_group": self._get_variable_group(feature, woe_map)
+                    "variable_group": self._get_variable_group(feature_names[i], woe_map)
                 })
                 
         elif hasattr(model, "feature_importances_"):
             # Tree-based models
             importances = model.feature_importances_
             
-            for i, feature in enumerate(feature_names):
+            # Ensure importances and feature_names have same length
+            min_len = min(len(importances), len(feature_names))
+            for i in range(min_len):
                 rows.append({
-                    "variable": feature,
+                    "variable": feature_names[i],
                     "coef_or_importance": importances[i],
                     "sign": 1 if importances[i] >= 0 else -1,
-                    "variable_group": self._get_variable_group(feature, woe_map)
+                    "variable_group": self._get_variable_group(feature_names[i], woe_map)
                 })
         else:
             # Other models
@@ -290,11 +314,11 @@ class ReportGenerator:
             woe_dict[var] = vw.to_dict() if hasattr(vw, 'to_dict') else str(vw)
         
         with open(os.path.join(output_folder, f"woe_mapping_{run_id}.json"), "w") as f:
-            json.dump(woe_dict, f, ensure_ascii=False, indent=2)
+            json.dump(woe_dict, f, ensure_ascii=False, indent=2, cls=CustomJSONEncoder)
         
         # Export final variables
         with open(os.path.join(output_folder, f"final_vars_{run_id}.json"), "w") as f:
-            json.dump({"final_vars": final_vars}, f, ensure_ascii=False, indent=2)
+            json.dump({"final_vars": final_vars}, f, ensure_ascii=False, indent=2, cls=CustomJSONEncoder)
         
         # Export best model
         if best_model:

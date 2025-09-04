@@ -46,7 +46,7 @@ class FeatureEngineer:
                 continue
                 
             x = train_df[var]
-            y = train_df[target_col]
+            y = train_df[target_col].values  # Convert to numpy array
             
             # Remove missing values for fitting
             mask = x.notna()
@@ -453,35 +453,74 @@ class FeatureEngineer:
         self,
         X: pd.DataFrame,
         y: np.ndarray,
-        max_iter: int = 100
+        max_iter: int = 100,
+        use_lightgbm: bool = True
     ) -> List[str]:
-        """Boruta feature selection"""
+        """Boruta feature selection with LightGBM or RandomForest"""
         try:
             from boruta import BorutaPy
+            from lightgbm import LGBMClassifier
             
-            rf = RandomForestClassifier(
-                n_estimators=100,
-                random_state=self.cfg.random_state,
-                n_jobs=self.cfg.n_jobs,
-                max_depth=5
-            )
+            # Use LightGBM by default for better performance
+            if use_lightgbm:
+                estimator = LGBMClassifier(
+                    n_estimators=100,
+                    random_state=getattr(self.cfg, 'random_state', 42),
+                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
+                    max_depth=5,
+                    learning_rate=0.1,
+                    min_child_samples=20,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    verbosity=-1  # Suppress LightGBM warnings
+                )
+            else:
+                estimator = RandomForestClassifier(
+                    n_estimators=100,
+                    random_state=getattr(self.cfg, 'random_state', 42),
+                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
+                    max_depth=5
+                )
             
             boruta = BorutaPy(
-                rf,
+                estimator,
                 n_estimators='auto',
                 max_iter=max_iter,
-                random_state=self.cfg.random_state
+                random_state=getattr(self.cfg, 'random_state', 42),
+                verbose=0  # Suppress Boruta output
             )
             
-            boruta.fit(X.values, y)
+            # Ensure X is numeric
+            X_numeric = X.select_dtypes(include=[np.number])
+            if X_numeric.shape[1] == 0:
+                return list(X.columns)[:min(20, X.shape[1])]
             
-            selected = X.columns[boruta.support_].tolist()
-            tentative = X.columns[boruta.support_weak_].tolist()
+            boruta.fit(X_numeric.values, y)
             
-            return selected + tentative
+            selected = X_numeric.columns[boruta.support_].tolist()
+            tentative = X_numeric.columns[boruta.support_weak_].tolist()
             
-        except Exception:
+            # Return at least some features if Boruta selected too few
+            result = selected + tentative
+            if len(result) < 5 and X_numeric.shape[1] >= 5:
+                # Add top features by univariate score
+                from sklearn.feature_selection import f_classif
+                scores, _ = f_classif(X_numeric, y)
+                top_indices = np.argsort(scores)[-5:]
+                result = list(set(result + X_numeric.columns[top_indices].tolist()))
+            
+            return result
+            
+        except ImportError:
+            print("   - Boruta not installed, using univariate selection")
+            from sklearn.feature_selection import SelectKBest, f_classif
+            selector = SelectKBest(f_classif, k=min(20, X.shape[1]))
+            selector.fit(X, y)
+            return X.columns[selector.get_support()].tolist()
+        except Exception as e:
+            print(f"   - Boruta failed: {e}, using fallback")
             # Fallback to simple univariate selection
+            from sklearn.feature_selection import SelectKBest, f_classif
             selector = SelectKBest(f_classif, k=min(20, X.shape[1]))
             selector.fit(X, y)
             return X.columns[selector.get_support()].tolist()

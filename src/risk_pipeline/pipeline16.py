@@ -21,6 +21,27 @@ import os, sys, json, time, gc, warnings, uuid
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# Import pandas compatibility layer
+try:
+    from .pandas_compat import (
+        safe_string_strip_casefold,
+        safe_to_numeric_downcast,
+        safe_categorical,
+        safe_values_to_numpy,
+        PANDAS_VERSION
+    )
+except ImportError:
+    # Fallback if pandas_compat is not available
+    def safe_string_strip_casefold(s):
+        return s.astype(str).str.strip().str.casefold()
+    def safe_to_numeric_downcast(s, downcast_type="integer"):
+        return pd.to_numeric(s, downcast=downcast_type)
+    def safe_categorical(data, categories=None):
+        return pd.Categorical(data, categories=categories)
+    def safe_values_to_numpy(data):
+        return data.values if hasattr(data, 'values') else data.to_numpy()
+    PANDAS_VERSION = 1
+
 # Import UTF-8 fix for Windows console
 try:
     from .utf8_fix import setup_utf8_console, safe_print
@@ -603,8 +624,8 @@ class RiskModelPipeline:
         for c in df.columns:
             s = df[c]
             try:
-                if pd.api.types.is_integer_dtype(s):   df[c]=pd.to_numeric(s, downcast="integer")
-                elif pd.api.types.is_float_dtype(s):   df[c]=pd.to_numeric(s, downcast="float")
+                if pd.api.types.is_integer_dtype(s):   df[c]=safe_to_numeric_downcast(s, "integer")
+                elif pd.api.types.is_float_dtype(s):   df[c]=safe_to_numeric_downcast(s, "float")
             except Exception: pass
 
     def _classify_variables(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -695,7 +716,7 @@ class RiskModelPipeline:
 
     # ----------------------- WOE FIT -----------------------
     def _fit_woe_mapping(self, train_df: pd.DataFrame, var_catalog: pd.DataFrame, policy: Dict[str, Any]) -> Dict[str, VariableWOE]:
-        y=train_df[self.cfg.target_col].values
+        y=safe_values_to_numpy(train_df[self.cfg.target_col])
         total_e=int((y==1).sum()); total_ne=int((y==0).sum()); n_total=int(len(y))
         min_count_auto=max(self.cfg.min_count_auto_floor,int(self.cfg.min_count_auto_frac*n_total))
         mapping={}
@@ -723,7 +744,7 @@ class RiskModelPipeline:
 
     # ---- numeric bin helpers ----
     def _numeric_bins_from_bin_index(self, df: pd.DataFrame, alpha: float) -> List[NumericBin]:
-        y=df["y"].values; x=df["x"].values; cats=df["bin"]
+        y=safe_values_to_numpy(df["y"]); x=safe_values_to_numpy(df["x"]); cats=df["bin"]
         out=[]; total_e=int((y==1).sum()); total_ne=int((y==0).sum())
         categories=self._get_categories(cats)
         for cat in categories:
@@ -743,7 +764,7 @@ class RiskModelPipeline:
         try: e=sorted(set([float(x) for x in edges if x is not None and np.isfinite(x)]))
         except Exception: e=edges
         if len(e)<2:
-            x=df["x"].values; y=df["y"].values
+            x=safe_values_to_numpy(df["x"]); y=safe_values_to_numpy(df["y"])
             total_e=int((y==1).sum()); total_ne=int((y==0).sum())
             fin=np.isfinite(x); cnt=int(fin.sum()); e_cnt=int(df.loc[fin,"y"].sum()); ne_cnt=cnt-e_cnt
             w,er,_=woe_from_counts(e_cnt,ne_cnt,total_e,total_ne,alpha)
@@ -754,7 +775,7 @@ class RiskModelPipeline:
                 w_m,er_m,_=woe_from_counts(e_m,ne_m,total_e,total_ne,alpha)
                 out.append(NumericBin(float("nan"),float("nan"),miss,e_m,ne_m,er_m,w_m))
             return out
-        x=df["x"].values; y=df["y"].values
+        x=safe_values_to_numpy(df["x"]); y=safe_values_to_numpy(df["y"])
         try: cats=pd.cut(x,bins=e,include_lowest=True,duplicates="drop")
         except Exception:
             e=np.unique(np.asarray(e,dtype=float)); cats=pd.cut(x,bins=e,include_lowest=True,duplicates="drop")
@@ -1031,7 +1052,7 @@ class RiskModelPipeline:
         except Exception:
             # Fallback: empty frame if mapping application fails
             X = pd.DataFrame(index=df.index, columns=keep_vars)
-        y = df[self.cfg.target_col].values
+        y = safe_values_to_numpy(df[self.cfg.target_col])
         return X, y
     
     # ----------------------- Raw Transform (for dual pipeline) -----------------------
@@ -1042,7 +1063,7 @@ class RiskModelPipeline:
         
         # Select raw features
         X = df[keep_vars].copy()
-        y = df[self.cfg.target_col].values
+        y = safe_values_to_numpy(df[self.cfg.target_col])
         
         # Separate numeric and categorical columns
         numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
@@ -1165,7 +1186,7 @@ class RiskModelPipeline:
                 class_weight="balanced_subsample",
             )
             boruta = BorutaPy(rf, n_estimators='auto', verbose=0, random_state=self.cfg.random_state)
-            boruta.fit(X[all_vars].values, y)
+            boruta.fit(safe_values_to_numpy(X[all_vars]), y)
             boruta_vars = [all_vars[i] for i, keep in enumerate(boruta.support_) if keep]
             self._log(f"   - Boruta: {len(boruta_vars)}/{len(all_vars)} kaldi")
         except Exception as e:
@@ -1246,7 +1267,7 @@ class RiskModelPipeline:
             Xk = X[final_keep]
             for col in final_keep:
                 X_other = Xk.drop(columns=[col])
-                y_ = Xk[col].values
+                y_ = safe_values_to_numpy(Xk[col])
                 if X_other.shape[1] == 0:
                     vifs[col] = 1.0
                     continue
@@ -1904,14 +1925,14 @@ class RiskModelPipeline:
             dic.columns = [c.strip().lower() for c in dic.columns]
             if "alanadi" not in dic.columns or "aciklama" not in dic.columns:
                 return
-            dic["__key"] = dic["alanadi"].astype(str).str.strip().str.casefold()
+            dic["__key"] = safe_string_strip_casefold(dic["alanadi"])
             dic = dic[["__key", "aciklama"]].rename(columns={"aciklama": "definition"})
 
             def enrich(df):
                 if df is None or df.empty:
                     return df
                 tmp = df.copy()
-                tmp["__key"] = tmp["variable"].astype(str).str.strip().str.casefold()
+                tmp["__key"] = safe_string_strip_casefold(tmp["variable"])
                 tmp = tmp.merge(dic, on="__key", how="left").drop(columns=["__key"])
                 return tmp
 
@@ -1919,7 +1940,7 @@ class RiskModelPipeline:
             self.best_model_vars_df_ = enrich(self.best_model_vars_df_)
             if self.best_model_woe_df_ is not None and not self.best_model_woe_df_.empty:
                 tmp = self.best_model_woe_df_.copy()
-                tmp["__key"] = tmp["variable"].astype(str).str.strip().str.casefold()
+                tmp["__key"] = safe_string_strip_casefold(tmp["variable"])
                 self.best_model_woe_df_ = tmp.merge(dic, on="__key", how="left").drop(columns=["__key"])
         except Exception:
             # sozluk yoksa veya okunamadiysa akis devam etsin

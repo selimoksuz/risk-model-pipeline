@@ -407,15 +407,75 @@ class ModelTrainer:
         return pd.DataFrame(rows)
     
     def select_best_model(self, models_summary: pd.DataFrame) -> str:
-        """Select best model based on Gini_OOT"""
+        """Select best model based on configurable criteria"""
         if models_summary is None or models_summary.empty:
             return None
         
-        # Select model with highest Gini_OOT
-        best_row = models_summary.sort_values(
-            ["Gini_OOT", "KS_OOT", "AUC_OOT"], 
-            ascending=[False, False, False]
-        ).iloc[0]
+        # Get selection criteria from config
+        selection_method = getattr(self.cfg, 'model_selection_method', 'gini_oot')
+        max_train_oot_gap = getattr(self.cfg, 'max_train_oot_gap', None)
+        stability_weight = getattr(self.cfg, 'model_stability_weight', 0.0)
+        
+        # Calculate Train-OOT gap for all models
+        models_summary['train_oot_gap'] = abs(
+            models_summary['Gini_Train'] - models_summary['Gini_OOT']
+        )
+        
+        # Filter models by maximum Train-OOT gap if specified
+        if max_train_oot_gap is not None:
+            stable_models = models_summary[
+                models_summary['train_oot_gap'] <= max_train_oot_gap
+            ]
+            if not stable_models.empty:
+                models_to_consider = stable_models
+            else:
+                # If no models meet stability criteria, use all but warn
+                print(f"   ⚠️ No models meet stability criteria (max gap={max_train_oot_gap})")
+                models_to_consider = models_summary
+        else:
+            models_to_consider = models_summary
+        
+        # Select based on method
+        if selection_method == 'balanced':
+            # Balanced score: weighted combination of performance and stability
+            # Higher performance (Gini_OOT) is better, lower gap is better
+            models_to_consider['balanced_score'] = (
+                (1 - stability_weight) * models_to_consider['Gini_OOT'] - 
+                stability_weight * models_to_consider['train_oot_gap']
+            )
+            best_row = models_to_consider.nlargest(1, 'balanced_score').iloc[0]
+            
+        elif selection_method == 'stable':
+            # Most stable model (smallest Train-OOT gap) with minimum performance
+            min_gini = getattr(self.cfg, 'min_gini_threshold', 0.5)
+            good_models = models_to_consider[models_to_consider['Gini_OOT'] >= min_gini]
+            
+            if not good_models.empty:
+                best_row = good_models.nsmallest(1, 'train_oot_gap').iloc[0]
+            else:
+                # Fallback to best performance if no model meets min threshold
+                best_row = models_to_consider.nlargest(1, 'Gini_OOT').iloc[0]
+                
+        elif selection_method == 'conservative':
+            # Conservative: prioritize stability, then performance
+            # Sort by gap first (ascending), then by Gini_OOT (descending)
+            sorted_models = models_to_consider.sort_values(
+                ['train_oot_gap', 'Gini_OOT'],
+                ascending=[True, False]
+            )
+            best_row = sorted_models.iloc[0]
+            
+        else:  # Default: 'gini_oot' or any other value
+            # Traditional method: highest Gini_OOT
+            best_row = models_to_consider.sort_values(
+                ["Gini_OOT", "KS_OOT", "AUC_OOT"], 
+                ascending=[False, False, False]
+            ).iloc[0]
+        
+        # Log selection reason
+        print(f"   - Selection method: {selection_method}")
+        print(f"   - Selected: {best_row['model_name']}")
+        print(f"     Gini_OOT={best_row['Gini_OOT']:.4f}, Train-OOT Gap={best_row['train_oot_gap']:.4f}")
         
         return str(best_row["model_name"])
     

@@ -268,9 +268,14 @@ class Config:
     ks_bands: int = 10
     # DUAL PIPELINE SETTINGS
     enable_dual_pipeline: bool = False  # Enable dual pipeline (WOE + Raw)
-    raw_imputation_strategy: str = "median"  # Imputation for raw pipeline: median, mean, zero
+    raw_imputation_strategy: str = "median"  # Imputation: median, mean, mode, multiple, forward_fill, interpolate, target_mean, knn
     raw_outlier_method: str = "iqr"  # Outlier method for raw pipeline: iqr, zscore, percentile
     raw_outlier_threshold: float = 3.0  # Threshold for outlier removal
+    # MODEL SELECTION CRITERIA
+    model_selection_method: str = "gini_oot"  # Method: gini_oot, balanced, stable, conservative
+    max_train_oot_gap: Optional[float] = None  # Maximum allowed Train-OOT Gini gap (e.g., 0.1)
+    model_stability_weight: float = 0.0  # Weight for stability in balanced selection (0-1)
+    min_gini_threshold: float = 0.5  # Minimum Gini for stable selection method
     # orchestrator & run id
     run_id: str = ""
     orchestrator: Orchestrator = field(default_factory=Orchestrator)  # <<< mutable default FIX

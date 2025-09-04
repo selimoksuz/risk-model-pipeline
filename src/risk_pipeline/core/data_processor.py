@@ -12,6 +12,7 @@ class DataProcessor:
     def __init__(self, config):
         self.cfg = config
         self.var_catalog_ = None
+        self.imputation_stats_ = {}  # Store imputation statistics
         
     def validate_and_freeze(self, df: pd.DataFrame):
         """Validate input data and freeze time column"""
@@ -85,6 +86,130 @@ class DataProcessor:
             self.var_catalog_ = pd.DataFrame(rows)
             return self.var_catalog_
     
+    def impute_missing_values(self, X: pd.DataFrame, y: Optional[np.ndarray] = None, 
+                             strategy: str = 'multiple', fit: bool = True) -> pd.DataFrame:
+        """Apply multiple imputation strategies for missing values
+        
+        Parameters:
+        -----------
+        X : pd.DataFrame
+            Input features
+        y : np.ndarray, optional
+            Target variable (for target-based imputation)
+        strategy : str
+            Imputation strategy: 'multiple', 'median', 'mean', 'mode', 'forward_fill', 
+            'interpolate', 'target_mean', 'knn'
+        fit : bool
+            Whether to fit imputation statistics (True for training, False for test/OOT)
+        
+        Returns:
+        --------
+        pd.DataFrame : Imputed dataframe
+        """
+        X_imputed = X.copy()
+        
+        if strategy == 'multiple':
+            # Apply multiple strategies and create new features
+            strategies = ['median', 'mean', 'forward_fill', 'target_mean']
+            
+            for col in X.columns:
+                if X[col].isnull().any():
+                    # Create multiple imputed versions
+                    for strat in strategies:
+                        if strat == 'target_mean' and y is None:
+                            continue
+                        
+                        imputed_col = self._impute_column(X[col], y, strat, col, fit)
+                        
+                        # Add as new feature for ensemble
+                        if strat != 'median':  # Use median as base
+                            X_imputed[f"{col}_imp_{strat}"] = imputed_col
+                        else:
+                            X_imputed[col] = imputed_col
+                    
+                    # Add missing indicator
+                    X_imputed[f"{col}_was_missing"] = X[col].isnull().astype(int)
+        else:
+            # Single strategy imputation
+            for col in X.columns:
+                if X[col].isnull().any():
+                    X_imputed[col] = self._impute_column(X[col], y, strategy, col, fit)
+                    
+                    # Always add missing indicator for important tracking
+                    if strategy != 'drop':
+                        X_imputed[f"{col}_was_missing"] = X[col].isnull().astype(int)
+        
+        return X_imputed
+    
+    def _impute_column(self, series: pd.Series, y: Optional[np.ndarray], 
+                       strategy: str, col_name: str, fit: bool) -> pd.Series:
+        """Impute a single column with specified strategy"""
+        
+        if strategy == 'drop':
+            # Never drop rows - fill with median instead
+            strategy = 'median'
+        
+        if fit:
+            # Calculate and store imputation value
+            if strategy == 'median':
+                fill_value = series.median()
+            elif strategy == 'mean':
+                fill_value = series.mean()
+            elif strategy == 'mode':
+                mode_vals = series.mode()
+                fill_value = mode_vals[0] if len(mode_vals) > 0 else series.median()
+            elif strategy == 'forward_fill':
+                # For time series data
+                return series.fillna(method='ffill').fillna(series.median())
+            elif strategy == 'interpolate':
+                # Linear interpolation
+                return series.interpolate(method='linear').fillna(series.median())
+            elif strategy == 'target_mean' and y is not None:
+                # Impute with mean value for target=1 vs target=0
+                mask_1 = (y == 1) & series.notna()
+                mask_0 = (y == 0) & series.notna()
+                
+                mean_1 = series[mask_1].mean() if mask_1.any() else series.mean()
+                mean_0 = series[mask_0].mean() if mask_0.any() else series.mean()
+                
+                self.imputation_stats_[f"{col_name}_target"] = {'mean_1': mean_1, 'mean_0': mean_0}
+                
+                # Apply target-based imputation
+                result = series.copy()
+                missing_mask = series.isnull()
+                if y is not None and missing_mask.any():
+                    result[missing_mask & (y == 1)] = mean_1
+                    result[missing_mask & (y == 0)] = mean_0
+                    result[missing_mask & pd.isnull(y)] = series.mean()
+                return result
+            elif strategy == 'knn':
+                # Simple distance-based imputation (would need full implementation)
+                fill_value = series.median()  # Fallback to median
+            else:
+                fill_value = series.median()  # Default fallback
+            
+            # Store imputation value for later use
+            if strategy not in ['forward_fill', 'interpolate', 'target_mean']:
+                self.imputation_stats_[f"{col_name}_{strategy}"] = fill_value
+        else:
+            # Use stored imputation value
+            if strategy == 'target_mean' and f"{col_name}_target" in self.imputation_stats_:
+                stats = self.imputation_stats_[f"{col_name}_target"]
+                result = series.copy()
+                missing_mask = series.isnull()
+                if y is not None and missing_mask.any():
+                    result[missing_mask & (y == 1)] = stats['mean_1']
+                    result[missing_mask & (y == 0)] = stats['mean_0']
+                    result[missing_mask & pd.isnull(y)] = (stats['mean_1'] + stats['mean_0']) / 2
+                return result
+            elif f"{col_name}_{strategy}" in self.imputation_stats_:
+                fill_value = self.imputation_stats_[f"{col_name}_{strategy}"]
+            else:
+                # Fallback if no stored value
+                fill_value = series.median()
+        
+        return series.fillna(fill_value)
+    
     def split_time(self, df: pd.DataFrame) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray]:
         """Split data based on time for train/test/OOT"""
         # Use fallback implementation for compatibility
@@ -152,6 +277,7 @@ class DataProcessor:
     def apply_raw_transformations(
         self,
         X: pd.DataFrame,
+        y: Optional[np.ndarray] = None,
         fit: bool = False,
         imputer=None,
         scaler=None
@@ -162,20 +288,44 @@ class DataProcessor:
         
         X_transformed = X.copy()
         
-        # Imputation
-        if fit:
-            imputer = SimpleImputer(strategy=self.cfg.raw_imputation_strategy)
-            X_transformed = pd.DataFrame(
-                imputer.fit_transform(X_transformed),
-                columns=X_transformed.columns,
-                index=X_transformed.index
+        # Get imputation strategy
+        raw_imputation_strategy = getattr(self.cfg, 'raw_imputation_strategy', 'median')
+        
+        # Use multiple imputation if specified
+        if raw_imputation_strategy in ['multiple', 'all']:
+            # Use our custom multiple imputation
+            X_transformed = self.impute_missing_values(
+                X_transformed, 
+                y=y,
+                strategy='multiple', 
+                fit=fit
             )
-        elif imputer is not None:
-            X_transformed = pd.DataFrame(
-                imputer.transform(X_transformed),
-                columns=X_transformed.columns,
-                index=X_transformed.index
+            imputer = None  # Don't use sklearn imputer
+        elif raw_imputation_strategy in ['median', 'mean', 'mode', 'forward_fill', 
+                                         'interpolate', 'target_mean', 'knn']:
+            # Use custom single strategy imputation
+            X_transformed = self.impute_missing_values(
+                X_transformed,
+                y=y, 
+                strategy=raw_imputation_strategy,
+                fit=fit
             )
+            imputer = None
+        else:
+            # Fallback to sklearn SimpleImputer for backward compatibility
+            if fit:
+                imputer = SimpleImputer(strategy=raw_imputation_strategy)
+                X_transformed = pd.DataFrame(
+                    imputer.fit_transform(X_transformed),
+                    columns=X_transformed.columns,
+                    index=X_transformed.index
+                )
+            elif imputer is not None:
+                X_transformed = pd.DataFrame(
+                    imputer.transform(X_transformed),
+                    columns=X_transformed.columns,
+                    index=X_transformed.index
+                )
         
         # Outlier handling
         if self.cfg.raw_outlier_method and self.cfg.raw_outlier_method != "none":

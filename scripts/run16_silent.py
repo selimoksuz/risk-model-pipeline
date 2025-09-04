@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from risk_pipeline.pipeline16 import Config, RiskModelPipeline, Orchestrator
+from risk_pipeline.pipeline import Config, RiskModelPipeline, Orchestrator
 
 # Clean outputs each run to avoid accumulation
 out_dir = 'outputs'

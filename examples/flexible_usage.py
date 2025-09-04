@@ -15,9 +15,9 @@ import sys
 import os
 sys.path.append('src')
 
-from risk_pipeline.pipeline16 import Config, RiskModelPipeline
-from risk_pipeline.utils.scoring import load_model_artifacts, score_data
-from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe
+from risk_pipeline.pipeline import Config, RiskModelPipeline
+# from risk_pipeline.utils.scoring import load_model_artifacts, score_data
+# from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe
 
 # ==============================================================================
 # SENARYO 1: SADECE MODEL EĞİTİMİ (Kalibrasyon yok, Skorlama yok)
@@ -198,7 +198,9 @@ def add_calibration_later_example(pipeline):
     })
     
     # WOE dönüşümü uygula
-    from risk_pipeline.stages.woe import apply_woe
+    from risk_pipeline.core.feature_engineer import FeatureEngineer
+    fe = FeatureEngineer()
+    # Apply WOE transformation using the feature engineer
     cal_woe = apply_woe(cal_df, pipeline.woe_map)
     X_cal = cal_woe[pipeline.final_vars_]
     y_cal = cal_df['target'].values

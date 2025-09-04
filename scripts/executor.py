@@ -26,7 +26,7 @@ except Exception:
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
-from risk_pipeline.pipeline16 import Config, RiskModelPipeline, Orchestrator
+from risk_pipeline.pipeline import Config, RiskModelPipeline, Orchestrator
 
 
 def main() -> None:

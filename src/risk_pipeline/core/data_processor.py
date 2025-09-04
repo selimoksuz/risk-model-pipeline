@@ -95,9 +95,9 @@ class DataProcessor:
         # Determine OOT size
         oot_window_months = getattr(self.cfg, 'oot_window_months', 2)
         if oot_window_months:
-            latest = df_sorted[self.cfg.time_col].max()
+            latest = pd.to_datetime(df_sorted[self.cfg.time_col]).max()
             oot_start = latest - pd.DateOffset(months=oot_window_months)
-            oot_mask = df_sorted[self.cfg.time_col] >= oot_start
+            oot_mask = pd.to_datetime(df_sorted[self.cfg.time_col]) >= oot_start
             oot_size = oot_mask.sum()
         else:
             oot_size_percent = getattr(self.cfg, 'oot_size_percent', 10)

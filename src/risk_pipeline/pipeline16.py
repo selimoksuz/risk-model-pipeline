@@ -1043,12 +1043,23 @@ class RiskModelPipeline:
                 woe_values = pd.Series(index=df.index, dtype=float)
                 col_data = df[v].copy()
                 
+                # Find MISSING bin's WoE value
+                missing_woe = 0.0
+                for bin_info in vw.numeric_bins:
+                    if np.isnan(bin_info.left) and np.isnan(bin_info.right):
+                        missing_woe = bin_info.woe
+                        break
+                
                 # Handle missing values
                 missing_mask = col_data.isna()
-                woe_values[missing_mask] = 0.0  # Default WoE for missing
+                woe_values[missing_mask] = missing_woe
                 
-                # Apply WoE for each bin
+                # Apply WoE for each bin (non-missing)
                 for bin_info in vw.numeric_bins:
+                    # Skip MISSING bin
+                    if np.isnan(bin_info.left) and np.isnan(bin_info.right):
+                        continue
+                    
                     if bin_info.left == -np.inf:
                         mask = (~missing_mask) & (col_data <= bin_info.right)
                     elif bin_info.right == np.inf:
@@ -1064,12 +1075,25 @@ class RiskModelPipeline:
                 woe_values = pd.Series(index=df.index, dtype=float)
                 col_data = df[v].copy()
                 
-                # Default WoE for unseen categories
-                woe_values[:] = 0.0
-                
-                # Apply WoE for each group
+                # Find OTHER and MISSING groups' WoE values
+                other_woe = 0.0
+                missing_woe = 0.0
                 for group_info in vw.categorical_groups:
-                    if group_info.members:
+                    if group_info.label == "OTHER":
+                        other_woe = group_info.woe
+                    elif group_info.label == "MISSING":
+                        missing_woe = group_info.woe
+                
+                # Handle missing values first
+                missing_mask = col_data.isna()
+                woe_values[missing_mask] = missing_woe
+                
+                # Default WoE for unseen categories (OTHER)
+                woe_values[~missing_mask] = other_woe
+                
+                # Apply WoE for each known group
+                for group_info in vw.categorical_groups:
+                    if group_info.members and group_info.label not in ["OTHER", "MISSING"]:
                         mask = col_data.isin(group_info.members)
                         woe_values[mask] = group_info.woe
                         

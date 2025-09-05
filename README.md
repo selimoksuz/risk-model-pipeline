@@ -157,9 +157,11 @@ graph TD
     H --> I[Reports & Artifacts]
 ```
 
-## 📚 Examples
+## 📚 Documentation
 
-See [notebooks/01_dual_pipeline_example.ipynb](notebooks/01_dual_pipeline_example.ipynb) for a complete walkthrough.
+- **[Wiki Documentation](docs/wiki/)** - Detailed parameter explanations and methodology
+- **[Example Notebook](notebooks/01_dual_pipeline_example.ipynb)** - Complete pipeline walkthrough
+- **[Example Scripts](examples/)** - Basic and advanced usage examples
 
 ## 🧪 Testing
 

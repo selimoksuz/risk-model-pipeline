@@ -22,7 +22,7 @@ from .core import (
 )
 
 # Import existing config (keep compatibility)
-from .pipeline16 import Config
+from .core.config import Config
 
 class RiskModelPipeline(BasePipeline):
     """Main pipeline orchestrator using modular components"""

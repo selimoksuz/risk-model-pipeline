@@ -52,7 +52,9 @@ class Config:
     model_type: str = "lightgbm"  # lightgbm, xgboost, catboost, ensemble
     use_optuna: bool = True
     n_trials: int = 100
+    hpo_trials: int = 100  # Alias for n_trials
     optuna_timeout: Optional[int] = None
+    hpo_timeout_sec: Optional[int] = None  # Alias for optuna_timeout
     cv_folds: int = 5
     
     # Model selection criteria
@@ -70,6 +72,15 @@ class Config:
     
     # Imputation settings
     imputation_strategy: str = "median"  # median, mean, forward_fill, target_mean, multiple
+    
+    # RAW pipeline settings
+    raw_outlier_method: str = "none"  # none, clip, winsorize, remove
+    raw_outlier_threshold: float = 3.0  # Number of standard deviations
+    raw_scaler_type: str = "standard"  # standard, minmax, robust
+    
+    # HPO aliases
+    hpo_trials: int = 100  # Alias for n_trials  
+    hpo_timeout_sec: Optional[int] = None  # Alias for optuna_timeout
     
     # Dual pipeline settings
     enable_dual_pipeline: bool = True
@@ -106,6 +117,12 @@ class Config:
         if self.run_id is None:
             from datetime import datetime
             self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Sync HPO aliases
+        if hasattr(self, 'hpo_trials'):
+            self.n_trials = self.hpo_trials
+        if hasattr(self, 'hpo_timeout_sec'):
+            self.optuna_timeout = self.hpo_timeout_sec
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary"""

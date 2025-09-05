@@ -1,4 +1,13 @@
-from .api import run16_df, score_df
+from .api import run_pipeline, score_df
+from .pipeline import RiskModelPipeline, DualPipeline
+from .core.config import Config
 
-__all__ = ["__version__", "run16_df", "score_df"]
-__version__ = "0.1.1"
+__all__ = [
+    "__version__", 
+    "run_pipeline", 
+    "score_df",
+    "RiskModelPipeline",
+    "DualPipeline",
+    "Config"
+]
+__version__ = "0.2.0"

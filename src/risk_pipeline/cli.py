@@ -1,4 +1,5 @@
-﻿import os as _os_utf8, sys as _sys_utf8
+"""Command Line Interface for Risk Model Pipeline"""
+import os as _os_utf8, sys as _sys_utf8
 _os_utf8.environ.setdefault('PYTHONUTF8','1')
 try:
     if hasattr(_sys_utf8.stdout, 'reconfigure'):
@@ -6,49 +7,60 @@ try:
         _sys_utf8.stderr.reconfigure(encoding='utf-8')
 except Exception:
     pass
-from .config.schema import Config
-from .data.load import load_csv
-from .model.train import train_logreg
-from .reporting.report import save_metrics
+
 import json
 import joblib
 import pandas as pd
 import pickle
-from .model.calibrate import apply_calibrator
 import typer
 from pathlib import Path
 import os
+
+from .core.config import Config
+from .pipeline import RiskModelPipeline, DualPipeline
+from .model.calibrate import apply_calibrator
 from .stages.scoring import build_scored_frame
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
+
 @app.command()
 def run(
-    config_json: str = typer.Option(None, help="Inline JSON for config (overrides defaults)"),
     input_csv: str = typer.Option(..., help="Path to input CSV with features + target"),
     target_col: str = typer.Option("target", help="Target column name"),
-    artifacts_dir: str = typer.Option("artifacts", help="Artifacts output directory"),
+    id_col: str = typer.Option("app_id", help="ID column"),
+    time_col: str = typer.Option("app_dt", help="Time column for splitting"),
+    output_folder: str = typer.Option("output", help="Output folder for reports"),
+    dual_pipeline: bool = typer.Option(True, help="Run dual pipeline (WOE + RAW)"),
+    iv_min: float = typer.Option(0.02, help="Minimum IV threshold"),
+    psi_threshold: float = typer.Option(0.25, help="PSI threshold"),
+    model_type: str = typer.Option("lightgbm", help="Model type: lightgbm, xgboost, catboost"),
 ):
-    cfg = Config()
-    if config_json:
-        cfg = cfg.model_validate_json(config_json)
-
-    df = load_csv(input_csv)
-    X = df.drop(columns=[target_col])
-    # Basit demo: sadece sayısal sütunları al ve eksikleri doldur
-    X = X.select_dtypes(include=["number"]).copy()
-    X = X.fillna(0)
-    y = df[target_col]
-    res = train_logreg(X, y, seed=cfg.run.seed)
-    save_metrics({"auc": res["auc"]}, artifacts_dir)
-    typer.echo(f"Done. AUC={res['auc']:.4f}. Artifacts -> {artifacts_dir}")
-
-if __name__ == "__main__":
-    app()
+    """Run the main risk model pipeline"""
+    df = pd.read_csv(input_csv)
+    
+    cfg = Config(
+        target_col=target_col,
+        id_col=id_col,
+        time_col=time_col,
+        output_folder=output_folder,
+        enable_dual_pipeline=dual_pipeline,
+        iv_min=iv_min,
+        psi_threshold=psi_threshold,
+        model_type=model_type
+    )
+    
+    if dual_pipeline:
+        pipe = DualPipeline(cfg)
+    else:
+        pipe = RiskModelPipeline(cfg)
+    
+    pipe.run(df)
+    typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
 
 
 @app.command()
-def run16(
+def run_advanced(
     input_csv: str = typer.Option(..., help="Path to input CSV with features + target"),
     id_col: str = typer.Option("app_id", help="ID column"),
     time_col: str = typer.Option("app_dt", help="Time column (date-like)"),
@@ -77,25 +89,35 @@ def run16(
     hpo_trials: int = typer.Option(60, help="HPO trial count"),
     log_file: str = typer.Option(None, help="Optional log file path (default: <output_folder>/pipeline.log)"),
 ):
-    from .pipeline16 import Config as Config16, RiskModelPipeline as RiskModelPipeline16
+    """Run the risk model pipeline with advanced configuration"""
     df = pd.read_csv(input_csv)
-    cfg = Config16(
-        id_col=id_col, time_col=time_col, target_col=target_col,
-        use_test_split=use_test_split, oot_window_months=oot_months,
-        output_excel_path=output_excel, output_folder=output_folder,
-        dictionary_path=dictionary_path, psi_verbose=psi_verbose,
-        calibration_data_path=calibration_data, calibration_method=calibration_method,
-        cluster_top_k=cluster_top_k, rho_threshold=rho_threshold,
-        vif_threshold=vif_threshold, iv_min=iv_min, iv_high_flag=iv_high_flag,
-        psi_threshold_feature=psi_threshold_feature, psi_threshold_score=psi_threshold_score,
-        shap_sample=shap_sample, ensemble=ensemble, ensemble_top_k=ensemble_top_k,
-        try_mlp=try_mlp, hpo_method=hpo_method,
-        hpo_timeout_sec=hpo_timeout_sec, hpo_trials=hpo_trials,
-        log_file=(log_file or str(Path(output_folder) / "pipeline.log"))
+    
+    cfg = Config(
+        id_col=id_col, 
+        time_col=time_col, 
+        target_col=target_col,
+        oot_months=oot_months,
+        output_excel_path=output_excel, 
+        output_folder=output_folder,
+        cluster_top_k=cluster_top_k, 
+        rho_threshold=rho_threshold,
+        vif_threshold=vif_threshold, 
+        iv_min=iv_min, 
+        iv_high_threshold=iv_high_flag,
+        psi_threshold=psi_threshold_feature,
+        use_optuna=(hpo_method != 'none'),
+        n_trials=hpo_trials,
+        optuna_timeout=hpo_timeout_sec,
+        enable_dual_pipeline=ensemble
     )
-    pipe = RiskModelPipeline16(cfg)
+    
+    if ensemble:
+        pipe = DualPipeline(cfg)
+    else:
+        pipe = RiskModelPipeline(cfg)
+    
     pipe.run(df)
-    typer.echo(f"Done. Best={pipe.best_model_name_} | Reports -> {output_folder}")
+    typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
 
 
 @app.command()
@@ -110,6 +132,7 @@ def score(
     calibrator_path: str = typer.Option(None, help="Optional calibrator pickle path"),
     report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path to append 'external_scores' sheet"),
 ):
+    """Score new data using a trained model"""
     df = pd.read_csv(input_csv)
     with open(woe_mapping, "r", encoding="utf-8") as f:
         mapping = json.load(f)
@@ -153,11 +176,9 @@ def score(
                     lab = g.get("label")
                     woe = float(g.get("woe", 0.0))
                     if lab == "MISSING":
-                        miss_woe = woe
-                        continue
+                        miss_woe = woe; continue
                     if lab == "OTHER":
-                        other_woe = woe
-                        continue
+                        other_woe = woe; continue
                     members = set(map(str, g.get("members", [])))
                     m = (~miss) & (s.astype(str).isin(members))
                     w.loc[m] = woe
@@ -167,30 +188,38 @@ def score(
                 out[v] = w.values
         return pd.DataFrame(out, index=df_in.index)
 
-    # Build combined scored DataFrame in-memory
-    calib = None
-    if calibrator_path:
-        try:
-            with open(calibrator_path, "rb") as f:
-                calib = pickle.load(f)
-        except Exception:
-            typer.echo("Calibrator load failed; continuing without calibration")
-    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib)
+    X = apply_woe(df, mapping)
+    cols = [c for c in final_vars if c in X.columns]
+    if not cols:
+        raise ValueError("No overlap between final_vars and available columns after WOE transform.")
 
+    # Load calibrator if provided
+    calib = None
+    if calibrator_path and os.path.exists(calibrator_path):
+        with open(calibrator_path, "rb") as f:
+            calib = pickle.load(f)
+
+    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib)
+    
     if output_csv:
         combined.to_csv(output_csv, index=False)
-        typer.echo(f"Wrote {len(combined)} rows to {output_csv}")
+        typer.echo(f"Scores saved to {output_csv}")
+    
+    if output_xlsx:
+        with pd.ExcelWriter(output_xlsx, engine="xlsxwriter") as w:
+            combined.to_excel(w, sheet_name="combined_scores", index=False)
+        typer.echo(f"Excel saved to {output_xlsx}")
 
-    # Write to Excel
-    try:
-        if report_xlsx and os.path.exists(report_xlsx):
-            with pd.ExcelWriter(report_xlsx, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
-                combined.to_excel(w, sheet_name="external_scores", index=False)
-            typer.echo(f"Appended external_scores to {report_xlsx}")
-        elif output_xlsx:
-            with pd.ExcelWriter(output_xlsx, engine="openpyxl") as w:
-                combined.to_excel(w, sheet_name="scores", index=False)
-            typer.echo(f"Wrote Excel to {output_xlsx}")
-    except Exception as e:
-        typer.echo(f"Excel write failed: {e}")
+    # Append to existing report if requested
+    if report_xlsx and os.path.exists(report_xlsx):
+        import openpyxl
+        from openpyxl import load_workbook
+        book = load_workbook(report_xlsx)
+        with pd.ExcelWriter(report_xlsx, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            writer.book = book
+            combined.to_excel(writer, sheet_name="external_scores", index=False)
+        typer.echo(f"Added 'external_scores' sheet to {report_xlsx}")
 
+
+if __name__ == "__main__":
+    app()

@@ -9,18 +9,19 @@ import os
 import pandas as pd
 import numpy as np
 
-from .pipeline16 import Config as Config16, RiskModelPipeline as RiskModelPipeline16
+from .pipeline import RiskModelPipeline
+from .core.config import Config
 from .model.calibrate import apply_calibrator
 
 
-def run16_df(df: pd.DataFrame, config: Optional[Config16] = None, **config_kwargs) -> RiskModelPipeline16:
-    """Run the 16-step pipeline on an in-memory DataFrame.
+def run_pipeline(df: pd.DataFrame, config: Optional[Config] = None, **config_kwargs) -> RiskModelPipeline:
+    """Run the risk model pipeline on an in-memory DataFrame.
 
     Returns the fitted pipeline object. Reports are written to Excel only; CSV exports are
     disabled unless explicitly enabled via config (write_csv=True).
     """
-    cfg = config or Config16(**config_kwargs)
-    pipe = RiskModelPipeline16(cfg)
+    cfg = config or Config(**config_kwargs)
+    pipe = RiskModelPipeline(cfg)
     pipe.run(df)
     return pipe
 

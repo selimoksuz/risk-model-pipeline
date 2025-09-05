@@ -80,11 +80,13 @@ class Config:
     write_csv: bool = False
     run_id: Optional[str] = None
     
-    # Time split ratios
+    # Data splitting settings
+    use_test_split: bool = True  # Whether to create a test split (if False, all pre-OOT goes to train)
     train_ratio: float = 0.60
-    test_ratio: float = 0.20
-    oot_ratio: float = 0.20
-    oot_months: Optional[int] = None
+    test_ratio: float = 0.20  # Ratio of test within pre-OOT data (if use_test_split=True)
+    oot_ratio: float = 0.20  # Ratio for OOT (time-based split)
+    oot_months: Optional[int] = None  # If set, use last N months for OOT instead of ratio
+    min_oot_size: int = 50  # Minimum OOT samples
     
     # Orchestrator config
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)

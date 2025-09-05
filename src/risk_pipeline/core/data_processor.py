@@ -211,43 +211,118 @@ class DataProcessor:
         return series.fillna(fill_value)
     
     def split_time(self, df: pd.DataFrame) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray]:
-        """Split data based on time for train/test/OOT"""
-        # Use fallback implementation for compatibility
-        # The stages module has different parameters
+        """Split data: OOT by time, Train/Test by stratified sampling"""
         df_sorted = df.sort_values(self.cfg.time_col)
         n = len(df_sorted)
         
-        # Determine OOT size
-        oot_window_months = getattr(self.cfg, 'oot_window_months', 2)
+        # Step 1: Split OOT data based on time
+        oot_window_months = getattr(self.cfg, 'oot_months', None)
         if oot_window_months:
+            # Use last N months as OOT
             latest = pd.to_datetime(df_sorted[self.cfg.time_col]).max()
             oot_start = latest - pd.DateOffset(months=oot_window_months)
             oot_mask = pd.to_datetime(df_sorted[self.cfg.time_col]) >= oot_start
-            oot_size = oot_mask.sum()
+            oot_idx = df_sorted[oot_mask].index.values
+            pre_oot_df = df_sorted[~oot_mask]
         else:
-            oot_size_percent = getattr(self.cfg, 'oot_size_percent', 10)
-            oot_size = int(n * oot_size_percent / 100)
-        
-        min_oot_size = getattr(self.cfg, 'min_oot_size', 50)
-        oot_size = max(oot_size, min_oot_size)
-        oot_size = min(oot_size, n // 3)  # Max 33% for OOT
-        
-        # Split indices
-        train_test_size = n - oot_size
-        
-        use_test_split = getattr(self.cfg, 'use_test_split', True)
-        if use_test_split:
-            test_size_row_frac = getattr(self.cfg, 'test_size_row_frac', 0.2)
-            test_size = int(train_test_size * test_size_row_frac)
-            train_size = train_test_size - test_size
+            # Use ratio-based splitting for OOT
+            oot_ratio = getattr(self.cfg, 'oot_ratio', 0.20)
+            oot_size = int(n * oot_ratio)
+            oot_size = max(oot_size, getattr(self.cfg, 'min_oot_size', 50))
+            oot_size = min(oot_size, n // 3)  # Max 33% for OOT
             
-            train_idx = df_sorted.index[:train_size].values
-            test_idx = df_sorted.index[train_size:train_size + test_size].values
-            oot_idx = df_sorted.index[train_size + test_size:].values
-        else:
-            train_idx = df_sorted.index[:train_test_size].values
+            oot_idx = df_sorted.index[-oot_size:].values
+            pre_oot_df = df_sorted.iloc[:-oot_size]
+        
+        # Step 2: Split Train/Test from pre-OOT data
+        use_test_split = getattr(self.cfg, 'use_test_split', True)
+        
+        if not use_test_split:
+            # No test split - all pre-OOT data goes to train
+            train_idx = pre_oot_df.index.values
             test_idx = None
-            oot_idx = df_sorted.index[train_test_size:].values
+        else:
+            # Always use stratified split for train/test
+            test_ratio = getattr(self.cfg, 'test_ratio', 0.20)
+            
+            # Stratified split maintaining target ratio across all months
+            from sklearn.model_selection import train_test_split
+            
+            # First, ensure each month has representation in both train and test
+            pre_oot_df['_month'] = pd.to_datetime(pre_oot_df[self.cfg.time_col]).dt.to_period('M')
+            
+            train_idx_list = []
+            test_idx_list = []
+            
+            for month, month_group in pre_oot_df.groupby('_month'):
+                month_indices = month_group.index.values
+                
+                # Skip if month has too few samples
+                if len(month_group) < 2:
+                    train_idx_list.extend(month_indices)
+                    continue
+                
+                # Calculate test size for this month
+                month_test_size = max(1, int(len(month_group) * test_ratio))
+                
+                # Ensure we have enough samples for stratification
+                target_values = month_group[self.cfg.target_col].values
+                unique_targets = np.unique(target_values)
+                
+                if len(unique_targets) > 1 and min(np.bincount(target_values.astype(int))) >= 2:
+                    # Can do stratified split
+                    try:
+                        month_train_idx, month_test_idx = train_test_split(
+                            month_indices,
+                            test_size=month_test_size,
+                            stratify=target_values,
+                            random_state=self.cfg.random_state
+                        )
+                    except ValueError:
+                        # Fallback to random if stratification fails
+                        np.random.seed(self.cfg.random_state)
+                        np.random.shuffle(month_indices)
+                        month_test_idx = month_indices[:month_test_size]
+                        month_train_idx = month_indices[month_test_size:]
+                else:
+                    # Random split if can't stratify
+                    np.random.seed(self.cfg.random_state)
+                    np.random.shuffle(month_indices)
+                    month_test_idx = month_indices[:month_test_size]
+                    month_train_idx = month_indices[month_test_size:]
+                
+                train_idx_list.extend(month_train_idx)
+                test_idx_list.extend(month_test_idx)
+            
+            train_idx = np.array(train_idx_list)
+            test_idx = np.array(test_idx_list) if test_idx_list else None
+            
+            # Clean up temporary column
+            if '_month' in pre_oot_df.columns:
+                pre_oot_df.drop('_month', axis=1, inplace=True)
+        
+        # Log split statistics
+        if hasattr(self, '_log'):
+            total = len(df)
+            n_train = len(train_idx) if train_idx is not None else 0
+            n_test = len(test_idx) if test_idx is not None else 0
+            n_oot = len(oot_idx) if oot_idx is not None else 0
+            
+            self._log(f"   - Data split: Train={n_train} ({n_train/total:.1%}), "
+                     f"Test={n_test} ({n_test/total:.1%}), "
+                     f"OOT={n_oot} ({n_oot/total:.1%})")
+            
+            # Check target distribution
+            if self.cfg.target_col in df.columns:
+                train_target_rate = df.iloc[train_idx][self.cfg.target_col].mean()
+                oot_target_rate = df.iloc[oot_idx][self.cfg.target_col].mean()
+                self._log(f"   - Target rates: Train={train_target_rate:.2%}, ", end="")
+                
+                if test_idx is not None:
+                    test_target_rate = df.iloc[test_idx][self.cfg.target_col].mean()
+                    self._log(f"Test={test_target_rate:.2%}, ", end="")
+                
+                self._log(f"OOT={oot_target_rate:.2%}")
         
         return train_idx, test_idx, oot_idx
     

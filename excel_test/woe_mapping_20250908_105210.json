@@ -1,0 +1,279 @@
+{
+  "income": {
+    "variable": "income",
+    "var_type": "numeric",
+    "iv": 2.5218602060707322,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "numeric_bins": [
+      {
+        "left": -Infinity,
+        "right": 13661.576729695415,
+        "woe": 26.710963901258918,
+        "event_count": 26,
+        "nonevent_count": -134,
+        "event_rate": -0.24766355140186916,
+        "iv_contrib": 0.9189640768588136
+      },
+      {
+        "left": 13661.576729695415,
+        "right": 33304.07041634989,
+        "woe": 26.501872103400355,
+        "event_count": 21,
+        "nonevent_count": -128,
+        "event_rate": -0.2028301886792453,
+        "iv_contrib": 0.8203842940685045
+      },
+      {
+        "left": 33304.07041634989,
+        "right": Infinity,
+        "woe": 26.40423363383644,
+        "event_count": 19,
+        "nonevent_count": -126,
+        "event_rate": -0.18396226415094338,
+        "iv_contrib": 0.782511835143414
+      }
+    ]
+  },
+  "age": {
+    "variable": "age",
+    "var_type": "numeric",
+    "iv": 2.5218602060707322,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "numeric_bins": [
+      {
+        "left": -Infinity,
+        "right": 35.0,
+        "woe": 26.547334477477115,
+        "event_count": 22,
+        "nonevent_count": -133,
+        "event_rate": -0.20454545454545456,
+        "iv_contrib": 0.8549150654413813
+      },
+      {
+        "left": 35.0,
+        "right": 52.0,
+        "woe": 26.35158990035102,
+        "event_count": 18,
+        "nonevent_count": -125,
+        "event_rate": -0.17452830188679244,
+        "iv_contrib": 0.7635756056808688
+      },
+      {
+        "left": 52.0,
+        "right": Infinity,
+        "woe": 26.710963901258918,
+        "event_count": 26,
+        "nonevent_count": -130,
+        "event_rate": -0.25728155339805825,
+        "iv_contrib": 0.9033695349484823
+      }
+    ]
+  },
+  "category1": {
+    "variable": "category1",
+    "var_type": "categorical",
+    "iv": 2.5218602060707322,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "categorical_groups": [
+      {
+        "label": "B",
+        "members": [
+          "B"
+        ],
+        "woe": 26.748005172939266,
+        "event_count": 27,
+        "nonevent_count": -146,
+        "event_rate": -0.2330508474576271,
+        "iv_contrib": 0.9807852965747703
+      },
+      {
+        "label": "A",
+        "members": [
+          "A"
+        ],
+        "woe": 26.40423363383644,
+        "event_count": 19,
+        "nonevent_count": -124,
+        "event_rate": -0.1875,
+        "iv_contrib": 0.7747145641882484
+      },
+      {
+        "label": "C",
+        "members": [
+          "C"
+        ],
+        "woe": 26.454244054411102,
+        "event_count": 20,
+        "nonevent_count": -118,
+        "event_rate": -0.211340206185567,
+        "iv_contrib": 0.7663603453077137
+      }
+    ]
+  },
+  "snapshot_month": {
+    "variable": "snapshot_month",
+    "var_type": "categorical",
+    "iv": 2.58312447786132,
+    "missing_woe": null,
+    "missing_rate": 0.0,
+    "categorical_groups": [
+      {
+        "label": "2024-01-01 00:00:00",
+        "members": [
+          "2024-01-01T00:00:00"
+        ],
+        "woe": 24.68658213676211,
+        "event_count": 3,
+        "nonevent_count": -28,
+        "event_rate": -0.14583333333333334,
+        "iv_contrib": 0.15984405458089668
+      },
+      {
+        "label": "2024-03-01 00:00:00",
+        "members": [
+          "2024-03-01T00:00:00"
+        ],
+        "woe": 25.138567260505166,
+        "event_count": 5,
+        "nonevent_count": -30,
+        "event_rate": -0.22916666666666666,
+        "iv_contrib": 0.19771651350598718
+      },
+      {
+        "label": "2024-05-01 00:00:00",
+        "members": [
+          "2024-05-01T00:00:00"
+        ],
+        "woe": 25.30562134516833,
+        "event_count": 6,
+        "nonevent_count": -31,
+        "event_rate": -0.2708333333333333,
+        "iv_contrib": 0.21665274296853243
+      },
+      {
+        "label": "2024-07-01 00:00:00",
+        "members": [
+          "2024-07-01T00:00:00"
+        ],
+        "woe": 25.30562134516833,
+        "event_count": 6,
+        "nonevent_count": -31,
+        "event_rate": -0.2708333333333333,
+        "iv_contrib": 0.21665274296853243
+      },
+      {
+        "label": "2024-08-01 00:00:00",
+        "members": [
+          "2024-08-01T00:00:00"
+        ],
+        "woe": 25.138567260505166,
+        "event_count": 5,
+        "nonevent_count": -30,
+        "event_rate": -0.22916666666666666,
+        "iv_contrib": 0.19771651350598718
+      },
+      {
+        "label": "2024-10-01 00:00:00",
+        "members": [
+          "2024-10-01T00:00:00"
+        ],
+        "woe": 24.350109900140893,
+        "event_count": 2,
+        "nonevent_count": -27,
+        "event_rate": -0.10416666666666667,
+        "iv_contrib": 0.14090782511835143
+      },
+      {
+        "label": "2024-12-01 00:00:00",
+        "members": [
+          "2024-12-01T00:00:00"
+        ],
+        "woe": 24.68658213676211,
+        "event_count": 3,
+        "nonevent_count": -28,
+        "event_rate": -0.14583333333333334,
+        "iv_contrib": 0.15984405458089668
+      },
+      {
+        "label": "2025-01-01 00:00:00",
+        "members": [
+          "2025-01-01T00:00:00"
+        ],
+        "woe": 25.57388533176301,
+        "event_count": 8,
+        "nonevent_count": -33,
+        "event_rate": -0.3541666666666667,
+        "iv_contrib": 0.25452520189362293
+      },
+      {
+        "label": "2024-02-01 00:00:00",
+        "members": [
+          "2024-02-01T00:00:00"
+        ],
+        "woe": 25.448722188809004,
+        "event_count": 7,
+        "nonevent_count": -31,
+        "event_rate": -0.32608695652173914,
+        "iv_contrib": 0.23169033695349484
+      },
+      {
+        "label": "2024-04-01 00:00:00",
+        "members": [
+          "2024-04-01T00:00:00"
+        ],
+        "woe": 25.30562134516833,
+        "event_count": 6,
+        "nonevent_count": -30,
+        "event_rate": -0.2826086956521739,
+        "iv_contrib": 0.21275410749094958
+      },
+      {
+        "label": "2024-06-01 00:00:00",
+        "members": [
+          "2024-06-01T00:00:00"
+        ],
+        "woe": 24.350109900140893,
+        "event_count": 2,
+        "nonevent_count": -26,
+        "event_rate": -0.10869565217391304,
+        "iv_contrib": 0.13700918964076858
+      },
+      {
+        "label": "2024-09-01 00:00:00",
+        "members": [
+          "2024-09-01T00:00:00"
+        ],
+        "woe": 25.785194425430216,
+        "event_count": 10,
+        "nonevent_count": -34,
+        "event_rate": -0.45652173913043476,
+        "iv_contrib": 0.2884990253411306
+      },
+      {
+        "label": "2024-11-01 00:00:00",
+        "members": [
+          "2024-11-01T00:00:00"
+        ],
+        "woe": 24.68658213676211,
+        "event_count": 3,
+        "nonevent_count": -27,
+        "event_rate": -0.15217391304347827,
+        "iv_contrib": 0.15594541910331383
+      },
+      {
+        "label": "<OTHER>",
+        "members": [
+          "2025-02-01T00:00:00"
+        ],
+        "woe": 22.740671987706794,
+        "event_count": 0,
+        "nonevent_count": -2,
+        "event_rate": -0.5,
+        "iv_contrib": 0.013366750208855471
+      }
+    ]
+  }
+}

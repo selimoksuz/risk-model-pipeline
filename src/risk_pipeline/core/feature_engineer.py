@@ -141,7 +141,7 @@ class FeatureEngineer:
                     mask = (x > edges[i]) & (x <= edges[i + 1])
                 
                 event = y[mask].sum()
-                nonevent = (~y[mask]).sum()
+                nonevent = (mask.sum() - event)
                 
                 # Calculate WOE
                 woe, rate, iv_contrib = compute_woe_iv(
@@ -269,7 +269,7 @@ class FeatureEngineer:
                 
             mask = x == cat
             event = y[mask].sum()
-            nonevent = (~y[mask]).sum()
+            nonevent = (mask.sum() - event)
             
             # Calculate WOE
             woe, rate, iv_contrib = compute_woe_iv(
@@ -297,7 +297,7 @@ class FeatureEngineer:
         if rare_cats:
             mask = x.isin(rare_cats)
             event = y[mask].sum()
-            nonevent = (~y[mask]).sum()
+            nonevent = (mask.sum() - event)
             
             woe, rate, iv_contrib = compute_woe_iv(
                 event, nonevent, total_event, total_nonevent, alpha

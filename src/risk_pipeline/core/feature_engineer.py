@@ -164,11 +164,82 @@ class FeatureEngineer:
                 )
                 bins.append(bin_obj)
             
+            # Optimize bins - merge similar WOE bins
+            bins = self._optimize_bins(bins, min_bin_size=min_share)
+            
             return bins
             
         except Exception:
             # Fallback to single bin
             return [NumericBin(left=-np.inf, right=np.inf, woe=0.0)]
+    
+    def _optimize_bins(self, bins: List[NumericBin], min_bin_size: float = 0.05, woe_threshold: float = 0.1) -> List[NumericBin]:
+        """Merge bins with similar WOE values to reduce overfitting"""
+        if len(bins) <= 2:
+            return bins
+        
+        optimized = []
+        i = 0
+        
+        while i < len(bins):
+            current_bin = bins[i]
+            
+            # Check if we should merge with next bin
+            if i < len(bins) - 1:
+                next_bin = bins[i + 1]
+                
+                # Merge if:
+                # 1. WOE difference is small
+                # 2. Either bin is too small
+                # 3. Event rates are similar
+                woe_diff = abs(current_bin.woe - next_bin.woe)
+                current_size = current_bin.total_count / sum(b.total_count for b in bins)
+                next_size = next_bin.total_count / sum(b.total_count for b in bins)
+                rate_diff = abs(current_bin.event_rate - next_bin.event_rate)
+                
+                should_merge = (
+                    (woe_diff < woe_threshold) or 
+                    (current_size < min_bin_size) or 
+                    (next_size < min_bin_size) or
+                    (rate_diff < 0.02 and woe_diff < 0.2)
+                )
+                
+                if should_merge and len(optimized) + (len(bins) - i - 1) > 2:  # Keep at least 2 bins
+                    # Merge bins
+                    merged_event = current_bin.event_count + next_bin.event_count
+                    merged_nonevent = current_bin.nonevent_count + next_bin.nonevent_count
+                    merged_total = merged_event + merged_nonevent
+                    
+                    # Recalculate WOE for merged bin
+                    total_event = sum(b.event_count for b in bins)
+                    total_nonevent = sum(b.nonevent_count for b in bins)
+                    
+                    woe, rate, iv_contrib = compute_woe_iv(
+                        merged_event, merged_nonevent, 
+                        total_event, total_nonevent, 0.5
+                    )
+                    
+                    merged_bin = NumericBin(
+                        left=current_bin.left,
+                        right=next_bin.right,
+                        woe=woe,
+                        event_count=merged_event,
+                        nonevent_count=merged_nonevent,
+                        total_count=merged_total,
+                        event_rate=rate,
+                        iv_contrib=iv_contrib
+                    )
+                    
+                    optimized.append(merged_bin)
+                    i += 2  # Skip next bin as it's merged
+                else:
+                    optimized.append(current_bin)
+                    i += 1
+            else:
+                optimized.append(current_bin)
+                i += 1
+        
+        return optimized
     
     def _group_categorical_adaptive(
         self, x, y, rare_threshold, missing_label, 
@@ -247,7 +318,77 @@ class FeatureEngineer:
             )
             groups.append(group)
         
+        # Optimize categorical groups - merge similar WOE categories
+        groups = self._optimize_categorical_groups(groups)
+        
         return groups
+    
+    def _optimize_categorical_groups(self, groups: List[CategoricalGroup], woe_threshold: float = 0.1) -> List[CategoricalGroup]:
+        """Merge categorical groups with similar WOE values"""
+        if len(groups) <= 2:
+            return groups
+        
+        # Sort groups by WOE value
+        groups = sorted(groups, key=lambda g: g.woe)
+        
+        optimized = []
+        i = 0
+        
+        while i < len(groups):
+            current_group = groups[i]
+            merged_members = list(current_group.members)
+            merged_event = current_group.event_count
+            merged_nonevent = current_group.nonevent_count
+            
+            # Look for groups with similar WOE to merge
+            j = i + 1
+            while j < len(groups):
+                next_group = groups[j]
+                woe_diff = abs(current_group.woe - next_group.woe)
+                
+                # Merge if WOE values are similar
+                if woe_diff < woe_threshold:
+                    merged_members.extend(next_group.members)
+                    merged_event += next_group.event_count
+                    merged_nonevent += next_group.nonevent_count
+                    j += 1
+                else:
+                    break
+            
+            # Create merged group if any merging happened
+            if j > i + 1:
+                # Recalculate WOE for merged group
+                total_event = sum(g.event_count for g in groups)
+                total_nonevent = sum(g.nonevent_count for g in groups)
+                
+                woe, rate, iv_contrib = compute_woe_iv(
+                    merged_event, merged_nonevent,
+                    total_event, total_nonevent, 0.5
+                )
+                
+                # Create label for merged group
+                if len(merged_members) <= 3:
+                    label = ','.join(str(m) for m in merged_members[:3])
+                else:
+                    label = f"{merged_members[0]}+{len(merged_members)-1}_others"
+                
+                merged_group = CategoricalGroup(
+                    label=label,
+                    members=merged_members,
+                    woe=woe,
+                    event_count=merged_event,
+                    nonevent_count=merged_nonevent,
+                    total_count=merged_event + merged_nonevent,
+                    event_rate=rate,
+                    iv_contrib=iv_contrib
+                )
+                optimized.append(merged_group)
+            else:
+                optimized.append(current_group)
+            
+            i = j
+        
+        return optimized
     
     def _calculate_iv(self, vw: VariableWOE, x, y) -> float:
         """Calculate Information Value for a variable"""
@@ -340,7 +481,8 @@ class FeatureEngineer:
                         mask = x.isin(group.members)
                         woe_values[mask] = group.woe
             
-            result[var] = woe_values
+            # Ensure no NaN values remain (fill with 0 if any)
+            result[var] = woe_values.fillna(0.0)
         
         return result
     

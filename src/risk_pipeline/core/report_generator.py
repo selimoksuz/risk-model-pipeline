@@ -431,7 +431,7 @@ class ReportGenerator:
         
         # Get feature importances
         importances = self._extract_feature_importance(best_model)
-        importance_dict = dict(zip(final_vars, importances)) if importances else {}
+        importance_dict = dict(zip(final_vars, importances)) if importances is not None else {}
         
         # Check if this is a WOE or RAW model
         is_woe_model = best_model_name.startswith("WOE_")

@@ -442,6 +442,16 @@ class RiskModelPipeline(BasePipeline):
                     self.models_summary_
                 )
                 
+                # Update final_vars based on which pipeline was selected
+                if self.best_model_name_ and self.best_model_name_.startswith("RAW_"):
+                    # If RAW model was selected, use raw_final_vars
+                    if hasattr(self, 'raw_final_vars_'):
+                        self.final_vars_ = self.raw_final_vars_
+                elif self.best_model_name_ and self.best_model_name_.startswith("WOE_"):
+                    # If WOE model was selected, use woe_final_vars
+                    if hasattr(self, 'woe_final_vars_'):
+                        self.final_vars_ = self.woe_final_vars_
+                
                 self._log(f"   - best={self.best_model_name_}")
         
         # Step 15: Report generation
@@ -461,13 +471,17 @@ class RiskModelPipeline(BasePipeline):
                         X_for_shap = X_tr_raw if 'X_tr_raw' in locals() else None
                     
                     if X_for_shap is not None and best_model is not None:
-                        shap_values = compute_shap_values(
-                            best_model, 
-                            X_for_shap[self.final_vars_],
-                            shap_sample=min(1000, len(X_for_shap))
-                        )
-                        if shap_values:
-                            shap_summary = summarize_shap(shap_values, self.final_vars_)
+                        # Filter to only columns that exist in X_for_shap
+                        shap_cols = [col for col in self.final_vars_ if col in X_for_shap.columns]
+                        
+                        if shap_cols:
+                            shap_values = compute_shap_values(
+                                best_model, 
+                                X_for_shap[shap_cols],
+                                shap_sample=min(1000, len(X_for_shap))
+                            )
+                            if shap_values:
+                                shap_summary = summarize_shap(shap_values, shap_cols)
                             self._log(f"   - SHAP values computed for {len(self.final_vars_)} features")
                             self.shap_values_ = shap_values
                             self.shap_summary_ = shap_summary

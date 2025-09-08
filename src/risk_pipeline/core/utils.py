@@ -92,34 +92,36 @@ def jeffreys_counts(total_event: int, total_nonevent: int, alpha: float = 0.5):
     return te_s, tne_s
 
 def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: int, alpha: float = 0.5):
-    """Compute WOE and IV for a bin/group"""
+    """Compute WOE and IV for a bin/group - Standard calculation"""
     # Calculate actual event rate (without smoothing)
     if (event + nonevent) > 0:
         actual_rate = event / (event + nonevent)
     else:
         actual_rate = 0.0
     
-    # Apply smoothing for WOE calculation
+    # Apply Laplace smoothing to avoid division by zero
+    # This is standard practice in WOE calculation
     e_s = event + alpha
     ne_s = nonevent + alpha
-    te_s, tne_s = jeffreys_counts(total_event, total_nonevent, alpha)
     
-    # Calculate WOE using smoothed values
-    de = e_s/te_s
-    dne = ne_s/tne_s
+    # Total events and non-events with smoothing
+    te_s = total_event + alpha * 10  # Smoothing for totals
+    tne_s = total_nonevent + alpha * 10
     
-    # Prevent division by zero and extreme WOE values
-    if dne <= 0:
-        woe = 5.0  # Cap at maximum WOE
-    elif de <= 0:
-        woe = -5.0  # Cap at minimum WOE
-    else:
-        woe = float(np.log(de/dne))
-        # Cap WOE values to prevent extreme values
-        woe = max(-5.0, min(5.0, woe))
+    # Calculate distributions
+    dist_event = e_s / te_s
+    dist_nonevent = ne_s / tne_s
     
-    # IV contribution
-    iv_contrib = float((de - dne) * woe)
+    # Standard WOE calculation: ln(% of events / % of non-events)
+    if dist_nonevent == 0:
+        dist_nonevent = 1e-10  # Small value to avoid log(0)
+    if dist_event == 0:
+        dist_event = 1e-10
+        
+    woe = float(np.log(dist_event / dist_nonevent))
+    
+    # IV contribution for this bin: (dist_event - dist_nonevent) * WOE
+    iv_contrib = float((dist_event - dist_nonevent) * woe)
     
     return woe, float(actual_rate), iv_contrib
 

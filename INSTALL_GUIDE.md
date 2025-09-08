@@ -1,168 +1,267 @@
-# Installation Guide - Dependency Hell'den Kurtulma Rehberi 🚀
+# Installation Guide 📦
 
-## 🎯 Hızlı Başlangıç (Önerilen)
+## Quick Install from PyPI (Coming Soon)
 
-### Seçenek 1: Minimal Kurulum (Sadece Core)
-```bash
-# Sadece pipeline'ı çalıştırmak için gerekli olanlar
-pip install -r requirements-core.txt
-pip install -e .
-```
-
-### Seçenek 2: Docker ile Garantili Ortam (EN GÜVENLİ)
-```bash
-# Hiç dependency problemi yaşamayın!
-docker-compose up risk-pipeline
-```
-
-### Seçenek 3: Tam Kurulum (Tüm Özellikler)
-```bash
-# Tüm özellikleri istiyorsanız
-pip install -r requirements-exact.txt
-pip install -e .
-```
-
-## 🔍 Ortamınızı Kontrol Edin
+Once published to PyPI, you'll be able to install directly:
 
 ```bash
-# Otomatik kontrol ve düzeltme
-python check_environment.py
-```
-
-## 📦 Kurulum Seçenekleri
-
-### 1. **Minimal (Core Only)**
-- ✅ Pipeline çalışır
-- ✅ Model eğitimi yapılır  
-- ✅ Excel raporları üretilir
-- ❌ Görselleştirme yok
-- ❌ SHAP analizi yok
-
-```bash
+# Basic installation
 pip install risk-model-pipeline
-```
 
-### 2. **Görselleştirme Desteği ile**
-```bash
+# With visualization support
 pip install risk-model-pipeline[viz]
-```
 
-### 3. **ML Özellikleri ile**
-```bash
+# With advanced ML features
 pip install risk-model-pipeline[ml]
-```
 
-### 4. **Full Paket**
-```bash
+# Full installation with all features
 pip install risk-model-pipeline[all]
 ```
 
-## 🐳 Docker ile Çalıştırma (Dependency Hell YOK!)
+## Install from GitHub (Current Method)
 
+### Latest Development Version
 ```bash
-# İmajı build et
-docker build -t risk-pipeline .
-
-# Jupyter notebook olarak çalıştır
-docker run -p 8888:8888 -v $(pwd)/data:/app/data risk-pipeline
-
-# CLI olarak çalıştır
-docker run -v $(pwd)/data:/app/data risk-pipeline python run_pipeline.py
+pip install git+https://github.com/selimoksuz/risk-model-pipeline.git
 ```
 
-## 🔧 Sorun Giderme
-
-### Problem: "ImportError: cannot import name 'X'"
+### Specific Release
 ```bash
-# Çözüm 1: Environment'ı sıfırla
-pip uninstall risk-model-pipeline -y
-pip install --no-cache-dir -r requirements-exact.txt
+pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@v0.3.0
+```
+
+### Editable Installation (for development)
+```bash
+git clone https://github.com/selimoksuz/risk-model-pipeline.git
+cd risk-model-pipeline
 pip install -e .
 
-# Çözüm 2: Docker kullan
-docker-compose up
+# With all development tools
+pip install -e .[dev]
 ```
 
-### Problem: "Version conflict"
+## Installation Options
+
+### 1. Minimal Installation (Core Only)
 ```bash
-# Exact versiyonları kullan
-pip install -r requirements-exact.txt --force-reinstall
+pip install risk-model-pipeline
 ```
+✅ Features included:
+- Model training pipeline
+- WOE transformation
+- Feature selection
+- Excel reporting
+- Basic models (Logistic, XGBoost, LightGBM)
 
-### Problem: "Matplotlib/Seaborn patladı"
-```python
-# Kodda safe import kullanın:
-from risk_pipeline.utils.safe_imports import safe_matplotlib_import
+❌ Not included:
+- Visualization
+- SHAP analysis
+- Advanced HPO with Optuna
 
-plt, PLOT_AVAILABLE = safe_matplotlib_import()
-if PLOT_AVAILABLE:
-    # Görselleştirme yap
-    plt.plot([1, 2, 3])
-else:
-    print("Görselleştirme mevcut değil, devam ediliyor...")
-```
-
-## 🏗️ Farklı Ortamlar için Setup
-
-### Anaconda Kullanıcıları
+### 2. With Visualization Support
 ```bash
-# Yeni environment oluştur
+pip install risk-model-pipeline[viz]
+```
+Additionally includes:
+- Matplotlib plotting
+- Seaborn charts
+- Interactive Plotly dashboards
+
+### 3. With Advanced ML Features
+```bash
+pip install risk-model-pipeline[ml]
+```
+Additionally includes:
+- Optuna hyperparameter optimization
+- SHAP explainability
+- Imbalanced learning techniques
+- Extra scikit-learn models
+
+### 4. For Notebook Users
+```bash
+pip install risk-model-pipeline[notebook]
+```
+Additionally includes:
+- Jupyter notebook support
+- IPython widgets
+- Enhanced notebook displays
+
+### 5. Full Installation
+```bash
+pip install risk-model-pipeline[all]
+```
+Includes everything!
+
+## Environment Setup
+
+### Using Conda
+```bash
+# Create new environment
 conda create -n risk-pipeline python=3.9
 conda activate risk-pipeline
 
-# Core paketleri conda ile kur
-conda install pandas numpy scikit-learn -c conda-forge
-
-# Geri kalanı pip ile
-pip install -r requirements-core.txt
+# Install package
+pip install risk-model-pipeline[all]
 ```
 
-### Virtualenv Kullanıcıları
+### Using venv
 ```bash
-# Yeni environment
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Exact versiyonları kur
-pip install -r requirements-exact.txt
+# Activate
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
+# Install package
+pip install risk-model-pipeline[all]
 ```
 
-### Google Colab
+### Using Poetry
+```bash
+poetry add risk-model-pipeline
+# With extras
+poetry add risk-model-pipeline[viz,ml]
+```
+
+## Verify Installation
+
 ```python
-# Colab'da çalıştırmak için
-!pip install git+https://github.com/selimoksuz/risk-model-pipeline.git
+# Check installation
+import risk_pipeline
+print(risk_pipeline.__version__)
+
+# Test imports
+from risk_pipeline import Config, DualPipeline
+from risk_pipeline.core import DataProcessor, FeatureEngineer
+
+# Check available features
+from risk_pipeline.utils.safe_imports import check_dependencies
+check_dependencies(verbose=True)
 ```
 
-## 📊 Özellik Matrisi
+## System Requirements
 
-| Özellik | Core | +viz | +ml | Docker |
-|---------|------|------|-----|--------|
-| Model Eğitimi | ✅ | ✅ | ✅ | ✅ |
-| WOE Dönüşümü | ✅ | ✅ | ✅ | ✅ |
-| Excel Rapor | ✅ | ✅ | ✅ | ✅ |
-| Grafikler | ❌ | ✅ | ✅ | ✅ |
-| SHAP | ❌ | ❌ | ✅ | ✅ |
-| HPO (Optuna) | ❌ | ❌ | ✅ | ✅ |
-| Garantili Çalışma | ⚠️ | ⚠️ | ⚠️ | ✅ |
+### Minimum Requirements
+- Python 3.8+
+- 4GB RAM
+- 1GB free disk space
 
-## 🆘 Hala Sorun mu Var?
+### Recommended for Production
+- Python 3.9 or 3.10
+- 8GB+ RAM
+- 2GB+ free disk space
+- 64-bit operating system
 
-1. **Environment Report oluştur:**
-   ```bash
-   python check_environment.py
-   ```
+### Supported Operating Systems
+- ✅ Windows 10/11
+- ✅ macOS 10.15+
+- ✅ Ubuntu 20.04+
+- ✅ CentOS 7+
+- ✅ Google Colab
+- ✅ AWS SageMaker
 
-2. **Issue aç:** https://github.com/selimoksuz/risk-model-pipeline/issues
+## Troubleshooting
 
-3. **Docker kullan:** Kesin çözüm!
+### ImportError: No module named 'risk_pipeline'
+```bash
+# Ensure package is installed
+pip list | grep risk-model-pipeline
 
-## 💡 Pro İpuçları
+# If not found, reinstall
+pip install --force-reinstall risk-model-pipeline
+```
 
-1. **Production için:** Docker veya requirements-exact.txt kullanın
-2. **Development için:** requirements-core.txt + ihtiyaç duyulan extras
-3. **CI/CD için:** Docker image kullanın
-4. **Notebook için:** `pip install risk-model-pipeline[notebook,viz]`
+### Version Conflicts
+```bash
+# Create clean environment
+python -m venv clean_env
+clean_env\Scripts\activate  # Windows
+pip install risk-model-pipeline
+```
 
----
+### Memory Issues
+For large datasets (>1M rows):
+```python
+# Use chunking
+config = Config(
+    chunk_size=50000,
+    use_memory_optimization=True
+)
+```
 
-📌 **Not:** Dependency hell'den tamamen kurtulmak için Docker kullanmanızı şiddetle tavsiye ederiz!
+### Slow Installation
+```bash
+# Use wheels for faster installation
+pip install --only-binary :all: risk-model-pipeline
+```
+
+## Usage After Installation
+
+### Command Line Interface
+```bash
+# Check installation
+risk-pipeline --version
+
+# Run pipeline
+risk-pipeline run --config config.yaml --data data.csv
+
+# Check environment
+risk-pipeline-check
+```
+
+### Python API
+```python
+from risk_pipeline import Config, DualPipeline
+import pandas as pd
+
+# Load data
+df = pd.read_csv("data.csv")
+
+# Configure
+config = Config(
+    target_col="target",
+    enable_dual_pipeline=True
+)
+
+# Run pipeline
+pipeline = DualPipeline(config)
+pipeline.run(df)
+
+# Get results
+results = pipeline.get_results()
+```
+
+## Upgrading
+
+### Upgrade to Latest Version
+```bash
+pip install --upgrade risk-model-pipeline
+```
+
+### Check Current Version
+```python
+import risk_pipeline
+print(risk_pipeline.__version__)
+```
+
+### Migration Guide
+See [CHANGELOG.md](CHANGELOG.md) for breaking changes between versions.
+
+## Uninstallation
+
+```bash
+pip uninstall risk-model-pipeline
+```
+
+## Support
+
+- 📖 Documentation: [GitHub README](https://github.com/selimoksuz/risk-model-pipeline)
+- 🐛 Issues: [GitHub Issues](https://github.com/selimoksuz/risk-model-pipeline/issues)
+- 💬 Discussions: [GitHub Discussions](https://github.com/selimoksuz/risk-model-pipeline/discussions)
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.

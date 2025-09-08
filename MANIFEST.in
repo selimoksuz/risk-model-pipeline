@@ -1,17 +1,14 @@
 # Include important files in the package
 include README.md
 include LICENSE
-include CHANGELOG.md
-include requirements*.txt
+include pyproject.toml
+include setup.py
 
-# Include package data
+# Include all Python source files
+recursive-include src *.py
+
+# Include package data files
 recursive-include src/risk_pipeline *.json *.yaml *.yml
-
-# Include example notebooks
-recursive-include notebooks *.ipynb
-
-# Include test data
-recursive-include tests *.py *.json *.csv
 
 # Exclude unnecessary files
 global-exclude *.py[cod]
@@ -22,3 +19,6 @@ global-exclude .DS_Store
 global-exclude *.egg-info
 recursive-exclude tests *
 recursive-exclude docs *
+recursive-exclude notebooks *
+recursive-exclude examples *
+recursive-exclude scripts *

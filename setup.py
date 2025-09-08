@@ -11,11 +11,13 @@ this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 # Read version from package
-exec(open("src/risk_pipeline/_version.py").read())
+version = {}
+with open("src/risk_pipeline/_version.py") as f:
+    exec(f.read(), version)
 
 setup(
     name="risk-model-pipeline",
-    version=__version__,  # Will be read from _version.py
+    version=version["__version__"],
     author="Your Name",  # TODO: Update with your name
     author_email="your.email@example.com",  # TODO: Update with your email
     description="Production-ready risk modeling pipeline with WOE transformation and advanced ML features",

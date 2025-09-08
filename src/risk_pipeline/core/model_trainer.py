@@ -148,8 +148,8 @@ class ModelTrainer:
         
         # Use hpo_method from Config or default to optuna
         method = getattr(self.cfg, 'hpo_method', 'optuna')
-        timeout = getattr(self.cfg, 'hpo_timeout_sec', 60)
-        n_trials = getattr(self.cfg, 'hpo_trials', 10)
+        timeout = getattr(self.cfg, 'hpo_timeout_sec', getattr(self.cfg, 'optuna_timeout', 60))
+        n_trials = getattr(self.cfg, 'hpo_trials', getattr(self.cfg, 'n_trials', 100))
         
         if method == "optuna" and optuna:
             try:

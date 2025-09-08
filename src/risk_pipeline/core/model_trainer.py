@@ -324,7 +324,7 @@ class ModelTrainer:
             # Hyperparameter tuning
             mdl = self.hyperparameter_tune(base_mdl, params, X_train[feature_names], y_train)
             
-            print(f"[{now_str()}]   - {prefix}{name} CV basliyor{sys_metrics()}")
+            print(f"[{now_str()}]   - {prefix}{name} CV starting{sys_metrics()}")
             
             # Cross-validation evaluation
             cv_scores = []

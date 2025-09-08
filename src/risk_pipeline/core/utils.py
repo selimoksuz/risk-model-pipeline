@@ -110,14 +110,14 @@ class Timer:
         
     def __enter__(self):
         self.t0 = time.time()
-        self.logger(f"[{now_str()}] >> {self.label} basliyor{sys_metrics()}")
+        self.logger(f"[{now_str()}] >> {self.label} starting{sys_metrics()}")
         
     def __exit__(self, exc_type, exc, tb):
         ok_fail = " — FAIL" if exc_type else " — OK"
         if exc_type:
-            self.logger(f"[{now_str()}] â--  {self.label} bitti ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}")
+            self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}")
         else:
-            self.logger(f"[{now_str()}] â--  {self.label} bitti ({time.time()-self.t0:.2f}s){ok_fail}{sys_metrics()}")
+            self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}{sys_metrics()}")
 
 class Timer2:
     """Alternative timer implementation"""

@@ -445,6 +445,35 @@ class RiskModelPipeline(BasePipeline):
                 self._log(f"   - best={self.best_model_name_}")
         
         # Step 15: Report generation
+        # Step 14b: SHAP analysis for best model
+        shap_values = None
+        shap_summary = None
+        if self.best_model_name_ and self.final_vars_:
+            try:
+                from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
+                with Timer("14b) SHAP analysis", self._log):
+                    best_model = self.models_.get(self.best_model_name_)
+                    
+                    # Get appropriate data for SHAP
+                    if self.best_model_name_.startswith("WOE_"):
+                        X_for_shap = X_tr_woe if 'X_tr_woe' in locals() else None
+                    else:
+                        X_for_shap = X_tr_raw if 'X_tr_raw' in locals() else None
+                    
+                    if X_for_shap is not None and best_model is not None:
+                        shap_values = compute_shap_values(
+                            best_model, 
+                            X_for_shap[self.final_vars_],
+                            shap_sample=min(1000, len(X_for_shap))
+                        )
+                        if shap_values:
+                            shap_summary = summarize_shap(shap_values, self.final_vars_)
+                            self._log(f"   - SHAP values computed for {len(self.final_vars_)} features")
+                            self.shap_values_ = shap_values
+                            self.shap_summary_ = shap_summary
+            except Exception as e:
+                self._log(f"   - SHAP analysis skipped: {str(e)}")
+        
         enable_report = getattr(self.cfg.orchestrator, 'enable_report', True)
         if enable_report:
             with Timer("15) Report tables", self._log):
@@ -462,7 +491,9 @@ class RiskModelPipeline(BasePipeline):
                     self.woe_map,
                     self.feature_engineer.psi_summary_,
                     X_tr_woe if 'X_tr_woe' in locals() else None,
-                    y_tr
+                    y_tr,
+                    shap_values=shap_values,
+                    shap_summary=shap_summary
                 )
                 
                 self.report_sheets_ = sheets

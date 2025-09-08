@@ -341,7 +341,9 @@ class ReportGenerator:
         woe_map: Dict,
         psi_results: Optional[pd.DataFrame] = None,
         X_train: Optional[pd.DataFrame] = None,
-        y_train: Optional[np.ndarray] = None
+        y_train: Optional[np.ndarray] = None,
+        shap_values: Optional[Any] = None,
+        shap_summary: Optional[Dict] = None
     ) -> Dict[str, pd.DataFrame]:
         """Generate full report with all sheets"""
         sheets = {}
@@ -369,6 +371,18 @@ class ReportGenerator:
         if woe_map:
             sheets["woe_mapping"] = self.build_woe_mapping_report(woe_map)
         
+        # Comprehensive best model variables sheet
+        if best_model and final_vars and woe_map:
+            sheets["best_model_details"] = self.build_best_model_comprehensive_report(
+                best_model, final_vars, woe_map, best_model_name
+            )
+        
+        # SHAP analysis sheet
+        if shap_values is not None and shap_summary is not None:
+            sheets["shap_importance"] = self.build_shap_report(
+                shap_values, shap_summary, final_vars
+            )
+        
         # Univariate analysis
         if X_train is not None and y_train is not None:
             sheets["top50_univariate"] = self.build_univariate_analysis(
@@ -379,6 +393,234 @@ class ReportGenerator:
         sheets["run_meta"] = self._build_metadata_report()
         
         return sheets
+    
+    def _extract_feature_importance(self, model) -> Optional[np.ndarray]:
+        """Extract feature importance from model"""
+        if model is None:
+            return None
+            
+        # Tree-based models
+        if hasattr(model, 'feature_importances_'):
+            return model.feature_importances_
+        
+        # Linear models
+        elif hasattr(model, 'coef_'):
+            coef = model.coef_
+            if len(coef.shape) > 1:
+                coef = coef[0]
+            return np.abs(coef)
+        
+        # GAM models
+        elif hasattr(model, 'statistics_'):
+            if hasattr(model.statistics_, 'p_values'):
+                # Use inverse of p-values as importance
+                p_values = model.statistics_.p_values
+                return 1.0 / (p_values + 0.001) if p_values is not None else None
+        
+        return None
+    
+    def build_best_model_comprehensive_report(
+        self, 
+        best_model, 
+        final_vars: List[str], 
+        woe_map: Dict,
+        best_model_name: str
+    ) -> pd.DataFrame:
+        """Build comprehensive best model variables report with WOE details"""
+        rows = []
+        
+        # Get feature importances
+        importances = self._extract_feature_importance(best_model)
+        importance_dict = dict(zip(final_vars, importances)) if importances else {}
+        
+        # Check if this is a WOE or RAW model
+        is_woe_model = best_model_name.startswith("WOE_")
+        
+        for var in final_vars:
+            # Get base variable name (remove _woe suffix if present)
+            base_var = var.replace("_woe", "") if var.endswith("_woe") else var
+            
+            # Get WOE mapping info if available
+            if base_var in woe_map:
+                vw = woe_map[base_var]
+                
+                # For numeric variables with bins
+                if vw.var_type == "numeric" and vw.numeric_bins:
+                    for i, bin_obj in enumerate(vw.numeric_bins):
+                        rows.append({
+                            "rank": 0,  # Will be updated after sorting
+                            "variable": base_var,
+                            "type": "numeric",
+                            "bin_number": i + 1,
+                            "bin_range": f"[{bin_obj.left:.2f}, {bin_obj.right:.2f})",
+                            "woe": bin_obj.woe,  # Always show WOE values
+                            "event_count": bin_obj.event_count,
+                            "nonevent_count": bin_obj.nonevent_count,
+                            "total_count": bin_obj.total_count,
+                            "event_rate": bin_obj.event_rate,
+                            "iv_contrib": bin_obj.iv_contrib,
+                            "total_iv": vw.iv,
+                            "importance": importance_dict.get(var, 0),
+                            "model_type": "WOE" if is_woe_model else "RAW"
+                        })
+                
+                # For categorical variables with groups
+                elif vw.var_type == "categorical" and vw.categorical_groups:
+                    for i, group in enumerate(vw.categorical_groups):
+                        rows.append({
+                            "rank": 0,
+                            "variable": base_var,
+                            "type": "categorical", 
+                            "bin_number": i + 1,
+                            "bin_range": f"{group.label}: {','.join(str(m) for m in group.members[:3])}...",
+                            "woe": group.woe,  # Always show WOE values
+                            "event_count": group.event_count,
+                            "nonevent_count": group.nonevent_count,
+                            "total_count": group.total_count,
+                            "event_rate": group.event_rate,
+                            "iv_contrib": group.iv_contrib,
+                            "total_iv": vw.iv,
+                            "importance": importance_dict.get(var, 0),
+                            "model_type": "WOE" if is_woe_model else "RAW"
+                        })
+                
+                # Add missing value row if exists
+                if vw.missing_woe is not None and vw.missing_rate > 0:
+                    rows.append({
+                        "rank": 0,
+                        "variable": base_var,
+                        "type": vw.var_type,
+                        "bin_number": 999,
+                        "bin_range": "Missing",
+                        "woe": vw.missing_woe if is_woe_model else None,
+                        "event_count": None,
+                        "nonevent_count": None,
+                        "total_count": None,
+                        "event_rate": vw.missing_rate,
+                        "iv_contrib": None,
+                        "total_iv": vw.iv,
+                        "importance": importance_dict.get(var, 0),
+                        "model_type": "WOE" if is_woe_model else "RAW"
+                    })
+            else:
+                # Variable not in WOE map (RAW variable)
+                rows.append({
+                    "rank": 0,
+                    "variable": var,
+                    "type": "raw",
+                    "bin_number": None,
+                    "bin_range": "RAW feature",
+                    "woe": None,
+                    "event_count": None,
+                    "nonevent_count": None,
+                    "total_count": None,
+                    "event_rate": None,
+                    "iv_contrib": None,
+                    "total_iv": None,
+                    "importance": importance_dict.get(var, 0),
+                    "model_type": "RAW"
+                })
+        
+        df = pd.DataFrame(rows)
+        
+        if not df.empty:
+            # Sort by importance (descending) and then by variable name
+            df = df.sort_values(
+                ["importance", "variable", "bin_number"],
+                ascending=[False, True, True]
+            ).reset_index(drop=True)
+            
+            # Update rank based on unique variables
+            seen_vars = set()
+            rank = 0
+            for idx, row in df.iterrows():
+                if row["variable"] not in seen_vars:
+                    rank += 1
+                    seen_vars.add(row["variable"])
+                df.at[idx, "rank"] = rank
+            
+            # Reorder columns for better readability
+            column_order = [
+                "rank", "variable", "type", "bin_number", "bin_range",
+                "event_count", "nonevent_count", "total_count", "event_rate",
+                "woe", "iv_contrib", "total_iv", "importance", "model_type"
+            ]
+            df = df[column_order]
+            
+            # Format numeric columns
+            numeric_cols = ["event_rate", "woe", "iv_contrib", "total_iv", "importance"]
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: round(x, 4) if pd.notna(x) else x)
+        
+        return df
+    
+    def build_shap_report(self, shap_values, shap_summary: Dict, final_vars: List[str]) -> pd.DataFrame:
+        """Build SHAP importance report"""
+        rows = []
+        
+        # If we have SHAP summary (mean absolute SHAP values)
+        if shap_summary:
+            for var in final_vars:
+                if var in shap_summary:
+                    rows.append({
+                        "rank": 0,  # Will be updated after sorting
+                        "variable": var,
+                        "shap_importance": shap_summary[var],
+                        "relative_importance": 0  # Will be calculated
+                    })
+        
+        # If we have raw SHAP values, calculate additional statistics
+        if shap_values is not None and hasattr(shap_values, 'values'):
+            shap_array = shap_values.values
+            if len(shap_array.shape) == 2:  # Binary classification
+                for i, var in enumerate(final_vars):
+                    if i < shap_array.shape[1]:
+                        values = shap_array[:, i]
+                        if not rows:  # If summary wasn't provided
+                            rows.append({
+                                "rank": 0,
+                                "variable": var,
+                                "shap_importance": np.abs(values).mean(),
+                                "relative_importance": 0
+                            })
+                        # Add additional statistics
+                        for row in rows:
+                            if row["variable"] == var:
+                                row["shap_std"] = np.std(values)
+                                row["shap_min"] = np.min(values)
+                                row["shap_max"] = np.max(values)
+                                row["shap_median"] = np.median(values)
+                                break
+        
+        df = pd.DataFrame(rows)
+        
+        if not df.empty:
+            # Sort by SHAP importance (descending)
+            df = df.sort_values("shap_importance", ascending=False).reset_index(drop=True)
+            
+            # Calculate relative importance
+            max_importance = df["shap_importance"].max()
+            if max_importance > 0:
+                df["relative_importance"] = (df["shap_importance"] / max_importance * 100).round(2)
+            
+            # Update rank
+            df["rank"] = range(1, len(df) + 1)
+            
+            # Reorder columns
+            column_order = ["rank", "variable", "shap_importance", "relative_importance"]
+            if "shap_std" in df.columns:
+                column_order.extend(["shap_std", "shap_min", "shap_max", "shap_median"])
+            
+            df = df[column_order]
+            
+            # Format numeric columns
+            numeric_cols = ["shap_importance", "shap_std", "shap_min", "shap_max", "shap_median"]
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: round(x, 6) if pd.notna(x) else x)
+        
+        return df
     
     def _build_metadata_report(self) -> pd.DataFrame:
         """Build metadata report"""

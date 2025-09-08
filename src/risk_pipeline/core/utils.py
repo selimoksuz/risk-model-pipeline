@@ -93,14 +93,35 @@ def jeffreys_counts(total_event: int, total_nonevent: int, alpha: float = 0.5):
 
 def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: int, alpha: float = 0.5):
     """Compute WOE and IV for a bin/group"""
+    # Calculate actual event rate (without smoothing)
+    if (event + nonevent) > 0:
+        actual_rate = event / (event + nonevent)
+    else:
+        actual_rate = 0.0
+    
+    # Apply smoothing for WOE calculation
     e_s = event + alpha
     ne_s = nonevent + alpha
     te_s, tne_s = jeffreys_counts(total_event, total_nonevent, alpha)
-    rate = e_s/(e_s+ne_s)
+    
+    # Calculate WOE using smoothed values
     de = e_s/te_s
     dne = ne_s/tne_s
-    woe = float(np.log(max(de,1e-12)/max(dne,1e-12)))
-    return woe, float(rate), float(de - dne)
+    
+    # Prevent division by zero and extreme WOE values
+    if dne <= 0:
+        woe = 5.0  # Cap at maximum WOE
+    elif de <= 0:
+        woe = -5.0  # Cap at minimum WOE
+    else:
+        woe = float(np.log(de/dne))
+        # Cap WOE values to prevent extreme values
+        woe = max(-5.0, min(5.0, woe))
+    
+    # IV contribution
+    iv_contrib = float((de - dne) * woe)
+    
+    return woe, float(actual_rate), iv_contrib
 
 # Timer classes
 class Timer:

@@ -78,7 +78,29 @@ setup(
             "notebook>=6.0.0",
             "ipywidgets>=7.0.0",
         ],
-        "all": [],  # Will be populated below
+        "all": [
+            # All optional dependencies
+            "pytest>=7.0.0",
+            "pytest-cov>=3.0.0",
+            "black>=22.0.0",
+            "isort>=5.0.0",
+            "flake8>=4.0.0",
+            "mypy>=0.950",
+            "pre-commit>=2.0.0",
+            "twine>=4.0.0",
+            "wheel>=0.37.0",
+            "build>=0.7.0",
+            "matplotlib>=3.5.0,<3.7.0",
+            "seaborn>=0.12.0",
+            "plotly>=5.0.0",
+            "optuna>=3.0.0",
+            "shap>=0.41.0",
+            "imbalanced-learn>=0.9.0",
+            "scikit-learn-extra>=0.2.0",
+            "jupyter>=1.0.0",
+            "notebook>=6.0.0",
+            "ipywidgets>=7.0.0",
+        ],
     },
     
     # CLI entry points
@@ -120,10 +142,3 @@ setup(
         "credit-risk",
     ],
 )
-
-# Populate 'all' extras
-extras_all = []
-for extra, deps in setup.extras_require.items():
-    if extra != "all":
-        extras_all.extend(deps)
-setup.extras_require["all"] = list(set(extras_all))

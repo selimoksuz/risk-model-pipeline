@@ -18,7 +18,7 @@ with open("src/risk_pipeline/_version.py") as f:
 setup(
     name="risk-model-pipeline",
     version=version["__version__"],
-    author="Your Name",  # TODO: Update with your name
+    author="Selim Öksüz",
     author_email="your.email@example.com",  # TODO: Update with your email
     description="Production-ready risk modeling pipeline with WOE transformation and advanced ML features",
     long_description=long_description,
@@ -38,7 +38,7 @@ setup(
     # Python version requirement
     python_requires=">=3.8,<4.0",
     
-    # Dependencies
+    # Core dependencies
     install_requires=[
         "pandas>=1.3.0,<2.0.0",
         "numpy>=1.20.0,<1.25.0",
@@ -58,9 +58,9 @@ setup(
             "flake8>=4.0.0",
             "mypy>=0.950",
             "pre-commit>=2.0.0",
-            "twine>=4.0.0",  # For PyPI upload
-            "wheel>=0.37.0",  # For building wheels
-            "build>=0.7.0",   # For building packages
+            "twine>=4.0.0",
+            "wheel>=0.37.0",
+            "build>=0.7.0",
         ],
         "viz": [
             "matplotlib>=3.5.0,<3.7.0",
@@ -74,29 +74,6 @@ setup(
             "scikit-learn-extra>=0.2.0",
         ],
         "notebook": [
-            "jupyter>=1.0.0",
-            "notebook>=6.0.0",
-            "ipywidgets>=7.0.0",
-        ],
-        "all": [
-            # All optional dependencies
-            "pytest>=7.0.0",
-            "pytest-cov>=3.0.0",
-            "black>=22.0.0",
-            "isort>=5.0.0",
-            "flake8>=4.0.0",
-            "mypy>=0.950",
-            "pre-commit>=2.0.0",
-            "twine>=4.0.0",
-            "wheel>=0.37.0",
-            "build>=0.7.0",
-            "matplotlib>=3.5.0,<3.7.0",
-            "seaborn>=0.12.0",
-            "plotly>=5.0.0",
-            "optuna>=3.0.0",
-            "shap>=0.41.0",
-            "imbalanced-learn>=0.9.0",
-            "scikit-learn-extra>=0.2.0",
             "jupyter>=1.0.0",
             "notebook>=6.0.0",
             "ipywidgets>=7.0.0",
@@ -126,7 +103,6 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Operating System :: OS Independent",
-        "Natural Language :: English",
     ],
     
     # Keywords for PyPI search

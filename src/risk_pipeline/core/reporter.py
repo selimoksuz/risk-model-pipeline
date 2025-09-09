@@ -6,6 +6,9 @@ from typing import Dict, List, Optional, Tuple
 import os
 from pathlib import Path
 
+from .psi_calculator import PSICalculator
+from .calibration_analyzer import CalibrationAnalyzer
+
 
 class Reporter:
     """Handles report generation including segment analysis and calibration"""
@@ -14,6 +17,8 @@ class Reporter:
         self.config = config
         self.output_dir = Path(config.output_folder)
         self.output_dir.mkdir(exist_ok=True, parents=True)
+        self.psi_calculator = PSICalculator()
+        self.calibration_analyzer = CalibrationAnalyzer()
         
     def generate_reports(self, train, test=None, oot=None, model=None, 
                         features=None, woe_mapping=None, model_name=None, scores=None):
@@ -34,18 +39,68 @@ class Reporter:
         if woe_mapping:
             reports['woe_bins'] = self._create_woe_report(woe_mapping)
         
-        # Segment-based score PSI
-        if model and train is not None and (test is not None or oot is not None):
-            print("  Calculating segment-based PSI...")
-            reports['score_psi'] = self._calculate_score_psi_segments(
-                model, train, test, oot, features
-            )
+        # PSI Analysis
+        if train is not None and (test is not None or oot is not None):
+            print("  Calculating PSI...")
+            
+            # WOE-based PSI for WOE variables
+            if woe_mapping and features:
+                X_train_woe = train[features] if features else train
+                if test is not None:
+                    X_test_woe = test[features] if features else test
+                    reports['woe_psi_test'] = self.psi_calculator.calculate_woe_psi(
+                        X_train_woe, X_test_woe, woe_mapping
+                    )
+                if oot is not None:
+                    X_oot_woe = oot[features] if features else oot
+                    reports['woe_psi_oot'] = self.psi_calculator.calculate_woe_psi(
+                        X_train_woe, X_oot_woe, woe_mapping
+                    )
+            
+            # Score PSI (model predictions)
+            if model:
+                X_train = train[features] if features else train
+                train_scores = model.predict_proba(X_train)[:, 1]
+                
+                if test is not None:
+                    X_test = test[features] if features else test
+                    test_scores = model.predict_proba(X_test)[:, 1]
+                    psi_value, psi_df = self.psi_calculator.calculate_score_psi(
+                        train_scores, test_scores, n_bins=10
+                    )
+                    reports['score_psi_test'] = {
+                        'psi_value': psi_value,
+                        'segments': psi_df,
+                        'interpretation': self.psi_calculator._interpret_psi(psi_value)
+                    }
+                
+                if oot is not None:
+                    X_oot = oot[features] if features else oot
+                    oot_scores = model.predict_proba(X_oot)[:, 1]
+                    psi_value, psi_df = self.psi_calculator.calculate_score_psi(
+                        train_scores, oot_scores, n_bins=10
+                    )
+                    reports['score_psi_oot'] = {
+                        'psi_value': psi_value,
+                        'segments': psi_df,
+                        'interpretation': self.psi_calculator._interpret_psi(psi_value)
+                    }
         
-        # Calibration analysis
+        # Calibration analysis with risk bands
         if model and oot is not None:
             print("  Performing calibration analysis...")
-            reports['calibration'] = self._calibration_analysis(
-                model, oot, features
+            X_oot = oot[features] if features else oot
+            y_true = oot[self.config.target_col]
+            y_pred = model.predict_proba(X_oot)[:, 1]
+            
+            # Analyze with risk bands
+            reports['calibration_risk_bands'] = self.calibration_analyzer.analyze_calibration(
+                y_true, y_pred, use_deciles=False
+            )
+            
+            # Also analyze with deciles for comparison
+            reports['calibration_deciles'] = self.calibration_analyzer.analyze_calibration(
+                y_true, y_pred, use_deciles=True
             )
         
         # Save reports
@@ -53,7 +108,7 @@ class Reporter:
         
         return reports
     
-    def _calculate_score_psi_segments(self, model, train, test=None, oot=None, features=None):
+    def _calculate_score_psi_segments_OLD(self, model, train, test=None, oot=None, features=None):
         """Calculate PSI for model scores with segment details"""
         
         results = {}

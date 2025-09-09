@@ -1,0 +1,735 @@
+src\risk_pipeline\api.py:130:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\cli.py:12:1: E402 module level import not at top of file
+import json
+^
+src\risk_pipeline\cli.py:13:1: E402 module level import not at top of file
+import joblib
+^
+src\risk_pipeline\cli.py:14:1: E402 module level import not at top of file
+import pandas as pd
+^
+src\risk_pipeline\cli.py:15:1: E402 module level import not at top of file
+import typer
+^
+src\risk_pipeline\cli.py:16:1: F401 'pathlib.Path' imported but unused
+from pathlib import Path
+^
+src\risk_pipeline\cli.py:16:1: E402 module level import not at top of file
+from pathlib import Path
+^
+src\risk_pipeline\cli.py:18:1: E402 module level import not at top of file
+from .core.config import Config
+^
+src\risk_pipeline\cli.py:19:1: E402 module level import not at top of file
+from .pipeline import RiskModelPipeline, DualPipeline
+^
+src\risk_pipeline\cli.py:20:1: E402 module level import not at top of file
+from .stages.scoring import build_scored_frame
+^
+src\risk_pipeline\cli.py:128:121: E501 line too long (121 > 120 characters)
+    output_csv: str = typer.Option(None, help="Optional CSV path for scores (combined); if omitted, CSV is not written"),
+                                                                                                                        ^
+src\risk_pipeline\cli.py:131:121: E501 line too long (128 > 120 characters)
+    report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path to append 'external_scores' sheet"),
+                                                                                                                        ^
+src\risk_pipeline\cli.py:200:28: F821 undefined name 'os'
+    if calibrator_path and os.path.exists(calibrator_path):
+                           ^
+src\risk_pipeline\cli.py:204:121: E501 line too long (121 > 120 characters)
+    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib)
+                                                                                                                        ^
+src\risk_pipeline\cli.py:216:24: F821 undefined name 'os'
+    if report_xlsx and os.path.exists(report_xlsx):
+                       ^
+src\risk_pipeline\cli.py:217:9: F401 'openpyxl' imported but unused
+        import openpyxl
+        ^
+src\risk_pipeline\monitoring.py:50:37: E702 multiple statements on one line (semicolon)
+                left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
+                                    ^
+src\risk_pipeline\monitoring.py:50:61: E702 multiple statements on one line (semicolon)
+                left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
+                                                            ^
+src\risk_pipeline\monitoring.py:66:37: E702 multiple statements on one line (semicolon)
+                lab = g.get("label"); woe = float(g.get("woe", 0.0))
+                                    ^
+src\risk_pipeline\monitoring.py:99:5: E306 expected 1 blank line before a nested definition, found 0
+    def score(m, Xdf):
+    ^
+src\risk_pipeline\monitoring.py:104:27: E231 missing whitespace after ','
+                return p[:,1]
+                          ^
+src\risk_pipeline\monitoring.py:107:23: E231 missing whitespace after ','
+            return p[:,0]
+                      ^
+src\risk_pipeline\pandas_compat.py:5:1: F401 'numpy as np' imported but unused
+import numpy as np
+^
+src\risk_pipeline\pipeline.py:10:1: F401 'typing.Optional' imported but unused
+from typing import Optional
+^
+src\risk_pipeline\pipeline.py:10:1: E402 module level import not at top of file
+from typing import Optional
+^
+src\risk_pipeline\pipeline.py:11:1: F401 'dataclasses.dataclass' imported but unused
+from dataclasses import dataclass
+^
+src\risk_pipeline\pipeline.py:11:1: E402 module level import not at top of file
+from dataclasses import dataclass
+^
+src\risk_pipeline\pipeline.py:14:1: E402 module level import not at top of file
+from .core import (
+^
+src\risk_pipeline\pipeline.py:25:1: E402 module level import not at top of file
+from .core.config import Config
+^
+src\risk_pipeline\pipeline.py:27:1: E302 expected 2 blank lines, found 1
+class RiskModelPipeline(BasePipeline):
+^
+src\risk_pipeline\pipeline.py:110:26: E128 continuation line under-indented for visual indent
+                         f"Test={len(test_idx) if test_idx is not None else 0}, "
+                         ^
+src\risk_pipeline\pipeline.py:111:26: E128 continuation line under-indented for visual indent
+                         f"OOT={len(oot_idx)}")
+                         ^
+src\risk_pipeline\pipeline.py:178:26: E128 continuation line under-indented for visual indent
+                         f"X_test={X_te_woe.shape if X_te_woe is not None else None}, "
+                         ^
+src\risk_pipeline\pipeline.py:179:26: E128 continuation line under-indented for visual indent
+                         f"X_oot={X_oot_woe.shape}")
+                         ^
+src\risk_pipeline\pipeline.py:269:121: E501 line too long (147 > 120 characters)
+                X_noise["__noise_p"] = np.random.permutation(X_tr_woe[final_vars[0]].values) if final_vars else np.random.normal(size=len(X_noise))
+                                                                                                                        ^
+src\risk_pipeline\pipeline.py:320:32: E128 continuation line under-indented for visual indent
+                               if v not in [target_col, id_col, time_col]]
+                               ^
+src\risk_pipeline\pipeline.py:342:26: E128 continuation line under-indented for visual indent
+                         f"X_test_raw={X_te_raw.shape if X_te_raw is not None else None}, "
+                         ^
+src\risk_pipeline\pipeline.py:343:26: E128 continuation line under-indented for visual indent
+                         f"X_oot_raw={X_oot_raw.shape}")
+                         ^
+src\risk_pipeline\pipeline.py:401:121: E501 line too long (149 > 120 characters)
+                    X_noise["__noise_p"] = np.random.permutation(X_tr_raw[raw_final[0]].values) if raw_final else np.random.normal(size=len(X_noise))
+                                                                                                                        ^
+src\risk_pipeline\pipeline.py:538:121: E501 line too long (124 > 120 characters)
+        self._log(f"[{utils.now_str()}] >> RUN complete - run_id={getattr(self.cfg, 'run_id', 'N/A')}{utils.sys_metrics()}")
+                                                                                                                        ^
+src\risk_pipeline\pipeline.py:666:13: F401 'numpy as np' imported but unused
+            import numpy as np
+            ^
+src\risk_pipeline\pipeline.py:752:28: E128 continuation line under-indented for visual indent
+                           key=lambda x: self.models_summary_[
+                           ^
+src\risk_pipeline\pipeline.py:774:28: E128 continuation line under-indented for visual indent
+                           key=lambda x: self.models_summary_[
+                           ^
+src\risk_pipeline\pipeline.py:807:24: E128 continuation line under-indented for visual indent
+                       if v not in [self.cfg.target_col, self.cfg.id_col, self.cfg.time_col]
+                       ^
+src\risk_pipeline\pipeline.py:808:24: E128 continuation line under-indented for visual indent
+                       and v in X.columns]
+                       ^
+src\risk_pipeline\utf8_fix.py:11:1: E302 expected 2 blank lines, found 1
+def setup_utf8_console():
+^
+src\risk_pipeline\utf8_fix.py:31:1: E302 expected 2 blank lines, found 1
+def safe_print(msg, file=None):
+^
+src\risk_pipeline\utf8_fix.py:52:5: F841 local variable 'e' is assigned to but never used
+    except Exception as e:
+    ^
+src\risk_pipeline\utf8_fix.py:61:1: E305 expected 2 blank lines after class or function definition, found 1
+TURKISH_TO_ASCII = {
+^
+src\risk_pipeline\utf8_fix.py:80:1: E302 expected 2 blank lines, found 1
+def fix_turkish_text(text):
+^
+src\risk_pipeline\config\schema.py:2:1: F401 'typing.List' imported but unused
+from typing import Optional, List
+^
+src\risk_pipeline\config\schema.py:4:1: E302 expected 2 blank lines, found 1
+class RunConfig(BaseModel):
+^
+src\risk_pipeline\config\schema.py:18:1: E302 expected 2 blank lines, found 1
+class PathConfig(BaseModel):
+^
+src\risk_pipeline\config\schema.py:23:1: E302 expected 2 blank lines, found 1
+class Config(BaseModel):
+^
+src\risk_pipeline\core\base.py:4:1: F401 'sys' imported but unused
+import sys
+^
+src\risk_pipeline\core\base.py:6:1: F401 'typing.Optional' imported but unused
+from typing import Optional
+^
+src\risk_pipeline\core\base.py:9:1: E302 expected 2 blank lines, found 1
+class BasePipeline:
+^
+src\risk_pipeline\core\config.py:3:1: F401 'typing.Optional' imported but unused
+from typing import Optional
+^
+src\risk_pipeline\core\config_old.py:3:1: F401 'typing.List' imported but unused
+from typing import Optional, List, Dict, Any
+^
+src\risk_pipeline\core\data_processor.py:5:1: F401 'typing.List' imported but unused
+from typing import Tuple, Optional, List, Dict, Any
+^
+src\risk_pipeline\core\data_processor.py:5:1: F401 'typing.Dict' imported but unused
+from typing import Tuple, Optional, List, Dict, Any
+^
+src\risk_pipeline\core\data_processor.py:5:1: F401 'typing.Any' imported but unused
+from typing import Tuple, Optional, List, Dict, Any
+^
+src\risk_pipeline\core\data_processor.py:6:1: F401 'datetime.datetime' imported but unused
+from datetime import datetime
+^
+src\risk_pipeline\core\data_processor.py:7:1: F401 '.utils.Timer' imported but unused
+from .utils import Timer, month_floor, safe_print
+^
+src\risk_pipeline\core\data_processor.py:7:1: F401 '.utils.safe_print' imported but unused
+from .utils import Timer, month_floor, safe_print
+^
+src\risk_pipeline\core\data_processor.py:9:1: E302 expected 2 blank lines, found 1
+class DataProcessor:
+^
+src\risk_pipeline\core\data_processor.py:90:30: E128 continuation line under-indented for visual indent
+                             strategy: str = 'multiple', fit: bool = True) -> pd.DataFrame:
+                             ^
+src\risk_pipeline\core\data_processor.py:312:22: E128 continuation line under-indented for visual indent
+                     f"Test={n_test} ({n_test/total:.1%}), "
+                     ^
+src\risk_pipeline\core\data_processor.py:313:22: E128 continuation line under-indented for visual indent
+                     f"OOT={n_oot} ({n_oot/total:.1%})")
+                     ^
+src\risk_pipeline\core\feature_engineer.py:5:1: F401 'typing.Tuple' imported but unused
+from typing import Dict, List, Tuple, Optional, Any
+^
+src\risk_pipeline\core\feature_engineer.py:5:1: F401 'typing.Optional' imported but unused
+from typing import Dict, List, Tuple, Optional, Any
+^
+src\risk_pipeline\core\feature_engineer.py:7:1: F401 'sklearn.feature_selection.SelectKBest' imported but unused
+from sklearn.feature_selection import SelectKBest, f_classif
+^
+src\risk_pipeline\core\feature_engineer.py:7:1: F401 'sklearn.feature_selection.f_classif' imported but unused
+from sklearn.feature_selection import SelectKBest, f_classif
+^
+src\risk_pipeline\core\feature_engineer.py:14:1: F401 '.utils.jeffreys_counts' imported but unused
+from .utils import (
+^
+src\risk_pipeline\core\feature_engineer.py:14:1: F401 '.utils.ks_statistic' imported but unused
+from .utils import (
+^
+src\risk_pipeline\core\feature_engineer.py:14:1: F401 '.utils.safe_print' imported but unused
+from .utils import (
+^
+src\risk_pipeline\core\feature_engineer.py:14:1: E402 module level import not at top of file
+from .utils import (
+^
+src\risk_pipeline\core\feature_engineer.py:19:1: E302 expected 2 blank lines, found 1
+class FeatureEngineer:
+^
+src\risk_pipeline\core\feature_engineer.py:176:121: E501 line too long (129 > 120 characters)
+    def _optimize_bins(self, bins: List[NumericBin], min_bin_size: float = 0.05, woe_threshold: float = 0.1) -> List[NumericBin]:
+                                                                                                                        ^
+src\risk_pipeline\core\feature_engineer.py:326:121: E501 line too long (129 > 120 characters)
+    def _optimize_categorical_groups(self, groups: List[CategoricalGroup], woe_threshold: float = 0.1) -> List[CategoricalGroup]:
+                                                                                                                        ^
+src\risk_pipeline\core\feature_engineer.py:502:13: F841 local variable 'vw' is assigned to but never used
+            vw = self.woe_map[var]
+            ^
+src\risk_pipeline\core\feature_engineer.py:686:17: F811 redefinition of unused 'f_classif' from line 7
+                from sklearn.feature_selection import f_classif
+                ^
+src\risk_pipeline\core\feature_engineer.py:695:13: F811 redefinition of unused 'SelectKBest' from line 7
+            from sklearn.feature_selection import SelectKBest, f_classif
+            ^
+src\risk_pipeline\core\model_trainer.py:7:1: F401 'typing.Tuple' imported but unused
+from typing import Dict, List, Tuple, Any, Optional
+^
+src\risk_pipeline\core\model_trainer.py:7:1: F401 'typing.Optional' imported but unused
+from typing import Dict, List, Tuple, Any, Optional
+^
+src\risk_pipeline\core\model_trainer.py:32:1: F401 '.utils.ks_table' imported but unused
+from .utils import ks_statistic, ks_table, gini_from_auc, now_str, sys_metrics
+^
+src\risk_pipeline\core\model_trainer.py:32:1: E402 module level import not at top of file
+from .utils import ks_statistic, ks_table, gini_from_auc, now_str, sys_metrics
+^
+src\risk_pipeline\core\model_trainer.py:34:1: E302 expected 2 blank lines, found 1
+class ModelTrainer:
+^
+src\risk_pipeline\core\model_trainer.py:207:121: E501 line too long (137 > 120 characters)
+        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=getattr(self.cfg, 'random_state', 42)))
+                                                                                                                        ^
+src\risk_pipeline\core\report_generator.py:31:1: E302 expected 2 blank lines, found 1
+class ReportGenerator:
+^
+src\risk_pipeline\core\utils.py:3:1: F401 'os' imported but unused
+import os
+^
+src\risk_pipeline\core\utils.py:4:1: F401 'sys' imported but unused
+import sys
+^
+src\risk_pipeline\core\utils.py:8:1: F401 'dataclasses.field' imported but unused
+from dataclasses import dataclass, field
+^
+src\risk_pipeline\core\utils.py:11:1: F401 'json' imported but unused
+import json
+^
+src\risk_pipeline\core\utils.py:14:1: E302 expected 2 blank lines, found 1
+def safe_print(msg, file=None):
+^
+src\risk_pipeline\core\utils.py:32:1: E302 expected 2 blank lines, found 1
+def now_str() -> str:
+^
+src\risk_pipeline\core\utils.py:36:1: E302 expected 2 blank lines, found 1
+def sys_metrics() -> str:
+^
+src\risk_pipeline\core\utils.py:45:1: E302 expected 2 blank lines, found 1
+def month_floor(date_value) -> datetime:
+^
+src\risk_pipeline\core\utils.py:54:1: E302 expected 2 blank lines, found 1
+def gini_from_auc(auc: float) -> float:
+^
+src\risk_pipeline\core\utils.py:58:1: E302 expected 2 blank lines, found 1
+def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray):
+^
+src\risk_pipeline\core\utils.py:83:1: E302 expected 2 blank lines, found 1
+def ks_table(y_true: np.ndarray, y_proba: np.ndarray, n_bands: int = 10) -> Dict:
+^
+src\risk_pipeline\core\utils.py:88:1: E302 expected 2 blank lines, found 1
+def jeffreys_counts(total_event: int, total_nonevent: int, alpha: float = 0.5):
+^
+src\risk_pipeline\core\utils.py:94:1: E302 expected 2 blank lines, found 1
+def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: int, alpha: float = 0.5):
+^
+src\risk_pipeline\core\utils.py:129:1: E302 expected 2 blank lines, found 1
+class Timer:
+^
+src\risk_pipeline\core\utils.py:141:121: E501 line too long (129 > 120 characters)
+            self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}")
+                                                                                                                        ^
+src\risk_pipeline\core\utils.py:143:121: E501 line too long (122 > 120 characters)
+            self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}{sys_metrics()}")
+                                                                                                                        ^
+src\risk_pipeline\core\utils.py:145:1: E302 expected 2 blank lines, found 1
+class Timer2:
+^
+src\risk_pipeline\core\utils.py:154:1: E302 expected 2 blank lines, found 1
+@dataclass
+^
+src\risk_pipeline\core\utils.py:166:1: E302 expected 2 blank lines, found 1
+@dataclass
+^
+src\risk_pipeline\core\utils.py:178:1: E302 expected 2 blank lines, found 1
+@dataclass
+^
+src\risk_pipeline\data\load.py:4:1: E302 expected 2 blank lines, found 1
+def load_csv(path: str) -> pd.DataFrame:
+^
+src\risk_pipeline\features\psi.py:4:1: E302 expected 2 blank lines, found 1
+def psi(expected: pd.Series, actual: pd.Series, bins: int = 10) -> float:
+^
+src\risk_pipeline\features\woe.py:4:1: E302 expected 2 blank lines, found 1
+def simple_woe(series: pd.Series, target: pd.Series):
+^
+src\risk_pipeline\features\woe.py:8:48: E231 missing whitespace after ','
+    grouped = df.groupby("bin")["y"].agg(["sum","count"])
+                                               ^
+src\risk_pipeline\model\ensemble.py:7:121: E501 line too long (122 > 120 characters)
+def soft_voting_ensemble(models: List, calibrators: Optional[List] = None, weights: Optional[List[float]] = None, X=None):
+                                                                                                                        ^
+src\risk_pipeline\model\mlp.py:6:121: E501 line too long (127 > 120 characters)
+    clf = MLPClassifier(hidden_layer_sizes=(32, 16), activation="relu", solver="adam", max_iter=200, random_state=random_state)
+                                                                                                                        ^
+src\risk_pipeline\model\train.py:1:1: F401 'typing.Tuple' imported but unused
+from typing import Tuple, Dict, Any
+^
+src\risk_pipeline\model\train.py:2:1: F401 'numpy as np' imported but unused
+import numpy as np
+^
+src\risk_pipeline\model\train.py:8:1: E302 expected 2 blank lines, found 1
+def train_logreg(X: pd.DataFrame, y: pd.Series, test_size: float = 0.2, seed: int = 42) -> Dict[str, Any]:
+^
+src\risk_pipeline\model\train.py:12:37: E231 missing whitespace after ','
+    pred = clf.predict_proba(X_te)[:,1]
+                                    ^
+src\risk_pipeline\model\versioning.py:11:1: F401 'numpy as np' imported but unused
+import numpy as np
+^
+src\risk_pipeline\model\versioning.py:304:9: F401 'sklearn.metrics.precision_score' imported but unused
+        from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
+        ^
+src\risk_pipeline\model\versioning.py:304:9: F401 'sklearn.metrics.recall_score' imported but unused
+        from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
+        ^
+src\risk_pipeline\model\versioning.py:304:9: F401 'sklearn.metrics.f1_score' imported but unused
+        from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
+        ^
+src\risk_pipeline\reporting\shap_utils.py:2:1: F401 'pandas as pd' imported but unused
+import pandas as pd
+^
+src\risk_pipeline\stages\calibration.py:3:1: F401 'typing.Tuple' imported but unused
+from typing import Any, Tuple
+^
+src\risk_pipeline\stages\calibration.py:15:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\classify.py:23:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\correlation.py:28:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\feature_selection.py:7:121: E501 line too long (131 > 120 characters)
+def select_features(candidates: List[str], *, iv_scores: pd.DataFrame | None = None, max_features: int | None = None) -> List[str]:
+                                                                                                                        ^
+src\risk_pipeline\stages\feature_selection.py:21:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\modeling.py:4:1: F401 'numpy as np' imported but unused
+import numpy as np
+^
+src\risk_pipeline\stages\modeling.py:20:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\model_train_and_hpo.py:4:1: F401 'numpy as np' imported but unused
+import numpy as np
+^
+src\risk_pipeline\stages\model_train_and_hpo.py:17:121: E501 line too long (148 > 120 characters)
+def hpo_logreg(X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int | None = None, random_state: int = 42) -> Tuple[Any, Dict[str, Any]]:
+                                                                                                                        ^
+src\risk_pipeline\stages\model_train_and_hpo.py:18:121: E501 line too long (123 > 120 characters)
+    """Simple Optuna-based HPO for LogisticRegression(C, penalty='l2'). Falls back to fixed model if Optuna unavailable."""
+                                                                                                                        ^
+src\risk_pipeline\stages\model_train_and_hpo.py:43:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\psi.py:10:121: E501 line too long (132 > 120 characters)
+def feature_psi(train_woe: pd.DataFrame, other_woe: pd.DataFrame, *, sample: int | None = None, bins: int = 10) -> Dict[str, float]:
+                                                                                                                        ^
+src\risk_pipeline\stages\psi.py:26:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\report.py:20:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\selection.py:18:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\split.py:77:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\stages\woe.py:23:37: E702 multiple statements on one line (semicolon)
+                left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
+                                    ^
+src\risk_pipeline\stages\woe.py:23:61: E702 multiple statements on one line (semicolon)
+                left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
+                                                            ^
+src\risk_pipeline\stages\woe.py:43:35: E702 multiple statements on one line (semicolon)
+                    miss_woe = woe; continue
+                                  ^
+src\risk_pipeline\stages\woe.py:45:36: E702 multiple statements on one line (semicolon)
+                    other_woe = woe; continue
+                                   ^
+src\risk_pipeline\stages\woe.py:54:1: W391 blank line at end of file
+
+^
+src\risk_pipeline\utils\error_handler.py:3:1: F401 'os' imported but unused
+import os
+^
+src\risk_pipeline\utils\error_handler.py:189:9: F841 local variable 'e' is assigned to but never used
+        except MemoryError as e:
+        ^
+src\risk_pipeline\utils\report_updater.py:7:1: F401 'pathlib.Path' imported but unused
+from pathlib import Path
+^
+src\risk_pipeline\utils\report_updater.py:10:1: E302 expected 2 blank lines, found 1
+def update_excel_with_scoring(excel_path: str, scoring_results: Dict, scoring_summary: pd.DataFrame):
+^
+src\risk_pipeline\utils\report_updater.py:74:121: E501 line too long (132 > 120 characters)
+            ws_dist.cell(row=idx+3, column=2, value=f"{row['Value']:.4f}" if isinstance(row['Value'], float) else str(row['Value']))
+                                                                                                                        ^
+src\risk_pipeline\utils\report_updater.py:93:1: E302 expected 2 blank lines, found 1
+def create_comprehensive_report(pipeline_results: Dict, scoring_results: Dict, output_path: str):
+^
+src\risk_pipeline\utils\safe_imports.py:6:1: F401 'sys' imported but unused
+import sys
+^
+src\risk_pipeline\utils\safe_imports.py:10:1: E302 expected 2 blank lines, found 1
+class OptionalDependency:
+^
+src\risk_pipeline\utils\scoring.py:10:1: F401 'sklearn.calibration.CalibratedClassifierCV' imported but unused
+from sklearn.calibration import CalibratedClassifierCV, IsotonicRegression
+^
+src\risk_pipeline\utils\scoring.py:10:1: F401 'sklearn.calibration.IsotonicRegression' imported but unused
+from sklearn.calibration import CalibratedClassifierCV, IsotonicRegression
+^
+src\risk_pipeline\utils\scoring.py:14:1: E302 expected 2 blank lines, found 1
+def load_model_artifacts(output_folder: str, run_id: str) -> Tuple[object, list, dict, Optional[object]]:
+^
+src\risk_pipeline\utils\scoring.py:45:1: E302 expected 2 blank lines, found 1
+def apply_woe_transform(df: pd.DataFrame, woe_mapping: dict) -> pd.DataFrame:
+^
+src\risk_pipeline\utils\scoring.py:112:1: E302 expected 2 blank lines, found 1
+def calculate_psi(expected: np.ndarray, actual: np.ndarray, bins: int = 10) -> float:
+^
+src\risk_pipeline\utils\scoring.py:145:1: E302 expected 2 blank lines, found 1
+def calculate_gini(y_true: np.ndarray, y_score: np.ndarray) -> float:
+^
+src\risk_pipeline\utils\scoring.py:151:1: E302 expected 2 blank lines, found 1
+def calculate_ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
+^
+src\risk_pipeline\utils\scoring.py:157:1: E302 expected 2 blank lines, found 1
+def score_data(scoring_df: pd.DataFrame,
+^
+src\risk_pipeline\utils\scoring.py:223:15: F541 f-string is missing placeholders
+        print(f"⚠️  No calibrator available, using raw model scores")
+              ^
+src\risk_pipeline\utils\scoring.py:296:1: E302 expected 2 blank lines, found 1
+def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
+^
+src\risk_pipeline\utils\validation.py:3:1: F401 'os' imported but unused
+import os
+^
+tests\test_error_handler.py:5:1: F401 'json' imported but unused
+import json
+^
+tests\test_error_handler.py:6:1: F401 'pickle' imported but unused
+import pickle
+^
+tests\test_error_handler.py:7:1: F401 'pathlib.Path' imported but unused
+from pathlib import Path
+^
+tests\test_error_handler.py:9:1: F401 'risk_pipeline.utils.error_handler.PipelineError' imported but unused
+from risk_pipeline.utils.error_handler import (
+^
+tests\test_error_handler.py:244:13: F841 local variable 'result3' is assigned to but never used
+            result3 = handler.safe_execute(stage_3)
+            ^
+tests\test_smoke.py:4:1: E302 expected 2 blank lines, found 1
+def test_smoke():
+^
+tests\test_smoke.py:5:26: E231 missing whitespace after ':'
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                         ^
+tests\test_smoke.py:5:29: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                            ^
+tests\test_smoke.py:5:31: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                              ^
+tests\test_smoke.py:5:33: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                ^
+tests\test_smoke.py:5:35: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                  ^
+tests\test_smoke.py:5:37: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                    ^
+tests\test_smoke.py:5:39: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                      ^
+tests\test_smoke.py:5:41: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                        ^
+tests\test_smoke.py:5:49: E231 missing whitespace after ':'
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                ^
+tests\test_smoke.py:5:52: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                   ^
+tests\test_smoke.py:5:54: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                     ^
+tests\test_smoke.py:5:56: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                       ^
+tests\test_smoke.py:5:58: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                         ^
+tests\test_smoke.py:5:60: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                           ^
+tests\test_smoke.py:5:62: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                             ^
+tests\test_smoke.py:5:64: E231 missing whitespace after ','
+    X = pd.DataFrame({'a':[0,1,2,3,4,5,6,7], 'b':[1,1,0,0,1,0,1,0]})
+                                                               ^
+tests\test_smoke.py:6:21: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                    ^
+tests\test_smoke.py:6:23: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                      ^
+tests\test_smoke.py:6:25: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                        ^
+tests\test_smoke.py:6:27: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                          ^
+tests\test_smoke.py:6:29: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                            ^
+tests\test_smoke.py:6:31: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                              ^
+tests\test_smoke.py:6:33: E231 missing whitespace after ','
+    y = pd.Series([0,1,0,1,0,1,0,1])
+                                ^
+tests\test_validation.py:5:1: F401 'numpy as np' imported but unused
+import numpy as np
+^
+tests\test_validation.py:6:1: F401 'pathlib.Path' imported but unused
+from pathlib import Path
+^
+tests\integration\add_psi_to_excel.py:12:1: F401 'risk_pipeline.utils.scoring.create_scoring_report' imported but unused
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
+^
+tests\integration\add_psi_to_excel.py:12:1: E402 module level import not at top of file
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
+^
+tests\integration\add_psi_to_excel.py:14:1: E302 expected 2 blank lines, found 1
+def add_psi_to_excel(excel_path, scoring_results):
+^
+tests\integration\add_psi_to_excel.py:52:121: E501 line too long (128 > 120 characters)
+                'PSI < 0.1: Population stable | 0.1 <= PSI < 0.25: Monitor closely | PSI >= 0.25: Model retraining recommended',
+                                                                                                                        ^
+tests\integration\add_psi_to_excel.py:116:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\add_psi_to_excel.py:195:15: F541 f-string is missing placeholders
+        print(f"\nExcel updated successfully!")
+              ^
+tests\integration\add_psi_to_excel.py:205:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\run_fast_pipeline.py:15:1: E402 module level import not at top of file
+from risk_pipeline.pipeline import Config, RiskModelPipeline
+^
+tests\integration\run_fast_pipeline.py:17:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\run_fast_pipeline.py:77:5: F841 local variable 'results' is assigned to but never used
+    results = pipeline.run(df)
+    ^
+tests\integration\run_fast_pipeline.py:104:121: E501 line too long (128 > 120 characters)
+                        'range': list(bin_info['range']) if isinstance(bin_info['range'], (list, tuple)) else bin_info['range'],
+                                                                                                                        ^
+tests\integration\run_fast_pipeline.py:110:11: F541 f-string is missing placeholders
+    print(f"\n[4] Results:")
+          ^
+tests\integration\run_fast_pipeline.py:115:11: F541 f-string is missing placeholders
+    print(f"\n[SUCCESS] Fast pipeline completed!")
+          ^
+tests\integration\run_fast_pipeline.py:117:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\run_minimal_pipeline.py:12:1: E402 module level import not at top of file
+from risk_pipeline.pipeline import Config, RiskModelPipeline
+^
+tests\integration\run_minimal_pipeline.py:14:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\run_minimal_pipeline.py:39:5: F841 local variable 'results' is assigned to but never used
+    results = pipeline.run(df)
+    ^
+tests\integration\run_minimal_pipeline.py:81:121: E501 line too long (128 > 120 characters)
+                        'range': list(bin_info['range']) if isinstance(bin_info['range'], (list, tuple)) else bin_info['range'],
+                                                                                                                        ^
+tests\integration\run_minimal_pipeline.py:96:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\test_calibration_direct.py:8:1: F401 'os' imported but unused
+import os
+^
+tests\integration\test_calibration_direct.py:11:1: E302 expected 2 blank lines, found 1
+def test_calibration_method():
+^
+tests\integration\test_calibration_direct.py:101:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\test_calibration_fix.py:11:1: E402 module level import not at top of file
+from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
+^
+tests\integration\test_calibration_fix.py:13:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\test_calibration_fix.py:23:5: F841 local variable 'calibration_df' is assigned to but never used
+    calibration_df = generate_calibration_data(n_samples=200, output_path="data/calibration_test.csv")
+    ^
+tests\integration\test_calibration_fix.py:82:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\test_end_to_end.py:12:1: F401 'pathlib.Path' imported but unused
+from pathlib import Path
+^
+tests\integration\test_end_to_end.py:15:1: E402 module level import not at top of file
+from risk_pipeline.pipeline import Config, RiskModelPipeline
+^
+tests\integration\test_end_to_end.py:16:1: F401 'risk_pipeline.utils.scoring.create_scoring_report' imported but unused
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
+^
+tests\integration\test_end_to_end.py:16:1: E402 module level import not at top of file
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
+^
+tests\integration\test_end_to_end.py:18:1: E302 expected 2 blank lines, found 1
+def clean_outputs():
+^
+tests\integration\test_end_to_end.py:26:13: E722 do not use bare 'except'
+            except:
+            ^
+tests\integration\test_end_to_end.py:29:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\test_end_to_end.py:115:121: E501 line too long (128 > 120 characters)
+                        'range': list(bin_info['range']) if isinstance(bin_info['range'], (list, tuple)) else bin_info['range'],
+                                                                                                                        ^
+tests\integration\test_end_to_end.py:165:121: E501 line too long (168 > 120 characters)
+        X_train = train_woe[final_features] if all(f in train_woe.columns for f in final_features) else train_woe[[f for f in final_features if f in train_woe.columns]]
+                                                                                                                        ^
+tests\integration\test_end_to_end.py:175:5: E722 do not use bare 'except'
+    except:
+    ^
+tests\integration\test_end_to_end.py:264:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\test_full_pipeline.py:8:1: F401 'os' imported but unused
+import os
+^
+tests\integration\test_full_pipeline.py:11:1: E402 module level import not at top of file
+from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
+^
+tests\integration\test_full_pipeline.py:13:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\test_full_pipeline.py:42:11: F541 f-string is missing placeholders
+    print(f"- Calibration: Disabled (data compatibility issue)")
+          ^
+tests\integration\test_full_pipeline.py:81:15: F541 f-string is missing placeholders
+        print(f"\n🏆 Model Performance (AUC OOT):")
+              ^
+tests\integration\test_full_pipeline.py:89:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^
+tests\integration\test_scoring.py:11:1: E402 module level import not at top of file
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
+^
+tests\integration\test_scoring.py:13:1: E302 expected 2 blank lines, found 1
+def main():
+^
+tests\integration\test_scoring.py:175:19: F541 f-string is missing placeholders
+            print(f"⚠️  Could not update Excel report")
+                  ^
+tests\integration\test_scoring.py:192:11: F541 f-string is missing placeholders
+    print(f"\n📈 Score Distribution:")
+          ^
+tests\integration\test_scoring.py:200:1: E305 expected 2 blank lines after class or function definition, found 1
+if __name__ == "__main__":
+^

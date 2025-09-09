@@ -1,7 +1,8 @@
 """Test stratified splitting functionality."""
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 from risk_pipeline.stages.split import time_based_split
 
 

@@ -3,10 +3,13 @@
 Quick test to verify calibration fix
 """
 
-from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
-import pandas as pd
-import sys
 import os
+import sys
+
+import pandas as pd
+
+from risk_pipeline.utils.pipeline_runner import get_full_config, run_pipeline_from_dataframe
+
 sys.path.append('src')
 
 
@@ -19,7 +22,6 @@ def main():
 
     # Generate calibration data
     print("Generating calibration data...")
-    from scripts.make_calibration_data import generate_calibration_data
     # calibration_df = generate_calibration_data(n_samples=200, output_path="data/calibration_test.csv")
     print("✅ Calibration data generated")
 
@@ -36,15 +38,15 @@ def main():
 
     print("Running pipeline with calibration...")
     try:
-        pipeline_results = run_pipeline_from_dataframe(
-            df=df,
-            id_col="app_id",
-            time_col="app_dt",
-            target_col="target",
-            output_folder="outputs_cal_test",
-            output_excel="cal_test_report.xlsx",
-            use_test_split=True,
-            oot_months=3,
+    # pipeline_results = run_pipeline_from_dataframe(
+            df = df,
+            id_col = "app_id",
+            time_col = "app_dt",
+            target_col = "target",
+            output_folder = "outputs_cal_test",
+            output_excel = "cal_test_report.xlsx",
+            use_test_split = True,
+            oot_months = 3,
             **{
                 'try_mlp': config.try_mlp,
                 'ensemble': config.ensemble,

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from .pipeline import RiskModelPipeline
 from .core.config import Config
 from .model.calibrate import apply_calibrator
+from .pipeline import RiskModelPipeline
 
 
 def run_pipeline(df: pd.DataFrame, config: Optional[Config] = None, **config_kwargs) -> RiskModelPipeline:
@@ -121,10 +121,13 @@ def score_df(
         except Exception:
             pass
 
-    combined = pd.concat([
-        out[[id_col] + (["target"] if "target" in out.columns else [])].reset_index(drop=True),
-        raw_df.reset_index(drop=True),
-        woe_df.reset_index(drop=True),
-        out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
-    ], axis=1)
+    combined = pd.concat(
+        [
+            out[[id_col] + (["target"] if "target" in out.columns else [])].reset_index(drop=True),
+            raw_df.reset_index(drop=True),
+            woe_df.reset_index(drop=True),
+            out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
+        ],
+        axis=1,
+    )
     return combined

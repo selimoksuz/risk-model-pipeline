@@ -1,4 +1,5 @@
-import numpy as np
+from typing import Dict, Any
+
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score

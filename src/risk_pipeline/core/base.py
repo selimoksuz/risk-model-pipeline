@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime
+
 from .utils import safe_print
 
 
@@ -11,35 +12,30 @@ class BasePipeline:
     def __init__(self, config):
         self.cfg = config
         self.log_fh = None
-        self.artifacts = {
-            "active_steps": [],
-            "pool": {}
-        }
+        self.artifacts = {"active_steps": [], "pool": {}}
 
         # Setup logging
         self.setup_logger()
 
         # Generate run ID if not provided
-        if not hasattr(self.cfg, 'run_id') or not self.cfg.run_id:
+        if not hasattr(self.cfg, "run_id") or not self.cfg.run_id:
             self.cfg.run_id = self._generate_run_id()
 
     def _generate_run_id(self) -> str:
         """Generate unique run ID"""
         import uuid
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         unique_id = str(uuid.uuid4())[:8]
         return f"{timestamp}_{unique_id}"
 
     def setup_logger(self):
         """Setup logging to file"""
-        if hasattr(self.cfg, 'output_folder') and self.cfg.output_folder:
+        if hasattr(self.cfg, "output_folder") and self.cfg.output_folder:
             os.makedirs(self.cfg.output_folder, exist_ok=True)
 
-            if hasattr(self.cfg, 'log_to_file') and self.cfg.log_to_file:
-                log_path = os.path.join(
-                    self.cfg.output_folder,
-                    f"pipeline_log_{self.cfg.run_id}.txt"
-                )
+            if hasattr(self.cfg, "log_to_file") and self.cfg.log_to_file:
+                log_path = os.path.join(self.cfg.output_folder, f"pipeline_log_{self.cfg.run_id}.txt")
                 try:
                     self.log_fh = open(log_path, "w", encoding="utf-8")
                 except Exception:

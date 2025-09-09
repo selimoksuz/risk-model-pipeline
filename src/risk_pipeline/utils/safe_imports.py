@@ -3,9 +3,8 @@ Safe import utilities to handle missing dependencies gracefully
 """
 
 import warnings
-import sys
-from typing import Any, Optional, Callable
 from functools import wraps
+from typing import Any, Callable, Optional
 
 
 class OptionalDependency:
@@ -23,6 +22,7 @@ class OptionalDependency:
         if self._available is None:
             try:
                 import importlib
+
                 self._module = importlib.import_module(self.module_name)
                 self._available = True
             except ImportError:
@@ -91,6 +91,7 @@ def requires(*dependencies: str):
             import matplotlib.pyplot as plt
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -107,17 +108,19 @@ def requires(*dependencies: str):
                 )
 
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 # Pre-check common optional dependencies
 OPTIONAL_DEPS = {
-    'matplotlib': OptionalDependency('matplotlib'),
-    'seaborn': OptionalDependency('seaborn'),
-    'shap': OptionalDependency('shap'),
-    'optuna': OptionalDependency('optuna'),
-    'plotly': OptionalDependency('plotly'),
+    "matplotlib": OptionalDependency("matplotlib"),
+    "seaborn": OptionalDependency("seaborn"),
+    "shap": OptionalDependency("shap"),
+    "optuna": OptionalDependency("optuna"),
+    "plotly": OptionalDependency("plotly"),
 }
 
 
@@ -138,8 +141,10 @@ def safe_matplotlib_import():
     """Safely import matplotlib with fallback"""
     try:
         import matplotlib
-        matplotlib.use('Agg')  # Use non-interactive backend
+
+        matplotlib.use("Agg")  # Use non-interactive backend
         import matplotlib.pyplot as plt
+
         return plt, True
     except ImportError:
         warnings.warn("Matplotlib not available. Plots will be skipped.", UserWarning)
@@ -153,6 +158,7 @@ def safe_seaborn_import():
     """Safely import seaborn with fallback"""
     try:
         import seaborn as sns
+
         return sns, True
     except ImportError:
         warnings.warn("Seaborn not available. Advanced plots will be skipped.", UserWarning)
@@ -166,6 +172,7 @@ def safe_shap_import():
     """Safely import SHAP with fallback"""
     try:
         import shap
+
         return shap, True
     except ImportError:
         warnings.warn("SHAP not available. SHAP analysis will be skipped.", UserWarning)

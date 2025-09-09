@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import Any, Dict
+
 import pandas as pd
-from typing import Dict, Any
 
 
 def apply_woe(df_in: pd.DataFrame, mapping: Dict[str, Any]) -> pd.DataFrame:
@@ -23,7 +24,8 @@ def apply_woe(df_in: pd.DataFrame, mapping: Dict[str, Any]) -> pd.DataFrame:
                 left = b.get("left")
     right = b.get("right")
     woe = b.get("woe", 0.0)
-            if left is None or right is None or (pd.isna(left) and pd.isna(right)):
+            if left is None or right is None or (
+                pd.isna(left) and pd.isna(right)):
                     miss_woe = float(woe)
                     continue
                 m = (~miss) & (s >= left) & (s <= right)

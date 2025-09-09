@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any
+
 import numpy as np
 
-from ..model.calibrate import fit_calibrator as _fit, apply_calibrator as _apply
+from ..model.calibrate import apply_calibrator as _apply
+from ..model.calibrate import fit_calibrator as _fit
 
 
 def fit_calibrator(y_true: np.ndarray, proba: np.ndarray, method: str = "isotonic") -> Any:

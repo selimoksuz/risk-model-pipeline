@@ -1,16 +1,16 @@
 """Input validation and security utilities."""
 
-import os
-import pandas as pd
-from typing import Optional, List, Dict, Any
-from pathlib import Path
 import hashlib
 import json
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 
 class ValidationError(Exception):
     """Custom exception for validation errors."""
-    pass
 
 
 class InputValidator:
@@ -96,11 +96,12 @@ class InputValidator:
             # Warn if highly imbalanced
             minority_ratio = value_counts.min() / value_counts.sum()
             if minority_ratio < 0.01:
-                print(f"WARNING: Highly imbalanced target (minority: {minority_ratio:.2%})")
+                print(
+                    f"WARNING: Highly imbalanced target (minority: {minority_ratio:.2%})")
 
         # Check for suspicious column names (SQL injection prevention)
-        suspicious_patterns = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'EXEC', '--', '
-                               ']
+        suspicious_patterns = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'EXEC', '--', ''
+                               ']'
         for col in df.columns:
             for pattern in suspicious_patterns:
                 if pattern in str(col).upper():
@@ -206,7 +207,8 @@ class SecurityLogger:
             'user': user or 'unknown'
         })
 
-    def log_validation_failure(self, error: str, data_hash: Optional[str] = None):
+    def log_validation_failure(self, error: str,
+                               data_hash: Optional[str] = None):
         """Log validation failure."""
         self.log_event('validation_failure', {
             'error': error,

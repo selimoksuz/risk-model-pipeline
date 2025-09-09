@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pandas as pd
 from typing import List, Tuple
+
+import pandas as pd
 
 
 def drop_correlated(df: pd.DataFrame, *, threshold: float = 0.8) -> Tuple[List[str], pd.DataFrame]:

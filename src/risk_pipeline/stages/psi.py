@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import pandas as pd
-import numpy as np
 from typing import Dict
+
+import numpy as np
+import pandas as pd
 
 from ..features.psi import psi as psi_scalar
 
 
-def feature_psi(train_woe: pd.DataFrame, other_woe: pd.DataFrame, *
-    , sample: int | None = None, bins: int = 10) -> Dict[str, float]:
+def feature_psi(
+    train_woe: pd.DataFrame, other_woe: pd.DataFrame, *, sample: int | None = None, bins: int = 10
+) -> Dict[str, float]:
     """Compute PSI per-column between two WOE-transformed frames (same columns).
     Optionally subsample rows for speed. Returns a dict {variable: psi_value}.
     """

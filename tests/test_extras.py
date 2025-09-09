@@ -1,10 +1,10 @@
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
 from sklearn.linear_model import LogisticRegression
 
-from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
 from risk_pipeline.monitoring import monitor_scores
+from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
 
 
 def test_shap_and_monitor(tmp_path):

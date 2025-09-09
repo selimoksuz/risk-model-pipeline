@@ -3,15 +3,18 @@
 Fast pipeline run with minimal configuration for quick testing
 """
 
-from risk_pipeline.pipeline import Config, RiskModelPipeline
-import pandas as pd
-import sys
-import os
-import time
-import joblib
 import json
+import os
+import sys
+import time
 from datetime import datetime
-sys.path.append('src')
+
+import joblib
+import pandas as pd
+
+from risk_pipeline.pipeline import Config, RiskModelPipeline
+
+sys.path.append("src")
 
 
 def main():
@@ -24,7 +27,7 @@ def main():
 
     # Load data
     print("\n[1] Loading data...")
-    df = pd.read_csv('data/input.csv')
+    df = pd.read_csv("data/input.csv")
     print(f"  Data: {df.shape[0]:, } rows x {df.shape[1]} columns")
 
     # Create MINIMAL config for maximum speed
@@ -35,21 +38,17 @@ def main():
         target_col="target",
         use_test_split=True,
         oot_window_months=3,
-
         # SPEED OPTIMIZATIONS
-        hpo_trials=1,           # Only 1 trial (no optimization)
-        hpo_timeout_sec=5,      # 5 second timeout
-        n_jobs=1,               # Single thread (sometimes faster for small data)
-        cv_folds=2,             # Only 2 folds instead of 5
-
+        hpo_trials=1,  # Only 1 trial (no optimization)
+        hpo_timeout_sec=5,  # 5 second timeout
+        n_jobs=1,  # Single thread (sometimes faster for small data)
+        cv_folds=2,  # Only 2 folds instead of 5
         # Skip some expensive operations
         calibration_data_path=None,  # Skip calibration for speed
-
         # Reduce feature engineering complexity
-        min_bins_numeric=3,     # Fewer bins for WOE
-        rare_threshold=0.05,    # Higher threshold = fewer categories
-
-        random_state=42
+        min_bins_numeric=3,  # Fewer bins for WOE
+        # rare_threshold=0.05,  # Higher threshold = fewer categories
+        random_state=42,
     )
 
     print("  HPO trials: 1 (no optimization)")
@@ -87,22 +86,25 @@ def main():
         joblib.dump(model, f"{OUTPUT_FOLDER}/best_model_{run_id}.joblib")
         print(f"  Model saved: best_model_{run_id}.joblib")
 
-    if hasattr(pipeline, 'final_vars_'):
-        with open(f"{OUTPUT_FOLDER}/final_vars_{run_id}.json", 'w') as f:
+    if hasattr(pipeline, "final_vars_"):
+        with open(f"{OUTPUT_FOLDER}/final_vars_{run_id}.json", "w") as f:
             json.dump(pipeline.final_vars_, f)
 
-    if hasattr(pipeline, 'woe_map'):
+    if hasattr(pipeline, "woe_map"):
         woe_dict = {}
         for var_name, var_info in pipeline.woe_map.items():
-            woe_dict[var_name] = {
-                'var': var_info.var if hasattr(var_info, 'var') else var_name,
-                'bins': []
-            }
-            if hasattr(var_info, 'bins'):
+            woe_dict[var_name] = {"var": var_info.var if hasattr(var_info, "var") else var_name, "bins": []}
+            if hasattr(var_info, "bins"):
                 for bin_info in var_info.bins:
-                    woe_dict[var_name]['bins'].append({'range': list(bin_info['range']) if isinstance(
-                        bin_info['range'], (list, tuple)) else bin_info['range'], 'woe': float(bin_info.get('woe', 0))})
-        with open(f"{OUTPUT_FOLDER}/woe_mapping_{run_id}.json", 'w') as f:
+                    woe_dict[var_name]["bins"].append(
+                        {
+                            "range": list(bin_info["range"])
+                            if isinstance(bin_info["range"], (list, tuple))
+                            else bin_info["range"],
+                            "woe": float(bin_info.get("woe", 0)),
+                        }
+                    )
+        with open(f"{OUTPUT_FOLDER}/woe_mapping_{run_id}.json", "w") as f:
             json.dump(woe_dict, f)
 
     print(f"\n[4] Results:")

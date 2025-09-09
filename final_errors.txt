@@ -1,0 +1,90 @@
+src\risk_pipeline\cli.py:12:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:13:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:14:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:15:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:16:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:17:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:18:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:20:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:21:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:22:1: E402 module level import not at top of file
+src\risk_pipeline\monitoring.py:56:44: E999 IndentationError: unindent does not match any outer indentation level
+src\risk_pipeline\pipeline.py:5:8: E999 IndentationError: unexpected indent
+src\risk_pipeline\core\data_processor.py:34:64: F821 undefined name 'month_floor'
+src\risk_pipeline\core\feature_engineer.py:3:1: F401 '.utils.jeffreys_counts' imported but unused
+src\risk_pipeline\core\feature_engineer.py:3:1: F401 '.utils.ks_statistic' imported but unused
+src\risk_pipeline\core\feature_engineer.py:3:1: F401 '.utils.safe_print' imported but unused
+src\risk_pipeline\core\feature_engineer.py:9:1: F401 'typing.Tuple' imported but unused
+src\risk_pipeline\core\feature_engineer.py:9:1: F401 'typing.Optional' imported but unused
+src\risk_pipeline\core\feature_engineer.py:11:1: F401 'sklearn.feature_selection.SelectKBest' imported but unused
+src\risk_pipeline\core\feature_engineer.py:11:1: F401 'sklearn.feature_selection.f_classif' imported but unused
+src\risk_pipeline\core\feature_engineer.py:59:1: W293 blank line contains whitespace
+src\risk_pipeline\core\feature_engineer.py:60:13: E303 too many blank lines (2)
+src\risk_pipeline\core\feature_engineer.py:62:17: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:74:17: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:84:13: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:84:40: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:99:17: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:100:17: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:102:28: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:201:48: W504 line break after binary operator
+src\risk_pipeline\core\feature_engineer.py:202:51: W504 line break after binary operator
+src\risk_pipeline\core\feature_engineer.py:203:48: W504 line break after binary operator
+src\risk_pipeline\core\feature_engineer.py:426:16: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:426:45: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:432:32: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:444:32: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:459:18: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:459:51: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:464:30: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:479:30: F821 undefined name 'vw'
+src\risk_pipeline\core\feature_engineer.py:504:1: W293 blank line contains whitespace
+src\risk_pipeline\core\feature_engineer.py:505:13: E303 too many blank lines (2)
+src\risk_pipeline\core\feature_engineer.py:687:17: F811 redefinition of unused 'f_classif' from line 11
+src\risk_pipeline\core\feature_engineer.py:696:13: F811 redefinition of unused 'SelectKBest' from line 11
+src\risk_pipeline\core\model_trainer.py:449:73: W504 line break after binary operator
+src\risk_pipeline\core\utils.py:152:121: E501 line too long (121 > 120 characters)
+src\risk_pipeline\core\utils.py:154:121: E501 line too long (122 > 120 characters)
+src\risk_pipeline\model\train.py:1:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\model\train.py:8:92: F821 undefined name 'Dict'
+src\risk_pipeline\model\train.py:8:102: F821 undefined name 'Any'
+src\risk_pipeline\model\versioning.py:11:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\reporting\shap_utils.py:2:1: F401 'pandas as pd' imported but unused
+src\risk_pipeline\stages\calibration.py:3:1: F401 'typing.Tuple' imported but unused
+src\risk_pipeline\stages\modeling.py:4:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\stages\model_train_and_hpo.py:4:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\stages\model_train_and_hpo.py:17:80: W504 line break after binary operator
+src\risk_pipeline\stages\model_train_and_hpo.py:19:121: E501 line too long (123 > 120 characters)
+src\risk_pipeline\stages\psi.py:10:67: W504 line break after binary operator
+src\risk_pipeline\stages\psi.py:10:68: E203 whitespace before ','
+src\risk_pipeline\stages\psi.py:11:5: E128 continuation line under-indented for visual indent
+src\risk_pipeline\stages\psi.py:11:5: E125 continuation line with same indent as next logical line
+src\risk_pipeline\stages\woe.py:26:12: E999 IndentationError: unexpected indent
+src\risk_pipeline\utils\error_handler.py:3:1: F401 'os' imported but unused
+src\risk_pipeline\utils\error_handler.py:189:9: F841 local variable 'e' is assigned to but never used
+src\risk_pipeline\utils\report_updater.py:7:1: F401 'pathlib.Path' imported but unused
+src\risk_pipeline\utils\safe_imports.py:6:1: F401 'sys' imported but unused
+src\risk_pipeline\utils\scoring.py:10:1: F401 'sklearn.calibration.CalibratedClassifierCV' imported but unused
+src\risk_pipeline\utils\scoring.py:10:1: F401 'sklearn.calibration.IsotonicRegression' imported but unused
+src\risk_pipeline\utils\scoring.py:229:15: F541 f-string is missing placeholders
+src\risk_pipeline\utils\validation.py:102:84: E999 SyntaxError: EOL while scanning string literal
+tests\test_error_handler.py:5:1: F401 'json' imported but unused
+tests\test_error_handler.py:6:1: F401 'pickle' imported but unused
+tests\test_error_handler.py:7:1: F401 'pathlib.Path' imported but unused
+tests\test_error_handler.py:9:1: F401 'risk_pipeline.utils.error_handler.PipelineError' imported but unused
+tests\test_validation.py:5:1: F401 'numpy as np' imported but unused
+tests\test_validation.py:6:1: F401 'pathlib.Path' imported but unused
+tests\integration\add_psi_to_excel.py:6:1: F401 'risk_pipeline.utils.scoring.create_scoring_report' imported but unused
+tests\integration\add_psi_to_excel.py:52:121: E501 line too long (128 > 120 characters)
+tests\integration\add_psi_to_excel.py:196:15: F541 f-string is missing placeholders
+tests\integration\run_fast_pipeline.py:108:11: F541 f-string is missing placeholders
+tests\integration\run_fast_pipeline.py:113:11: F541 f-string is missing placeholders
+tests\integration\test_calibration_direct.py:8:1: F401 'os' imported but unused
+tests\integration\test_calibration_fix.py:22:5: F401 'scripts.make_calibration_data.generate_calibration_data' imported but unused
+tests\integration\test_end_to_end.py:6:1: F401 'risk_pipeline.utils.scoring.create_scoring_report' imported but unused
+tests\integration\test_end_to_end.py:14:1: F401 'pathlib.Path' imported but unused
+tests\integration\test_full_pipeline.py:9:1: F401 'os' imported but unused
+tests\integration\test_full_pipeline.py:42:11: F541 f-string is missing placeholders
+tests\integration\test_full_pipeline.py:81:15: F541 f-string is missing placeholders
+tests\integration\test_scoring.py:175:19: F541 f-string is missing placeholders
+tests\integration\test_scoring.py:192:11: F541 f-string is missing placeholders

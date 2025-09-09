@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pandas as pd
 from typing import List
+
+import pandas as pd
 
 
 def iv_rank_select(iv_df: pd.DataFrame, *, min_iv: float = 0.02, max_features: int | None = None) -> List[str]:

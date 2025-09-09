@@ -1,20 +1,26 @@
-import pandas as pd
-import numpy as np
-from typing import List, Dict
 import json
-import joblib
 import pickle
+from typing import Dict, List
+
+import joblib
+import numpy as np
+import pandas as pd
 
 
 def compute_score_psi(baseline_scores, new_scores, bins=10):
-    base_hist, _ = np.histogram(baseline_scores, bins=bins, range=(0, 1), density=True)
-    new_hist, _ = np.histogram(new_scores, bins=bins, range=(0, 1), density=True)
+    base_hist, _ = np.histogram(
+    baseline_scores, bins=bins, range=(
+        0, 1), density=True)
+    new_hist, _ = np.histogram(
+    new_scores, bins=bins, range=(
+        0, 1), density=True)
     base_hist = np.clip(base_hist, 1e-6, None)
     new_hist = np.clip(new_hist, 1e-6, None)
     return float(np.sum((base_hist - new_hist) * np.log(base_hist / new_hist)))
 
 
-def compute_feature_psi(baseline_df: pd.DataFrame, new_df: pd.DataFrame, columns: List[str]) -> Dict[str, float]:
+def compute_feature_psi(baseline_df: pd.DataFrame,
+                        new_df: pd.DataFrame, columns: List[str]) -> Dict[str, float]:
     out = {}
     for c in columns:
         try:
@@ -27,7 +33,8 @@ def compute_feature_psi(baseline_df: pd.DataFrame, new_df: pd.DataFrame, columns
 def monitor(baseline_path, new_path, woe_mapping, final_vars, thresholds):
     bas = pd.read_csv(baseline_path)
     new = pd.read_csv(new_path)
-    # Placeholder: in real implementation WOE transform and model scoring would occur
+    # Placeholder: in real implementation WOE transform and model scoring
+    # would occur
     result = {
         "score_psi": compute_score_psi(bas[final_vars[0]], new[final_vars[0]]) if final_vars else np.nan,
         "feature_psi": compute_feature_psi(bas, new, final_vars),
@@ -50,11 +57,14 @@ def _apply_woe(df_in: pd.DataFrame, mapping: dict) -> pd.DataFrame:
                 left = b.get("left")
         right = b.get("right")
         woe = b.get("woe", 0.0)
+
+
 if left is None or right is None or (pd.isna(left) and pd.isna(right)):
                     miss_woe = float(woe)
-                    continue
+continue
+
     m = (~miss) & (s >= left) & (s <= right)
-                w.loc[m] = float(woe)
+    w.loc[m] = float(woe)
             w.loc[miss] = float(miss_woe)
             out[v] = w.values
         else:

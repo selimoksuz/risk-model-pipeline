@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, Any, Tuple
-import numpy as np
-import pandas as pd
+from typing import Any, Dict, Tuple
 
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
@@ -14,9 +13,10 @@ def train_logreg(X: pd.DataFrame, y: pd.Series, **kwargs) -> Any:
     return clf
 
 
-def hpo_logreg(X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int |
-               None = None, random_state: int = 42) -> Tuple[Any, Dict[str, Any]]:
-    """Simple Optuna-based HPO for LogisticRegression(C, penalty='l2'). Falls back to fixed model if Optuna unavailable."""
+def hpo_logreg(
+    X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int | None = None, random_state: int = 42
+) -> Tuple[Any, Dict[str, Any]]:
+    """Simple Optuna-based HPO for LogisticRegression(C, penalty='l2'). Falls back to fixed model if  # noqa: E501
     try:
         import optuna
     except Exception:

@@ -3,9 +3,10 @@
 Direct test of calibration functionality
 """
 
-import pandas as pd
 import sys
-import os
+
+import pandas as pd
+
 sys.path.append('src')
 
 
@@ -13,7 +14,7 @@ def test_calibration_method():
     print("=== DIRECT CALIBRATION TEST ===")
 
     # Create a mock pipeline instance
-    from risk_pipeline.pipeline import RiskPipeline16Config, RiskPipeline16
+    from risk_pipeline.pipeline import RiskPipeline16, RiskPipeline16Config
 
     # Load data
     df = pd.read_csv('data/input.csv')
@@ -72,6 +73,7 @@ def test_calibration_method():
     class MockModel:
         def predict_proba(self, X):
             import numpy as np
+
             # Return random probabilities for testing
             return np.column_stack([
                 1 - np.random.random(len(X)) * 0.5,  # Class 0 probs

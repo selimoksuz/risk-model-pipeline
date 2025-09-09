@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pandas as pd
 from typing import Any, Dict, List
+
+import pandas as pd
 
 from .woe import apply_woe
 
@@ -51,14 +52,18 @@ def build_scored_frame(
     if calibrator is not None:
         try:
             from .calibration import apply_calibrator as _apply_cal
+
             out["proba_calibrated"] = _apply_cal(calibrator, out["proba"].values)
         except Exception:
             pass
 
-    combined = pd.concat([
-        out[[id_col] + (["target"] if "target" in out.columns else [])].reset_index(drop=True),
-        raw_df.reset_index(drop=True),
-        woe_df.reset_index(drop=True),
-        out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
-    ], axis=1)
+    combined = pd.concat(
+        [
+            out[[id_col] + (["target"] if "target" in out.columns else [])].reset_index(drop=True),
+            raw_df.reset_index(drop=True),
+            woe_df.reset_index(drop=True),
+            out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
+        ],
+        axis=1,
+    )
     return combined

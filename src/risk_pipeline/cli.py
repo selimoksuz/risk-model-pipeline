@@ -1,26 +1,27 @@
 """Command Line Interface for Risk Model Pipeline"""
 import os as _os_utf8
 import sys as _sys_utf8
-_os_utf8.environ.setdefault('PYTHONUTF8', '1')
+
+_os_utf8.environ.setdefault("PYTHONUTF8", "1")
 try:
-    if hasattr(_sys_utf8.stdout, 'reconfigure'):
-        _sys_utf8.stdout.reconfigure(encoding='utf-8')
-        _sys_utf8.stderr.reconfigure(encoding='utf-8')
+    if hasattr(_sys_utf8.stdout, "reconfigure"):
+        _sys_utf8.stdout.reconfigure(encoding="utf-8")
+        _sys_utf8.stderr.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-import os
-import json
-import pickle
-import joblib
-import pandas as pd
-import typer
-from openpyxl import load_workbook
+import json  # noqa: E402
+import os  # noqa: E402
+import pickle  # noqa: E402
 
-from .core.config import Config
-from .pipeline import RiskModelPipeline, DualPipeline
-from .stages.scoring import build_scored_frame
+import joblib  # noqa: E402
+import pandas as pd  # noqa: E402
+import typer  # noqa: E402
+from openpyxl import load_workbook  # noqa: E402
 
+from .core.config import Config  # noqa: E402
+from .pipeline import DualPipeline, RiskModelPipeline  # noqa: E402
+from .stages.scoring import build_scored_frame  # noqa: E402
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
@@ -48,7 +49,7 @@ def run(
         enable_dual_pipeline=dual_pipeline,
         iv_min=iv_min,
         psi_threshold=psi_threshold,
-        model_type=model_type
+        model_type=model_type,
     )
 
     if dual_pipeline:
@@ -106,10 +107,10 @@ def run_advanced(
         iv_min=iv_min,
         iv_high_threshold=iv_high_flag,
         psi_threshold=psi_threshold_feature,
-        use_optuna=(hpo_method != 'none'),
+        use_optuna=(hpo_method != "none"),
         n_trials=hpo_trials,
         optuna_timeout=hpo_timeout_sec,
-        enable_dual_pipeline=ensemble
+        enable_dual_pipeline=ensemble,
     )
 
     if ensemble:
@@ -203,8 +204,9 @@ def score(
         with open(calibrator_path, "rb") as f:
             calib = pickle.load(f)
 
-    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars,
-                                  model=mdl, id_col=id_col, calibrator=calib)
+    combined = build_scored_frame(
+        df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib
+    )
 
     if output_csv:
         combined.to_csv(output_csv, index=False)

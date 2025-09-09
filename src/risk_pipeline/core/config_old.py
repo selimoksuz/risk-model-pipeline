@@ -1,12 +1,13 @@
 """Configuration module for Risk Model Pipeline"""
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
 import os
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
 
 
 @dataclass
 class OrchestratorConfig:
     """Control which steps to enable in the pipeline"""
+
     enable_validate: bool = True
     enable_classify: bool = True
     enable_split: bool = True
@@ -27,9 +28,9 @@ class Config:
     """Main configuration for Risk Model Pipeline"""
 
     # Basic settings
-    target_col: str = 'target'
-    id_col: str = 'app_id'
-    time_col: str = 'app_dt'
+    target_col: str = "target"
+    id_col: str = "app_id"
+    time_col: str = "app_dt"
     random_state: int = 42
 
     # Feature selection parameters
@@ -46,7 +47,7 @@ class Config:
     min_bin_size: float = 0.05
     woe_monotonic: bool = False
     max_abs_woe: Optional[float] = None
-    handle_missing: str = 'as_category'
+    handle_missing: str = "as_category"
 
     # Model training settings
     use_optuna: bool = True
@@ -79,7 +80,7 @@ class Config:
     enable_dual_pipeline: bool = True
 
     # Output settings
-    output_folder: str = 'output'
+    output_folder: str = "output"
     output_excel_path: Optional[str] = None
     write_csv: bool = False
     run_id: Optional[str] = None
@@ -109,6 +110,7 @@ class Config:
         # Set run_id if not provided
         if self.run_id is None:
             from datetime import datetime
+
             self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Create HPO aliases for backward compatibility
@@ -119,15 +121,15 @@ class Config:
         """Convert config to dictionary"""
         result = {}
         for key, value in self.__dict__.items():
-            if key == 'orchestrator':
+            if key == "orchestrator":
                 result[key] = {k: v for k, v in value.__dict__.items()}
             else:
                 result[key] = value
         return result
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> 'Config':
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "Config":
         """Create config from dictionary"""
-        orchestrator_dict = config_dict.pop('orchestrator', {})
+        orchestrator_dict = config_dict.pop("orchestrator", {})
         orchestrator = OrchestratorConfig(**orchestrator_dict)
         return cls(orchestrator=orchestrator, **config_dict)

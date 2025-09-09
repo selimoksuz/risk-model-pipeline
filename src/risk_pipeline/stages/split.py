@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pandas as pd
 from typing import Tuple
+
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
 
@@ -55,10 +56,7 @@ def time_based_split(
             try:
                 # Use stratified split to maintain target distribution
                 train_indices, test_indices = train_test_split(
-                    rem,
-                    test_size=test_size_row_frac,
-                    stratify=rem_df[target_col],
-                    random_state=42
+                    rem, test_size=test_size_row_frac, stratify=rem_df[target_col], random_state=42
                 )
                 train_idx = pd.Index(train_indices)
                 test_idx = pd.Index(test_indices)

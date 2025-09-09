@@ -1,28 +1,24 @@
 """Error handling and recovery utilities."""
 
-import os
+import functools
 import json
 import pickle
 import traceback
-from typing import Any, Dict, Optional
-from pathlib import Path
 from datetime import datetime
-import functools
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 
 class PipelineError(Exception):
     """Base exception for pipeline errors."""
-    pass
 
 
 class RecoverableError(PipelineError):
     """Error that allows pipeline to recover from checkpoint."""
-    pass
 
 
 class CriticalError(PipelineError):
     """Critical error that requires pipeline restart."""
-    pass
 
 
 class ErrorHandler:
@@ -37,7 +33,7 @@ class ErrorHandler:
         """Execute function with error handling."""
         try:
             return func(*args, **kwargs)
-        except Exception as e:
+        except Exception:
             self.log_error(e, func.__name__)
             if self.is_recoverable(e):
                 raise RecoverableError(f"Recoverable error in {func.__name__}: {str(e)}")
@@ -46,32 +42,28 @@ class ErrorHandler:
 
     def is_recoverable(self, error: Exception) -> bool:
         """Determine if error is recoverable."""
-        recoverable_types = (
-            MemoryError,
-            TimeoutError,
-            ConnectionError,
-            OSError
-        )
+        recoverable_types = (MemoryError, TimeoutError, ConnectionError, OSError)
         return isinstance(error, recoverable_types)
 
     def log_error(self, error: Exception, context: str):
         """Log error details."""
         error_entry = {
-            'timestamp': datetime.now().isoformat(),
-            'context': context,
-            'error_type': type(error).__name__,
-            'error_message': str(error),
-            'traceback': traceback.format_exc()
+            "timestamp": datetime.now().isoformat(),
+            "context": context,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "traceback": traceback.format_exc(),
         }
         self.error_log.append(error_entry)
 
         # Write to error log file
         log_file = self.checkpoint_dir / "error_log.json"
-        with open(log_file, 'a') as f:
-            f.write(json.dumps(error_entry) + '\n')
+        with open(log_file, "a") as f:
+            f.write(json.dumps(error_entry) + "\n")
 
     def retry_on_failure(self, max_retries: int = 3, delay: float = 1.0):
         """Decorator for retrying failed operations."""
+
         def decorator(func):
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
@@ -80,14 +72,16 @@ class ErrorHandler:
                 for attempt in range(max_retries):
                     try:
                         return func(*args, **kwargs)
-                    except Exception as e:
+                    except Exception:
                         if attempt == max_retries - 1:
                             raise
                         print(f"Attempt {attempt + 1} failed: {e}. Retrying...")
-                        time.sleep(delay * (2 ** attempt))  # Exponential backoff
+                        time.sleep(delay * (2**attempt))  # Exponential backoff
 
                 return None
+
             return wrapper
+
         return decorator
 
 
@@ -104,18 +98,18 @@ class CheckpointManager:
     def save_checkpoint(self, stage: str, data: Dict[str, Any], artifacts: Dict[str, Any]):
         """Save checkpoint for current stage."""
         checkpoint = {
-            'stage': stage,
-            'timestamp': datetime.now().isoformat(),
-            'data_keys': list(data.keys()),
-            'artifacts': artifacts
+            "stage": stage,
+            "timestamp": datetime.now().isoformat(),
+            "data_keys": list(data.keys()),
+            "artifacts": artifacts,
         }
 
         # Save metadata
-        with open(self.metadata_file, 'w') as f:
+        with open(self.metadata_file, "w") as f:
             json.dump(checkpoint, f, indent=2)
 
         # Save actual data
-        with open(self.checkpoint_file, 'wb') as f:
+        with open(self.checkpoint_file, "wb") as f:
             pickle.dump(data, f)
 
         print(f"✓ Checkpoint saved: {stage}")
@@ -126,18 +120,15 @@ class CheckpointManager:
             return None
 
         try:
-            with open(self.metadata_file, 'r') as f:
+            with open(self.metadata_file, "r") as f:
                 metadata = json.load(f)
 
-            with open(self.checkpoint_file, 'rb') as f:
+            with open(self.checkpoint_file, "rb") as f:
                 data = pickle.load(f)
 
             print(f"✓ Checkpoint loaded: {metadata['stage']} ({metadata['timestamp']})")
-            return {
-                'metadata': metadata,
-                'data': data
-            }
-        except Exception as e:
+            return {"metadata": metadata, "data": data}
+        except Exception:
             print(f"Failed to load checkpoint: {e}")
             return None
 
@@ -153,24 +144,24 @@ class CheckpointManager:
         checkpoints = []
         for metadata_file in self.checkpoint_dir.glob("metadata_*.json"):
             try:
-                with open(metadata_file, 'r') as f:
+                with open(metadata_file, "r") as f:
                     metadata = json.load(f)
-                checkpoints.append({
-                    'file': metadata_file.name,
-                    'stage': metadata['stage'],
-                    'timestamp': metadata['timestamp']
-                })
+                checkpoints.append(
+                    {"file": metadata_file.name, "stage": metadata["stage"], "timestamp": metadata["timestamp"]}
+                )
             except Exception:
                 continue
 
-        return sorted(checkpoints, key=lambda x: x['timestamp'], reverse=True)
+        return sorted(checkpoints, key=lambda x: x["timestamp"], reverse=True)
 
 
 def handle_memory_error(func):
     """Decorator to handle memory errors gracefully."""
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         import gc
+
         import psutil
 
         try:
@@ -194,11 +185,12 @@ def handle_memory_error(func):
 
             # Try to free memory
             import sys
+
             for name in list(sys.modules.keys()):
-                if name.startswith('_'):
+                if name.startswith("_"):
                     continue
                 module = sys.modules[name]
-                if hasattr(module, '_cache'):
+                if hasattr(module, "_cache"):
                     module._cache.clear()
 
             # Retry once

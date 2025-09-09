@@ -2,10 +2,12 @@
 Pipeline runner utilities for DataFrame inputs
 """
 
-import pandas as pd
 from pathlib import Path
-from ..pipeline import RiskModelPipeline, Config
+
+import pandas as pd
+
 from ..orchestrator import Orchestrator
+from ..pipeline import Config, RiskModelPipeline
 
 
 def run_pipeline_from_dataframe(
@@ -21,7 +23,7 @@ def run_pipeline_from_dataframe(
     calibration_data_path: str = None,  # Keep file path support too
     data_dictionary_df: pd.DataFrame = None,  # DataFrame with alan_adi, alan_aciklamasi
     data_dictionary_path: str = None,  # Excel file with variable descriptions
-    **kwargs
+    **kwargs,
 ) -> dict:
     """
     Run the risk model pipeline directly from a pandas DataFrame
@@ -58,7 +60,7 @@ def run_pipeline_from_dataframe(
         calibration_data_path=calibration_data_path,  # Pass file path if provided
         data_dictionary_df=data_dictionary_df,  # Pass data dictionary DataFrame
         data_dictionary_path=data_dictionary_path,  # Pass data dictionary path
-        **kwargs
+        **kwargs,
     )
 
     # Create output folder
@@ -74,19 +76,16 @@ def run_pipeline_from_dataframe(
         "final_features": pipe.final_vars_,
         "run_id": pipe.cfg.run_id,
         "output_folder": output_folder,
-        "models_performance": getattr(pipe, 'models_summary_', None)
+        "models_performance": getattr(pipe, "models_summary_", None),
     }
 
-    if hasattr(pipe, 'models_'):
+    if hasattr(pipe, "models_"):
         results["best_model_object"] = pipe.models_.get(pipe.best_model_name_)
 
     return results
 
 
-def run_pipeline_from_csv(
-    csv_path: str,
-    **kwargs
-) -> dict:
+def run_pipeline_from_csv(csv_path: str, **kwargs) -> dict:
     """
     Convenience function to run pipeline from CSV file
 
@@ -137,7 +136,6 @@ def get_full_config(**overrides) -> Config:
         # Core settings
         use_test_split=True,
         oot_window_months=3,
-
         # Feature engineering
         psi_threshold=0.25,
         psi_threshold_feature=0.25,
@@ -145,7 +143,6 @@ def get_full_config(**overrides) -> Config:
         iv_min=0.02,
         rho_threshold=0.8,
         vif_threshold=5.0,
-
         # Model settings
         cv_folds=5,
         hpo_trials=30,
@@ -154,16 +151,13 @@ def get_full_config(**overrides) -> Config:
         try_mlp=True,  # Enable MLP
         ensemble=True,  # Enable ensemble
         ensemble_top_k=3,
-
         # Calibration
         calibration_method="isotonic",
-
         # Outputs
         write_parquet=True,
         write_csv=True,
-
         # Orchestrator - all stages enabled
-        orchestrator=orchestrator
+        orchestrator=orchestrator,
     )
 
     # Apply overrides using setattr

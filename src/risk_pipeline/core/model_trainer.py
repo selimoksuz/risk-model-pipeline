@@ -1,18 +1,21 @@
 """Model training and evaluation module"""
 
-from .utils import ks_statistic, gini_from_auc, now_str, sys_metrics
-import numpy as np
-import pandas as pd
 import time
-import optuna
-from typing import Dict, List, Any
-from sklearn.base import clone
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
-from sklearn.neural_network import MLPClassifier
 import warnings
+from typing import Any, Dict, List
+
+import numpy as np
+import optuna
+import pandas as pd
+from sklearn.base import clone
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
+from sklearn.neural_network import MLPClassifier
+
+from .utils import gini_from_auc, ks_statistic, now_str, sys_metrics
+
 warnings.filterwarnings("ignore")
 
 try:
@@ -45,17 +48,13 @@ class ModelTrainer:
         """Get model definitions and hyperparameter spaces"""
         models = {
             "Logit_L2": (
-                LogisticRegression(
-                    solver="lbfgs",
-                    max_iter=1000,
-                    class_weight="balanced"
-                ),
+                LogisticRegression(solver="lbfgs", max_iter=1000, class_weight="balanced"),
                 {"C": np.logspace(-3, 3, 7)},
             ),
             "RandomForest": (
                 RandomForestClassifier(
-                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
-                    random_state=getattr(self.cfg, 'random_state', 42),
+                    n_jobs=getattr(self.cfg, "n_jobs", -1),
+                    random_state=getattr(self.cfg, "random_state", 42),
                     class_weight="balanced_subsample",
                 ),
                 {
@@ -66,8 +65,8 @@ class ModelTrainer:
             ),
             "ExtraTrees": (
                 ExtraTreesClassifier(
-                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
-                    random_state=getattr(self.cfg, 'random_state', 42),
+                    n_jobs=getattr(self.cfg, "n_jobs", -1),
+                    random_state=getattr(self.cfg, "random_state", 42),
                     class_weight="balanced",
                 ),
                 {
@@ -82,8 +81,8 @@ class ModelTrainer:
             models["XGBoost"] = (
                 XGBClassifier(
                     eval_metric="logloss",
-                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
-                    random_state=getattr(self.cfg, 'random_state', 42),
+                    n_jobs=getattr(self.cfg, "n_jobs", -1),
+                    random_state=getattr(self.cfg, "random_state", 42),
                     tree_method="hist",
                     verbosity=0,
                 ),
@@ -99,8 +98,8 @@ class ModelTrainer:
             models["LightGBM"] = (
                 LGBMClassifier(
                     class_weight="balanced",
-                    n_jobs=getattr(self.cfg, 'n_jobs', -1),
-                    random_state=getattr(self.cfg, 'random_state', 42),
+                    n_jobs=getattr(self.cfg, "n_jobs", -1),
+                    random_state=getattr(self.cfg, "random_state", 42),
                     verbosity=-1,
                     min_child_samples=10,
                 ),
@@ -119,24 +118,15 @@ class ModelTrainer:
                 {"lam": np.logspace(-3, 3, 7)},
             )
 
-        if getattr(self.cfg, 'try_mlp', False):
+        if getattr(self.cfg, "try_mlp", False):
             models["MLP"] = (
-                MLPClassifier(
-                    random_state=self.cfg.random_state,
-                    max_iter=200
-                ),
+                MLPClassifier(random_state=self.cfg.random_state, max_iter=200),
                 {"hidden_layer_sizes": [(50,), (100,)], "alpha": [0.0001, 0.001]},
             )
 
         return models
 
-    def hyperparameter_tune(
-        self,
-        base_estimator,
-        param_dist,
-        X,
-        y
-    ) -> Any:
+    def hyperparameter_tune(self, base_estimator, param_dist, X, y) -> Any:
         """Hyperparameter tuning with Optuna or random search"""
         if not param_dist:
             return base_estimator
@@ -147,39 +137,23 @@ class ModelTrainer:
             return base_estimator
 
         # Use hpo_method from Config or default to optuna
-        method = getattr(self.cfg, 'hpo_method', 'optuna')
-        timeout = getattr(self.cfg, 'hpo_timeout_sec', getattr(self.cfg, 'optuna_timeout', 60))
-        n_trials = getattr(self.cfg, 'hpo_trials', getattr(self.cfg, 'n_trials', 100))
+        method = getattr(self.cfg, "hpo_method", "optuna")
+        timeout = getattr(self.cfg, "hpo_timeout_sec", getattr(self.cfg, "optuna_timeout", 60))
+        n_trials = getattr(self.cfg, "hpo_trials", getattr(self.cfg, "n_trials", 100))
 
         if method == "optuna" and optuna:
             try:
-                return self._tune_with_optuna(
-                    base_estimator, param_dist, X, y,
-                    n_trials, timeout
-                )
+                return self._tune_with_optuna(base_estimator, param_dist, X, y, n_trials, timeout)
             except Exception:
                 method = "random"  # Fallback to random search
 
         # Random search
-        return self._tune_with_random_search(
-            base_estimator, param_dist, X, y,
-            n_trials, timeout
-        )
+        return self._tune_with_random_search(base_estimator, param_dist, X, y, n_trials, timeout)
 
-    def _tune_with_optuna(
-        self,
-        base_estimator,
-        param_dist,
-        X,
-        y,
-        n_trials,
-        timeout
-    ):
+    def _tune_with_optuna(self, base_estimator, param_dist, X, y, n_trials, timeout):
         """Hyperparameter tuning using Optuna"""
         skf = StratifiedKFold(
-            n_splits=getattr(self.cfg, 'cv_folds', 5),
-            shuffle=True,
-            random_state=self.cfg.random_state
+            n_splits=getattr(self.cfg, "cv_folds", 5), shuffle=True, random_state=self.cfg.random_state
         )
 
         def objective(trial):
@@ -205,35 +179,21 @@ class ModelTrainer:
             return float(np.mean(scores)) if scores else -np.inf
 
         study = optuna.create_study(
-            direction="maximize",
-            sampler=optuna.samplers.TPESampler(
-                seed=getattr(
-                    self.cfg,
-                    'random_state',
-                    42)))
+            direction="maximize", sampler=optuna.samplers.TPESampler(seed=getattr(self.cfg, "random_state", 42))
+        )
         study.optimize(objective, n_trials=n_trials, timeout=timeout)
 
         best_params = study.best_trial.params if study.best_trial else {}
         return clone(base_estimator).set_params(**best_params)
 
-    def _tune_with_random_search(
-        self,
-        base_estimator,
-        param_dist,
-        X,
-        y,
-        n_trials,
-        timeout
-    ):
+    def _tune_with_random_search(self, base_estimator, param_dist, X, y, n_trials, timeout):
         """Hyperparameter tuning using random search"""
         skf = StratifiedKFold(
-            n_splits=getattr(self.cfg, 'cv_folds', 5),
-            shuffle=True,
-            random_state=self.cfg.random_state
+            n_splits=getattr(self.cfg, "cv_folds", 5), shuffle=True, random_state=self.cfg.random_state
         )
 
         # Generate random parameter combinations
-        np.random.seed(getattr(self.cfg, 'random_state', 42))
+        np.random.seed(getattr(self.cfg, "random_state", 42))
         param_combinations = []
 
         for _ in range(n_trials):
@@ -299,24 +259,14 @@ class ModelTrainer:
                 return np.asarray(model.predict(X)).ravel()
 
     def train_and_evaluate_models(
-        self,
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        X_oot,
-        y_oot,
-        feature_names: List[str],
-        prefix: str = ""
+        self, X_train, y_train, X_test, y_test, X_oot, y_oot, feature_names: List[str], prefix: str = ""
     ) -> pd.DataFrame:
         """Train and evaluate all models"""
         models = self.get_model_definitions()
         rows = []
 
         skf = StratifiedKFold(
-            n_splits=getattr(self.cfg, 'cv_folds', 5),
-            shuffle=True,
-            random_state=self.cfg.random_state
+            n_splits=getattr(self.cfg, "cv_folds", 5), shuffle=True, random_state=self.cfg.random_state
         )
 
         for name, (base_mdl, params) in models.items():
@@ -390,22 +340,24 @@ class ModelTrainer:
                 gini_oot = 0.0
 
             # Store results
-            rows.append({
-                "model_name": f"{prefix}{name}",
-                "KS_Train": ks_train,
-                "AUC_Train": auc_train,
-                "Gini_Train": gini_train,
-                "KS_TrainCV": ks_cv,
-                "AUC_TrainCV": auc_cv,
-                "Gini_TrainCV": gini_cv,
-                "KS_Test": ks_test,
-                "AUC_Test": auc_test,
-                "Gini_Test": gini_test,
-                "KS_OOT": ks_oot,
-                "AUC_OOT": auc_oot,
-                "Gini_OOT": gini_oot,
-                "KS_OOT_threshold": thr_oot,
-            })
+            rows.append(
+                {
+                    "model_name": f"{prefix}{name}",
+                    "KS_Train": ks_train,
+                    "AUC_Train": auc_train,
+                    "Gini_Train": gini_train,
+                    "KS_TrainCV": ks_cv,
+                    "AUC_TrainCV": auc_cv,
+                    "Gini_TrainCV": gini_cv,
+                    "KS_Test": ks_test,
+                    "AUC_Test": auc_test,
+                    "Gini_Test": gini_test,
+                    "KS_OOT": ks_oot,
+                    "AUC_OOT": auc_oot,
+                    "Gini_OOT": gini_oot,
+                    "KS_OOT_threshold": thr_oot,
+                }
+            )
 
             # Store model
             self.models_[f"{prefix}{name}"] = mdl
@@ -418,20 +370,16 @@ class ModelTrainer:
             return None
 
         # Get selection criteria from config
-        selection_method = getattr(self.cfg, 'model_selection_method', 'gini_oot')
-        max_train_oot_gap = getattr(self.cfg, 'max_train_oot_gap', None)
-        stability_weight = getattr(self.cfg, 'model_stability_weight', 0.0)
+        selection_method = getattr(self.cfg, "model_selection_method", "gini_oot")
+        max_train_oot_gap = getattr(self.cfg, "max_train_oot_gap", None)
+        stability_weight = getattr(self.cfg, "model_stability_weight", 0.0)
 
         # Calculate Train-OOT gap for all models
-        models_summary['train_oot_gap'] = abs(
-            models_summary['Gini_Train'] - models_summary['Gini_OOT']
-        )
+        models_summary["train_oot_gap"] = abs(models_summary["Gini_Train"] - models_summary["Gini_OOT"])
 
         # Filter models by maximum Train-OOT gap if specified
         if max_train_oot_gap is not None:
-            stable_models = models_summary[
-                models_summary['train_oot_gap'] <= max_train_oot_gap
-            ]
+            stable_models = models_summary[models_summary["train_oot_gap"] <= max_train_oot_gap]
             if not stable_models.empty:
                 models_to_consider = stable_models
             else:
@@ -442,40 +390,35 @@ class ModelTrainer:
             models_to_consider = models_summary
 
         # Select based on method
-        if selection_method == 'balanced':
+        if selection_method == "balanced":
             # Balanced score: weighted combination of performance and stability
             # Higher performance (Gini_OOT) is better, lower gap is better
-            models_to_consider['balanced_score'] = (
-                (1 - stability_weight) * models_to_consider['Gini_OOT'] -
-                stability_weight * models_to_consider['train_oot_gap']
-            )
-            best_row = models_to_consider.nlargest(1, 'balanced_score').iloc[0]
+            models_to_consider["balanced_score"] = (1 - stability_weight) * models_to_consider[
+                "Gini_OOT"
+            ] - stability_weight * models_to_consider["train_oot_gap"]
+            best_row = models_to_consider.nlargest(1, "balanced_score").iloc[0]
 
-        elif selection_method == 'stable':
+        elif selection_method == "stable":
             # Most stable model (smallest Train-OOT gap) with minimum performance
-            min_gini = getattr(self.cfg, 'min_gini_threshold', 0.5)
-            good_models = models_to_consider[models_to_consider['Gini_OOT'] >= min_gini]
+            min_gini = getattr(self.cfg, "min_gini_threshold", 0.5)
+            good_models = models_to_consider[models_to_consider["Gini_OOT"] >= min_gini]
 
             if not good_models.empty:
-                best_row = good_models.nsmallest(1, 'train_oot_gap').iloc[0]
+                best_row = good_models.nsmallest(1, "train_oot_gap").iloc[0]
             else:
                 # Fallback to best performance if no model meets min threshold
-                best_row = models_to_consider.nlargest(1, 'Gini_OOT').iloc[0]
+                best_row = models_to_consider.nlargest(1, "Gini_OOT").iloc[0]
 
-        elif selection_method == 'conservative':
+        elif selection_method == "conservative":
             # Conservative: prioritize stability, then performance
             # Sort by gap first (ascending), then by Gini_OOT (descending)
-            sorted_models = models_to_consider.sort_values(
-                ['train_oot_gap', 'Gini_OOT'],
-                ascending=[True, False]
-            )
+            sorted_models = models_to_consider.sort_values(["train_oot_gap", "Gini_OOT"], ascending=[True, False])
             best_row = sorted_models.iloc[0]
 
         else:  # Default: 'gini_oot' or any other value
             # Traditional method: highest Gini_OOT
             best_row = models_to_consider.sort_values(
-                ["Gini_OOT", "KS_OOT", "AUC_OOT"],
-                ascending=[False, False, False]
+                ["Gini_OOT", "KS_OOT", "AUC_OOT"], ascending=[False, False, False]
             ).iloc[0]
 
         # Log selection reason
@@ -488,19 +431,18 @@ class ModelTrainer:
     def calibrate_model(self, model, X_cal, y_cal):
         """Calibrate model probabilities"""
         try:
-            from ..stages import fit_calibrator, apply_calibrator
+            from ..stages import apply_calibrator, fit_calibrator
 
             raw_proba = self._predict_proba(model, X_cal)
 
             self.calibrator_ = fit_calibrator(
-                raw_proba,
-                y_cal,
-                method=getattr(self.cfg, 'calibration_method', 'isotonic')
+                raw_proba, y_cal, method=getattr(self.cfg, "calibration_method", "isotonic")
             )
 
             calibrated_proba = apply_calibrator(self.calibrator_, raw_proba)
 
             from sklearn.calibration import brier_score_loss
+
             brier = brier_score_loss(y_cal, calibrated_proba)
 
             return self.calibrator_, {"brier": float(brier)}

@@ -2,7 +2,7 @@
 """Main pipeline orchestrator using modular components"""
 """Initialize pipeline with modular components"""
 
-        """Main pipeline execution"""
+"""Main pipeline execution"""
         """Combine results from dual pipeline"""
         """Export reports (compatibility method)"""
     """
@@ -42,17 +42,10 @@
         """Get summary of dual pipeline results"""
 
                 from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
-from .core import (
-from .core.config import Config
-import os
-import pandas as pd
-import random
-import warnings
 
-
-
-warnings.filterwarnings("ignore")
-
+from .core import Config, "ignore", .core.config, from, import, os
+from .core import pandas as pd
+from .core import random, warnings, warnings.filterwarnings
 
 # Import core modules
     BasePipeline,

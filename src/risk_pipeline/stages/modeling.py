@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, Any, Tuple
-import numpy as np
+from typing import Any, Dict, Tuple
+
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score

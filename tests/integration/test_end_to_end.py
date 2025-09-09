@@ -3,15 +3,17 @@
 Complete End-to-End Test: Pipeline + Scoring + Reporting
 """
 
-from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
-from risk_pipeline.pipeline import Config, RiskModelPipeline
-import pandas as pd
-import numpy as np
-import sys
 import os
-import time
 import shutil
-from pathlib import Path
+import sys
+import time
+
+import numpy as np
+import pandas as pd
+
+from risk_pipeline.pipeline import Config, RiskModelPipeline
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data
+
 sys.path.append('src')
 
 
@@ -72,7 +74,7 @@ def main():
     start_time = time.time()
 
     pipeline = RiskModelPipeline(config)
-    results = pipeline.run(train_df)
+    # results = pipeline.run(train_df)
 
     pipeline_time = time.time() - start_time
     print(f"  Pipeline completed in {pipeline_time:.1f}s")
@@ -81,9 +83,10 @@ def main():
     print(f"  Run ID: {results['run_id']}")
 
     # Save additional artifacts for scoring
-    import joblib
     import json
     from datetime import datetime
+
+    import joblib
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S_e2e")
 
@@ -140,7 +143,7 @@ def main():
     if isinstance(final_features, dict):
         final_features = final_features.get('final_vars', final_features)
     if isinstance(final_features, dict):
-        final_features = list(final_features.values())[0]
+    # final_features = list(final_features.values())[0]
 
     print(f"  Model loaded: {type(model).__name__}")
     print(f"  Calibrator: {'Available' if calibrator else 'Not available'}")
@@ -179,16 +182,16 @@ def main():
 
     # Score new data
     start_time = time.time()
-    scoring_results = score_data(
-        scoring_df=scoring_df,
-        model=model,
-        final_features=final_features,
-        woe_mapping=woe_mapping,
-        calibrator=calibrator,
-        training_scores=training_scores,
-        feature_mapping=feature_mapping if feature_mapping else None
+    # scoring_results = score_data(
+        scoring_df = scoring_df,
+        model = model,
+    # final_features=final_features,
+        woe_mapping = woe_mapping,
+        calibrator = calibrator,
+    # training_scores=training_scores,
+        feature_mapping = feature_mapping if feature_mapping else None
     )
-    scoring_time = time.time() - start_time
+    scoring_time=time.time() - start_time
     print(f"  Scoring completed in {scoring_time:.1f}s")
 
     # Step 4: Display results
@@ -198,11 +201,11 @@ def main():
     print(f"Calibration applied: {'Yes' if scoring_results.get('calibration_applied') else 'No'}")
 
     if scoring_results.get('psi_score') is not None:
-        psi = scoring_results['psi_score']
+        psi=scoring_results['psi_score']
         print(f"PSI: {psi:.4f} ({'Stable' if psi < 0.1 else 'Some drift' if psi < 0.25 else 'Significant drift'})")
 
     if 'with_target' in scoring_results:
-        wt = scoring_results['with_target']
+        wt=scoring_results['with_target']
         print(f"\nWith Target ({wt['n_records']:, } records):")
         print(f"  AUC: {wt['auc']:.4f}")
         print(f"  Gini: {wt['gini']:.4f}")
@@ -210,31 +213,31 @@ def main():
         print(f"  Default Rate: {wt['default_rate']:.3f}")
 
     if 'without_target' in scoring_results:
-        wot = scoring_results['without_target']
+        wot=scoring_results['without_target']
         print(f"\nWithout Target ({wot['n_records']:, } records):")
         print(f"  Score Mean: {wot['score_stats']['mean']:.4f}")
         print(f"  Score Std: {wot['score_stats']['std']:.4f}")
 
     # Save scored data
-    scored_df = scoring_df.copy()
-    scored_df['predicted_score'] = scoring_results['scores']
-    scored_df['raw_score'] = scoring_results['raw_scores']
-    scored_df.to_csv(f"{OUTPUT_FOLDER}/scored_data.csv", index=False)
+    scored_df=scoring_df.copy()
+    scored_df['predicted_score']=scoring_results['scores']
+    scored_df['raw_score']=scoring_results['raw_scores']
+    scored_df.to_csv(f"{OUTPUT_FOLDER}/scored_data.csv", index = False)
     print(f"\nScored data saved: {OUTPUT_FOLDER}/scored_data.csv")
 
     # Step 5: Verify Excel report
     print("\n[STEP 5] Verifying Excel report...")
-    excel_path = f"{OUTPUT_FOLDER}/model_report.xlsx"
+    excel_path=f"{OUTPUT_FOLDER}/model_report.xlsx"
 
     if os.path.exists(excel_path):
-        xl_file = pd.ExcelFile(excel_path)
+        xl_file=pd.ExcelFile(excel_path)
         print(f"  Excel report: {excel_path}")
         print(f"  Total sheets: {len(xl_file.sheet_names)}")
         print(f"  Size: {os.path.getsize(excel_path)/1024:.1f} KB")
 
         # List some key sheets
-        key_sheets = ['final_vars', 'models_summary', 'woe_mapping', 'psi_summary', 'oot_scores']
-        available = [s for s in key_sheets if s in xl_file.sheet_names]
+        key_sheets=['final_vars', 'models_summary', 'woe_mapping', 'psi_summary', 'oot_scores']
+        available=[s for s in key_sheets if s in xl_file.sheet_names]
         print(f"  Key sheets: {', '.join(available)}")
     else:
         print(f"  [WARNING] Excel report not found: {excel_path}")
@@ -251,9 +254,9 @@ def main():
 
     # List final outputs
     print("\nFinal outputs:")
-    outputs = os.listdir(OUTPUT_FOLDER)
+    outputs=os.listdir(OUTPUT_FOLDER)
     for output in sorted(outputs)[:10]:  # Show first 10
-        size = os.path.getsize(f"{OUTPUT_FOLDER}/{output}") / 1024
+        size=os.path.getsize(f"{OUTPUT_FOLDER}/{output}") / 1024
         print(f"  - {output} ({size:.1f} KB)")
 
     if len(outputs) > 10:

@@ -1,8 +1,16 @@
+
+def month_floor(dt):
+    """Floor datetime to month"""
+    import pandas as pd
+    return pd.Timestamp(dt.year, dt.month, 1)
+
+
 """Data processing module for the pipeline"""
+
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional
 
 
 class DataProcessor:
@@ -27,9 +35,9 @@ class DataProcessor:
 
         # Create snapshot_month
         try:
-            df["snapshot_month"] = pd.to_datetime(
-                df[self.cfg.time_col], errors="coerce"
-            ).dt.to_period("M").dt.to_timestamp()
+            df["snapshot_month"] = (
+                pd.to_datetime(df[self.cfg.time_col], errors="coerce").dt.to_period("M").dt.to_timestamp()
+            )
         except Exception:
             df["snapshot_month"] = df[self.cfg.time_col].apply(month_floor)
 
@@ -49,11 +57,9 @@ class DataProcessor:
         """Classify variables as numeric or categorical"""
         try:
             from ..stages import classify_variables
+
             return classify_variables(
-                df,
-                id_col=self.cfg.id_col,
-                time_col=self.cfg.time_col,
-                target_col=self.cfg.target_col
+                df, id_col=self.cfg.id_col, time_col=self.cfg.time_col, target_col=self.cfg.target_col
             )
         except ImportError:
             # Fallback implementation
@@ -74,19 +80,22 @@ class DataProcessor:
                 else:
                     var_group = "categorical" if df[col].nunique() < 20 else "numeric"
 
-                rows.append({
-                    "variable": col,
-                    "dtype": dtype_name,
-                    "variable_group": var_group,
-                    "nunique": df[col].nunique(),
-                    "missing_pct": df[col].isnull().mean()
-                })
+                rows.append(
+                    {
+                        "variable": col,
+                        "dtype": dtype_name,
+                        "variable_group": var_group,
+                        "nunique": df[col].nunique(),
+                        "missing_pct": df[col].isnull().mean(),
+                    }
+                )
 
             self.var_catalog_ = pd.DataFrame(rows)
             return self.var_catalog_
 
-    def impute_missing_values(self, X: pd.DataFrame, y: Optional[np.ndarray] = None,
-                              strategy: str = 'multiple', fit: bool = True) -> pd.DataFrame:
+    def impute_missing_values(
+        self, X: pd.DataFrame, y: Optional[np.ndarray] = None, strategy: str = "multiple", fit: bool = True
+    ) -> pd.DataFrame:
         """Apply multiple imputation strategies for missing values
 
         Parameters:
@@ -107,21 +116,21 @@ class DataProcessor:
         """
         X_imputed = X.copy()
 
-        if strategy == 'multiple':
+        if strategy == "multiple":
             # Apply multiple strategies and create new features
-            strategies = ['median', 'mean', 'forward_fill', 'target_mean']
+            strategies = ["median", "mean", "forward_fill", "target_mean"]
 
             for col in X.columns:
                 if X[col].isnull().any():
                     # Create multiple imputed versions
                     for strat in strategies:
-                        if strat == 'target_mean' and y is None:
+                        if strat == "target_mean" and y is None:
                             continue
 
                         imputed_col = self._impute_column(X[col], y, strat, col, fit)
 
                         # Add as new feature for ensemble
-                        if strat != 'median':  # Use median as base
+                        if strat != "median":  # Use median as base
                             X_imputed[f"{col}_imp_{strat}"] = imputed_col
                         else:
                             X_imputed[col] = imputed_col
@@ -135,35 +144,36 @@ class DataProcessor:
                     X_imputed[col] = self._impute_column(X[col], y, strategy, col, fit)
 
                     # Always add missing indicator for important tracking
-                    if strategy != 'drop':
+                    if strategy != "drop":
                         X_imputed[f"{col}_was_missing"] = X[col].isnull().astype(int)
 
         return X_imputed
 
-    def _impute_column(self, series: pd.Series, y: Optional[np.ndarray],
-                       strategy: str, col_name: str, fit: bool) -> pd.Series:
+    def _impute_column(
+        self, series: pd.Series, y: Optional[np.ndarray], strategy: str, col_name: str, fit: bool
+    ) -> pd.Series:
         """Impute a single column with specified strategy"""
 
-        if strategy == 'drop':
+        if strategy == "drop":
             # Never drop rows - fill with median instead
-            strategy = 'median'
+            strategy = "median"
 
         if fit:
             # Calculate and store imputation value
-            if strategy == 'median':
+            if strategy == "median":
                 fill_value = series.median()
-            elif strategy == 'mean':
+            elif strategy == "mean":
                 fill_value = series.mean()
-            elif strategy == 'mode':
+            elif strategy == "mode":
                 mode_vals = series.mode()
                 fill_value = mode_vals[0] if len(mode_vals) > 0 else series.median()
-            elif strategy == 'forward_fill':
+            elif strategy == "forward_fill":
                 # For time series data
-                return series.fillna(method='ffill').fillna(series.median())
-            elif strategy == 'interpolate':
+                return series.fillna(method="ffill").fillna(series.median())
+            elif strategy == "interpolate":
                 # Linear interpolation
-                return series.interpolate(method='linear').fillna(series.median())
-            elif strategy == 'target_mean' and y is not None:
+                return series.interpolate(method="linear").fillna(series.median())
+            elif strategy == "target_mean" and y is not None:
                 # Impute with mean value for target = 1 vs target = 0
                 mask_1 = (y == 1) & series.notna()
                 mask_0 = (y == 0) & series.notna()
@@ -171,7 +181,7 @@ class DataProcessor:
                 mean_1 = series[mask_1].mean() if mask_1.any() else series.mean()
                 mean_0 = series[mask_0].mean() if mask_0.any() else series.mean()
 
-                self.imputation_stats_[f"{col_name}_target"] = {'mean_1': mean_1, 'mean_0': mean_0}
+                self.imputation_stats_[f"{col_name}_target"] = {"mean_1": mean_1, "mean_0": mean_0}
 
                 # Apply target-based imputation
                 result = series.copy()
@@ -181,25 +191,25 @@ class DataProcessor:
                     result[missing_mask & (y == 0)] = mean_0
                     result[missing_mask & pd.isnull(y)] = series.mean()
                 return result
-            elif strategy == 'knn':
+            elif strategy == "knn":
                 # Simple distance-based imputation (would need full implementation)
                 fill_value = series.median()  # Fallback to median
             else:
                 fill_value = series.median()  # Default fallback
 
             # Store imputation value for later use
-            if strategy not in ['forward_fill', 'interpolate', 'target_mean']:
+            if strategy not in ["forward_fill", "interpolate", "target_mean"]:
                 self.imputation_stats_[f"{col_name}_{strategy}"] = fill_value
         else:
             # Use stored imputation value
-            if strategy == 'target_mean' and f"{col_name}_target" in self.imputation_stats_:
+            if strategy == "target_mean" and f"{col_name}_target" in self.imputation_stats_:
                 stats = self.imputation_stats_[f"{col_name}_target"]
                 result = series.copy()
                 missing_mask = series.isnull()
                 if y is not None and missing_mask.any():
-                    result[missing_mask & (y == 1)] = stats['mean_1']
-                    result[missing_mask & (y == 0)] = stats['mean_0']
-                    result[missing_mask & pd.isnull(y)] = (stats['mean_1'] + stats['mean_0']) / 2
+                    result[missing_mask & (y == 1)] = stats["mean_1"]
+                    result[missing_mask & (y == 0)] = stats["mean_0"]
+                    result[missing_mask & pd.isnull(y)] = (stats["mean_1"] + stats["mean_0"]) / 2
                 return result
             elif f"{col_name}_{strategy}" in self.imputation_stats_:
                 fill_value = self.imputation_stats_[f"{col_name}_{strategy}"]
@@ -215,7 +225,7 @@ class DataProcessor:
         n = len(df_sorted)
 
         # Step 1: Split OOT data based on time
-        oot_window_months = getattr(self.cfg, 'oot_months', None)
+        oot_window_months = getattr(self.cfg, "oot_months", None)
         if oot_window_months:
             # Use last N months as OOT
             latest = pd.to_datetime(df_sorted[self.cfg.time_col]).max()
@@ -225,16 +235,16 @@ class DataProcessor:
             pre_oot_df = df_sorted[~oot_mask]
         else:
             # Use ratio-based splitting for OOT
-            oot_ratio = getattr(self.cfg, 'oot_ratio', 0.20)
+            oot_ratio = getattr(self.cfg, "oot_ratio", 0.20)
             oot_size = int(n * oot_ratio)
-            oot_size = max(oot_size, getattr(self.cfg, 'min_oot_size', 50))
+            oot_size = max(oot_size, getattr(self.cfg, "min_oot_size", 50))
             oot_size = min(oot_size, n // 3)  # Max 33% for OOT
 
             oot_idx = df_sorted.index[-oot_size:].values
             pre_oot_df = df_sorted.iloc[:-oot_size]
 
         # Step 2: Split Train/Test from pre-OOT data
-        use_test_split = getattr(self.cfg, 'use_test_split', True)
+        use_test_split = getattr(self.cfg, "use_test_split", True)
 
         if not use_test_split:
             # No test split - all pre-OOT data goes to train
@@ -242,18 +252,18 @@ class DataProcessor:
             test_idx = None
         else:
             # Always use stratified split for train/test
-            test_ratio = getattr(self.cfg, 'test_ratio', 0.20)
+            test_ratio = getattr(self.cfg, "test_ratio", 0.20)
 
             # Stratified split maintaining target ratio across all months
             from sklearn.model_selection import train_test_split
 
             # First, ensure each month has representation in both train and test
-            pre_oot_df['_month'] = pd.to_datetime(pre_oot_df[self.cfg.time_col]).dt.to_period('M')
+            pre_oot_df["_month"] = pd.to_datetime(pre_oot_df[self.cfg.time_col]).dt.to_period("M")
 
             train_idx_list = []
             test_idx_list = []
 
-            for month, month_group in pre_oot_df.groupby('_month'):
+            for month, month_group in pre_oot_df.groupby("_month"):
                 month_indices = month_group.index.values
 
                 # Skip if month has too few samples
@@ -275,7 +285,7 @@ class DataProcessor:
                             month_indices,
                             test_size=month_test_size,
                             stratify=target_values,
-                            random_state=self.cfg.random_state
+                            random_state=self.cfg.random_state,
                         )
                     except ValueError:
                         # Fallback to random if stratification fails
@@ -297,19 +307,21 @@ class DataProcessor:
             test_idx = np.array(test_idx_list) if test_idx_list else None
 
             # Clean up temporary column
-            if '_month' in pre_oot_df.columns:
-                pre_oot_df.drop('_month', axis=1, inplace=True)
+            if "_month" in pre_oot_df.columns:
+                pre_oot_df.drop("_month", axis=1, inplace=True)
 
         # Log split statistics
-        if hasattr(self, '_log'):
+        if hasattr(self, "_log"):
             total = len(df)
             n_train = len(train_idx) if train_idx is not None else 0
             n_test = len(test_idx) if test_idx is not None else 0
             n_oot = len(oot_idx) if oot_idx is not None else 0
 
-            self._log(f"   - Data split: Train={n_train} ({n_train/total:.1%}), "
-                      f"Test={n_test} ({n_test/total:.1%}), "
-                      f"OOT={n_oot} ({n_oot/total:.1%})")
+            self._log(
+                f"   - Data split: Train={n_train} ({n_train/total:.1%}), "
+                f"Test={n_test} ({n_test/total:.1%}), "
+                f"OOT={n_oot} ({n_oot/total:.1%})"
+            )
 
             # Check target distribution
             if self.cfg.target_col in df.columns:
@@ -326,11 +338,7 @@ class DataProcessor:
         return train_idx, test_idx, oot_idx
 
     def get_train_test_oot_data(
-        self,
-        df: pd.DataFrame,
-        train_idx: np.ndarray,
-        test_idx: Optional[np.ndarray],
-        oot_idx: np.ndarray
+        self, df: pd.DataFrame, train_idx: np.ndarray, test_idx: Optional[np.ndarray], oot_idx: np.ndarray
     ) -> Tuple:
         """Extract train/test/OOT data"""
         X_train = df.iloc[train_idx].drop(columns=[self.cfg.target_col])
@@ -349,12 +357,7 @@ class DataProcessor:
         return X_train, y_train, X_test, y_test, X_oot, y_oot
 
     def apply_raw_transformations(
-        self,
-        X: pd.DataFrame,
-        y: Optional[np.ndarray] = None,
-        fit: bool = False,
-        imputer=None,
-        scaler=None
+        self, X: pd.DataFrame, y: Optional[np.ndarray] = None, fit: bool = False, imputer=None, scaler=None
     ):
         """Apply imputation and outlier handling for raw variables"""
         from sklearn.impute import SimpleImputer
@@ -363,42 +366,27 @@ class DataProcessor:
         X_transformed = X.copy()
 
         # Get imputation strategy
-        raw_imputation_strategy = getattr(self.cfg, 'raw_imputation_strategy', 'median')
+        raw_imputation_strategy = getattr(self.cfg, "raw_imputation_strategy", "median")
 
         # Use multiple imputation if specified
-        if raw_imputation_strategy in ['multiple', 'all']:
+        if raw_imputation_strategy in ["multiple", "all"]:
             # Use our custom multiple imputation
-            X_transformed = self.impute_missing_values(
-                X_transformed,
-                y=y,
-                strategy='multiple',
-                fit=fit
-            )
+            X_transformed = self.impute_missing_values(X_transformed, y=y, strategy="multiple", fit=fit)
             imputer = None  # Don't use sklearn imputer
-        elif raw_imputation_strategy in ['median', 'mean', 'mode', 'forward_fill',
-                                         'interpolate', 'target_mean', 'knn']:
+        elif raw_imputation_strategy in ["median", "mean", "mode", "forward_fill", "interpolate", "target_mean", "knn"]:
             # Use custom single strategy imputation
-            X_transformed = self.impute_missing_values(
-                X_transformed,
-                y=y,
-                strategy=raw_imputation_strategy,
-                fit=fit
-            )
+            X_transformed = self.impute_missing_values(X_transformed, y=y, strategy=raw_imputation_strategy, fit=fit)
             imputer = None
         else:
             # Fallback to sklearn SimpleImputer for backward compatibility
             if fit:
                 imputer = SimpleImputer(strategy=raw_imputation_strategy)
                 X_transformed = pd.DataFrame(
-                    imputer.fit_transform(X_transformed),
-                    columns=X_transformed.columns,
-                    index=X_transformed.index
+                    imputer.fit_transform(X_transformed), columns=X_transformed.columns, index=X_transformed.index
                 )
             elif imputer is not None:
                 X_transformed = pd.DataFrame(
-                    imputer.transform(X_transformed),
-                    columns=X_transformed.columns,
-                    index=X_transformed.index
+                    imputer.transform(X_transformed), columns=X_transformed.columns, index=X_transformed.index
                 )
 
         # Outlier handling
@@ -406,15 +394,11 @@ class DataProcessor:
             if fit:
                 scaler = RobustScaler()
                 X_transformed = pd.DataFrame(
-                    scaler.fit_transform(X_transformed),
-                    columns=X_transformed.columns,
-                    index=X_transformed.index
+                    scaler.fit_transform(X_transformed), columns=X_transformed.columns, index=X_transformed.index
                 )
             elif scaler is not None:
                 X_transformed = pd.DataFrame(
-                    scaler.transform(X_transformed),
-                    columns=X_transformed.columns,
-                    index=X_transformed.index
+                    scaler.transform(X_transformed), columns=X_transformed.columns, index=X_transformed.index
                 )
 
             # Apply outlier clipping

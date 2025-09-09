@@ -3,10 +3,12 @@
 Test full pipeline with all features enabled
 """
 
-from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
-import pandas as pd
 import sys
-import os
+
+import pandas as pd
+
+from risk_pipeline.utils.pipeline_runner import get_full_config, run_pipeline_from_dataframe
+
 sys.path.append('src')
 
 
@@ -44,15 +46,15 @@ def main():
     print()
 
     # Run pipeline
-    results = run_pipeline_from_dataframe(
-        df=df,
-        id_col="app_id",
-        time_col="app_dt",
-        target_col="target",
-        output_folder="outputs_full",
-        output_excel="full_pipeline_report.xlsx",
-        use_test_split=True,
-        oot_months=3,
+    # results = run_pipeline_from_dataframe(
+        df = df,
+        id_col = "app_id",
+        time_col = "app_dt",
+        target_col = "target",
+        output_folder = "outputs_full",
+        output_excel = "full_pipeline_report.xlsx",
+        use_test_split = True,
+        oot_months = 3,
         # Pass config overrides
         **{
             'try_mlp': config.try_mlp,
@@ -77,7 +79,7 @@ def main():
 
     # Load and display results
     try:
-        models_df = pd.read_excel(f"{results['output_folder']}/full_pipeline_report.xlsx", sheet_name='models_summary')
+        models_df=pd.read_excel(f"{results['output_folder']}/full_pipeline_report.xlsx", sheet_name = 'models_summary')
         print(f"\n🏆 Model Performance (AUC OOT):")
         for _, row in models_df.iterrows():
             print(f"  {row['model_name']}: {row['AUC_OOT']:.4f}")

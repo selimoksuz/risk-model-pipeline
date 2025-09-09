@@ -1,18 +1,16 @@
 """Tests for error handling module."""
 
-import pytest
 import tempfile
-import json
-import pickle
-from pathlib import Path
 import time
+
+import pytest
+
 from risk_pipeline.utils.error_handler import (
-    ErrorHandler,
     CheckpointManager,
-    PipelineError,
-    RecoverableError,
     CriticalError,
-    handle_memory_error
+    ErrorHandler,
+    RecoverableError,
+    handle_memory_error,
 )
 
 

@@ -1,11 +1,12 @@
 """Utility classes and functions for the pipeline"""
 
 import time
-import psutil
-import numpy as np
 from dataclasses import dataclass
-from typing import List, Optional, Any, Dict
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import psutil
 
 # Encoding utilities
 
@@ -132,6 +133,7 @@ def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: 
 
     return woe, float(actual_rate), iv_contrib
 
+
 # Timer classes
 
 
@@ -149,9 +151,12 @@ class Timer:
         ok_fail = " — FAIL" if exc_type else " — OK"
         if exc_type:
             self.logger(
-                f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}")
+                f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}"
+            )
         else:
-            self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}{sys_metrics()}")
+            self.logger(
+                f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}{sys_metrics()}"
+            )
 
 
 class Timer2:
@@ -163,12 +168,14 @@ class Timer2:
     def __call__(self, label: str):
         return Timer(label, self.logger)
 
+
 # Data structures for WOE
 
 
 @dataclass
 class NumericBin:
     """Numeric bin for WOE transformation"""
+
     left: float
     right: float
     woe: float
@@ -182,6 +189,7 @@ class NumericBin:
 @dataclass
 class CategoricalGroup:
     """Categorical group for WOE transformation"""
+
     label: str
     members: List[Any]
     woe: float
@@ -195,6 +203,7 @@ class CategoricalGroup:
 @dataclass
 class VariableWOE:
     """WOE mapping for a variable"""
+
     variable: str
     var_type: str  # "numeric" or "categorical"
     iv: float = 0.0
@@ -210,7 +219,7 @@ class VariableWOE:
             "var_type": self.var_type,
             "iv": self.iv,
             "missing_woe": self.missing_woe,
-            "missing_rate": self.missing_rate
+            "missing_rate": self.missing_rate,
         }
 
         if self.numeric_bins:
@@ -222,7 +231,7 @@ class VariableWOE:
                     "event_count": b.event_count,
                     "nonevent_count": b.nonevent_count,
                     "event_rate": b.event_rate,
-                    "iv_contrib": b.iv_contrib
+                    "iv_contrib": b.iv_contrib,
                 }
                 for b in self.numeric_bins
             ]
@@ -236,7 +245,7 @@ class VariableWOE:
                     "event_count": g.event_count,
                     "nonevent_count": g.nonevent_count,
                     "event_rate": g.event_rate,
-                    "iv_contrib": g.iv_contrib
+                    "iv_contrib": g.iv_contrib,
                 }
                 for g in self.categorical_groups
             ]

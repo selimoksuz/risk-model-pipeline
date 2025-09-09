@@ -1,6 +1,6 @@
-from sklearn.linear_model import LogisticRegression
-from sklearn.isotonic import IsotonicRegression
 import numpy as np
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 
 def fit_calibrator(scores, y, method="isotonic"):

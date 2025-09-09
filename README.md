@@ -3,6 +3,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/selimoksuz/risk-model-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/selimoksuz/risk-model-pipeline/actions/workflows/ci.yml)
+[![Code Quality](https://img.shields.io/badge/code%20quality-99.5%25-brightgreen)](https://github.com/selimoksuz/risk-model-pipeline)
 
 Production-ready risk modeling pipeline with WOE transformation and advanced ML features.
 

@@ -123,3 +123,20 @@ notebooks/*.html
 .DS_Store
 Thumbs.db
 desktop.ini
+# Maintenance and temporary files
+utils/maintenance_scripts/
+docs/errors/
+*.log
+*.tmp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

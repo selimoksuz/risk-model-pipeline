@@ -181,6 +181,127 @@ class PSICalculator:
         
         return total_psi, bin_df
     
+    def calculate_raw_variable_psi(self, train_df: pd.DataFrame, test_df: pd.DataFrame,
+                                   variables: List[str], n_bins: int = 10) -> Dict:
+        """Calculate PSI for raw (non-WOE) variables using deciles"""
+        
+        psi_results = {}
+        
+        for var in variables:
+            if var not in train_df.columns or var not in test_df.columns:
+                continue
+            
+            train_values = train_df[var]
+            test_values = test_df[var]
+            
+            # Handle numeric variables
+            if pd.api.types.is_numeric_dtype(train_values):
+                # Create decile bins from training data
+                try:
+                    _, bin_edges = pd.qcut(train_values.dropna(), q=n_bins, 
+                                         retbins=True, duplicates='drop')
+                    
+                    # Extend edges to cover all possible values
+                    bin_edges[0] = -np.inf
+                    bin_edges[-1] = np.inf
+                    
+                    # Bin both distributions
+                    train_binned = pd.cut(train_values, bins=bin_edges)
+                    test_binned = pd.cut(test_values, bins=bin_edges)
+                    
+                    # Calculate PSI
+                    psi_value, bin_details = self._calculate_binned_psi(
+                        train_binned, test_binned, train_values, test_values
+                    )
+                    
+                except Exception as e:
+                    # Fallback to equal width bins
+                    psi_value, bin_details = self._calculate_equal_width_psi(
+                        train_values, test_values, n_bins
+                    )
+            else:
+                # Categorical variables
+                psi_value, bin_details = self._calculate_categorical_psi(
+                    train_values, test_values
+                )
+            
+            psi_results[var] = {
+                'psi_value': psi_value,
+                'bin_details': bin_details,
+                'interpretation': self._interpret_psi(psi_value)
+            }
+        
+        return psi_results
+    
+    def _calculate_binned_psi(self, train_binned, test_binned, 
+                             train_values, test_values) -> Tuple[float, pd.DataFrame]:
+        """Calculate PSI for binned distributions"""
+        
+        # Get distributions
+        train_dist = train_binned.value_counts(normalize=True).sort_index()
+        test_dist = test_binned.value_counts(normalize=True).sort_index()
+        
+        # Align indices
+        all_bins = sorted(set(train_dist.index) | set(test_dist.index))
+        
+        bin_details = []
+        total_psi = 0
+        
+        for bin_range in all_bins:
+            train_pct = train_dist.get(bin_range, 0.0001)
+            test_pct = test_dist.get(bin_range, 0.0001)
+            
+            # PSI calculation
+            psi_contrib = (test_pct - train_pct) * np.log(test_pct / train_pct)
+            total_psi += psi_contrib
+            
+            # Get actual values in this bin
+            train_mask = train_binned == bin_range
+            test_mask = test_binned == bin_range
+            
+            bin_details.append({
+                'bin_range': str(bin_range),
+                'train_pct': train_pct * 100,
+                'test_pct': test_pct * 100,
+                'difference': (test_pct - train_pct) * 100,
+                'psi_contribution': psi_contrib,
+                'train_mean': train_values[train_mask].mean() if train_mask.any() else 0,
+                'test_mean': test_values[test_mask].mean() if test_mask.any() else 0
+            })
+        
+        return total_psi, pd.DataFrame(bin_details)
+    
+    def _calculate_categorical_psi(self, train_values, test_values) -> Tuple[float, pd.DataFrame]:
+        """Calculate PSI for categorical variables"""
+        
+        # Get value counts
+        train_dist = train_values.value_counts(normalize=True)
+        test_dist = test_values.value_counts(normalize=True)
+        
+        # Get all unique values
+        all_categories = set(train_dist.index) | set(test_dist.index)
+        
+        category_details = []
+        total_psi = 0
+        
+        for category in all_categories:
+            train_pct = train_dist.get(category, 0.0001)
+            test_pct = test_dist.get(category, 0.0001)
+            
+            # PSI calculation
+            psi_contrib = (test_pct - train_pct) * np.log(test_pct / train_pct)
+            total_psi += psi_contrib
+            
+            category_details.append({
+                'category': str(category),
+                'train_pct': train_pct * 100,
+                'test_pct': test_pct * 100,
+                'difference': (test_pct - train_pct) * 100,
+                'psi_contribution': psi_contrib
+            })
+        
+        return total_psi, pd.DataFrame(category_details)
+    
     def _interpret_psi(self, psi_value: float) -> str:
         """Interpret PSI value"""
         if psi_value < 0.1:

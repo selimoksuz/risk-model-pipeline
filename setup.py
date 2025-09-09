@@ -16,7 +16,7 @@ with open("src/risk_pipeline/_version.py") as f:
     exec(f.read(), version)
 
 setup(
-    name="risk-model-pipeline",
+    name="risk-pipeline",
     version=version["__version__"],
     author="Selim Öksüz",
     author_email="your.email@example.com",  # TODO: Update with your email

@@ -68,7 +68,11 @@ class WOETransformer:
         
         woe_values = pd.Series(index=series.index, dtype='float64')
         
-        if hasattr(mapping, 'numeric_bins'):
+        # Check if mapping is None or empty
+        if mapping is None:
+            return pd.Series(0, index=series.index, dtype='float64')
+        
+        if hasattr(mapping, 'numeric_bins') and mapping.numeric_bins is not None:
             # Numeric variable
             for bin_info in mapping.numeric_bins:
                 mask = (series >= bin_info.left) & (series <= bin_info.right)

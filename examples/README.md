@@ -1,26 +1,41 @@
-# Examples
+# End-to-End Pipeline Example
 
-This directory contains example scripts demonstrating how to use the risk-model-pipeline.
+## Available File
 
-## Quick Start
+### end_to_end_pipeline.py
+Complete working demonstration of the entire risk model pipeline with all features.
 
-```python
-from risk_pipeline import RiskModelPipeline
-from risk_pipeline.core.config import Config
+## How to Run
 
-# Load your data
-df = pd.read_csv('your_data.csv')
-
-# Configure pipeline
-config = Config(
-    target_col='target',
-    id_col='app_id',
-    time_col='app_dt'
-)
-
-# Run pipeline
-pipeline = RiskModelPipeline(config)
-pipeline.run(df)
+```bash
+# From project root directory
+python examples/end_to_end_pipeline.py
 ```
 
-See individual example files for more detailed usage.
+## What It Does
+
+The script runs a complete risk modeling pipeline:
+
+1. **Creates synthetic data** (2000 samples, 35 features)
+2. **Processes and validates** the data
+3. **Splits** into Train/Test sets
+4. **Selects features** using 7 different methods
+5. **Applies WOE transformation** with automatic binning
+6. **Trains 4 models** (LR, RF, XGBoost, LightGBM)
+7. **Calculates PSI** for stability monitoring
+8. **Saves the best model** and results
+
+## Output
+
+Creates an `output` folder with:
+- `model_*.pkl` - Best trained model
+- `woe_mapping.pkl` - WOE transformation mappings
+- `selected_features.txt` - List of selected features
+- `model_summary.csv` - Performance metrics
+
+## Expected Results
+
+- Feature reduction: ~35 features → ~6 features
+- Test AUC: ~0.74-0.75
+- Score PSI: <0.1 (stable)
+- Execution time: ~30 seconds

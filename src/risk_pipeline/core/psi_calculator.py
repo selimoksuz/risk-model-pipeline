@@ -141,8 +141,10 @@ class PSICalculator:
         test_binned = pd.cut(test_scores, bins=bin_edges, include_lowest=True)
         
         # Calculate distributions
-        train_dist = train_binned.value_counts(normalize=True).sort_index()
-        test_dist = test_binned.value_counts(normalize=True).sort_index()
+        train_counts = train_binned.value_counts().sort_index()
+        test_counts = test_binned.value_counts().sort_index()
+        train_dist = train_counts / len(train_binned)
+        test_dist = test_counts / len(test_binned)
         
         # Calculate PSI
         bin_details = []
@@ -238,8 +240,10 @@ class PSICalculator:
         """Calculate PSI for binned distributions"""
         
         # Get distributions
-        train_dist = train_binned.value_counts(normalize=True).sort_index()
-        test_dist = test_binned.value_counts(normalize=True).sort_index()
+        train_counts = train_binned.value_counts().sort_index()
+        test_counts = test_binned.value_counts().sort_index()
+        train_dist = train_counts / len(train_binned)
+        test_dist = test_counts / len(test_binned)
         
         # Align indices
         all_bins = sorted(set(train_dist.index) | set(test_dist.index))

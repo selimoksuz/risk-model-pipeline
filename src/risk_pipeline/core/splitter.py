@@ -50,8 +50,8 @@ class DataSplitter:
             oot = None
         
         # Split in-time into train/test
-        if self.config.test_size and self.config.test_size > 0:
-            n_test = int(len(in_time) * self.config.test_size)
+        if self.config.test_ratio and self.config.test_ratio > 0:
+            n_test = int(len(in_time) * self.config.test_ratio)
             train = in_time.iloc[:-n_test]
             test = in_time.iloc[-n_test:]
         else:
@@ -71,10 +71,10 @@ class DataSplitter:
         
         from sklearn.model_selection import train_test_split
         
-        if self.config.test_size and self.config.test_size > 0:
+        if self.config.test_ratio and self.config.test_ratio > 0:
             train, test = train_test_split(
                 df, 
-                test_size=self.config.test_size,
+                test_size=self.config.test_ratio,
                 random_state=self.config.random_state,
                 stratify=df[self.config.target_col] if self.config.target_col in df.columns else None
             )

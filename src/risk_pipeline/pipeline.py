@@ -48,7 +48,7 @@ class RiskModelPipeline:
 
         # Process data
         print("1. Processing data...")
-        df_processed = self.processor.process(df)
+        df_processed = self.processor.validate_and_freeze(df)
 
         # Split data
         print("2. Splitting data...")
@@ -86,7 +86,7 @@ class RiskModelPipeline:
             features=self.final_vars_,
             woe_mapping=self.woe_mapping_,
             model_name=self.best_model_name_,
-            scores=model_results,
+            scores={self.best_model_name_: self.best_score_},
         )
 
         print("Pipeline completed successfully!")

@@ -1,0 +1,2 @@
+best_model,n_features,train_auc,test_auc,score_psi
+RandomForest,6,0.8230727997011935,0.7506695702235239,0.03735831599414123

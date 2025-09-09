@@ -5,9 +5,9 @@ Risk Model Pipeline - Production-ready risk modeling with WOE transformation
 from ._version import __version__, __version_info__
 from .api import run_pipeline, score_df
 from .core.config import Config
-from .pipeline import DualPipeline, RiskModelPipeline
+from .pipeline import DualRiskModelPipeline, RiskModelPipeline
 
-__all__ = ["__version__", "__version_info__", "run_pipeline", "score_df", "RiskModelPipeline", "DualPipeline", "Config"]
+__all__ = ["__version__", "__version_info__", "run_pipeline", "score_df", "RiskModelPipeline", "DualRiskModelPipeline", "Config"]
 
 # Package metadata
 __author__ = "Risk Model Pipeline Contributors"

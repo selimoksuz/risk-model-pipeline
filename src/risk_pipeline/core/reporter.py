@@ -60,10 +60,14 @@ class Reporter:
             # Score PSI (model predictions)
             if model:
                 X_train = train[features] if features else train
+                # Handle NaN values before prediction
+                X_train = X_train.fillna(0) if hasattr(X_train, 'fillna') else X_train
                 train_scores = model.predict_proba(X_train)[:, 1]
                 
                 if test is not None:
                     X_test = test[features] if features else test
+                    # Handle NaN values before prediction
+                    X_test = X_test.fillna(0) if hasattr(X_test, 'fillna') else X_test
                     test_scores = model.predict_proba(X_test)[:, 1]
                     psi_value, psi_df = self.psi_calculator.calculate_score_psi(
                         train_scores, test_scores, n_bins=10
@@ -76,6 +80,8 @@ class Reporter:
                 
                 if oot is not None:
                     X_oot = oot[features] if features else oot
+                    # Handle NaN values before prediction
+                    X_oot = X_oot.fillna(0) if hasattr(X_oot, 'fillna') else X_oot
                     oot_scores = model.predict_proba(X_oot)[:, 1]
                     psi_value, psi_df = self.psi_calculator.calculate_score_psi(
                         train_scores, oot_scores, n_bins=10
@@ -90,6 +96,8 @@ class Reporter:
         if model and oot is not None:
             print("  Performing calibration analysis...")
             X_oot = oot[features] if features else oot
+            # Handle NaN values before prediction
+            X_oot = X_oot.fillna(0) if hasattr(X_oot, 'fillna') else X_oot
             y_true = oot[self.config.target_col]
             y_pred = model.predict_proba(X_oot)[:, 1]
             
@@ -319,7 +327,10 @@ class Reporter:
         summary = []
         for model_name, model_scores in scores.items():
             row = {'model': model_name}
-            row.update(model_scores)
+            if isinstance(model_scores, dict):
+                row.update(model_scores)
+            else:
+                row['score'] = model_scores
             summary.append(row)
         return pd.DataFrame(summary)
     

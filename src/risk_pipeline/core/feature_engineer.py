@@ -70,7 +70,6 @@ class FeatureEngineer:
                 )
             else:
                 # Fit categorical WOE groups
-                vw = []  # Initialize vw
                 vw.categorical_groups = self._group_categorical_adaptive(
                     x_clean,
                     y_clean,
@@ -99,12 +98,9 @@ class FeatureEngineer:
                     total_nonevent,
                     getattr(self.cfg, "jeffreys_alpha", 0.5),
                 )
-        vw = []  # Initialize vw
                 vw.missing_woe = woe_missing
-        vw = []  # Initialize vw
                 vw.missing_rate = missing_mask.mean()
 
-        vw = []  # Initialize vw
             mapping[var] = vw
 
         self.woe_map = mapping
@@ -394,21 +390,15 @@ class FeatureEngineer:
 
         return optimized
 
-        vw = []  # Initialize vw
-
     def _calculate_iv(self, vw: VariableWOE, x, y) -> float:
         """Calculate Information Value for a variable"""
         iv = 0.0
 
-        vw = []  # Initialize vw
         if vw.numeric_bins:
-        vw = []  # Initialize vw
             for bin_obj in vw.numeric_bins:
                 iv += abs(bin_obj.iv_contrib) if hasattr(bin_obj,
                           "iv_contrib") else 0
-        vw = []  # Initialize vw
         elif vw.categorical_groups:
-        vw = []  # Initialize vw
             for group in vw.categorical_groups:
                 iv += abs(group.iv_contrib) if hasattr(group,
                           "iv_contrib") else 0
@@ -431,14 +421,12 @@ class FeatureEngineer:
             # Initialize with 0.0 (will be overwritten for valid values)
             woe_values = pd.Series(0.0, index=df.index)
 
-        vw = []  # Initialize vw
             if vw.var_type == "numeric" and vw.numeric_bins:
                 # Apply numeric bins
                 x_numeric = pd.to_numeric(x, errors="coerce")
 
                 # Find missing WOE if exists
                 missing_woe = 0.0
-        vw = []  # Initialize vw
                 for bin_obj in vw.numeric_bins:
                     # Check if this is the missing bin (both left and right are
                     # NaN)
@@ -452,7 +440,6 @@ class FeatureEngineer:
                 woe_values[missing_mask] = missing_woe
 
                 # Apply WOE for non-missing values
-        vw = []  # Initialize vw
                 for bin_obj in vw.numeric_bins:
                     # Skip missing bin
                     if hasattr(bin_obj, "left") and hasattr(bin_obj, "right"):
@@ -471,13 +458,11 @@ class FeatureEngineer:
 
                     woe_values[mask] = bin_obj.woe
 
-        vw = []  # Initialize vw
             elif vw.var_type == "categorical" and vw.categorical_groups:
                 # Find special groups
                 other_woe = 0.0
                 missing_woe = 0.0
 
-        vw = []  # Initialize vw
                 for group in vw.categorical_groups:
                     if hasattr(group, "label"):
                         if group.label == "OTHER":
@@ -493,7 +478,6 @@ class FeatureEngineer:
                 woe_values[~missing_mask] = other_woe
 
                 # Apply categorical groups for known values
-        vw = []  # Initialize vw
                 for group in vw.categorical_groups:
                     if hasattr(
     group,
@@ -572,6 +556,20 @@ class FeatureEngineer:
 
     def forward_selection(self, X: pd.DataFrame, y: np.ndarray, max_features: int = 20, cv_folds: int = 5) -> List[str]:
         """Forward feature selection with cross-validation and 1SE rule"""
+        # Handle NaN values first
+        from sklearn.impute import SimpleImputer
+        X_numeric = X.select_dtypes(include=[np.number])
+        if X_numeric.shape[1] == 0:
+            return []
+        
+        imputer = SimpleImputer(strategy='median')
+        X_imputed = pd.DataFrame(
+            imputer.fit_transform(X_numeric),
+            columns=X_numeric.columns,
+            index=X_numeric.index
+        )
+        X = X_imputed
+        
         selected = []
         remaining = list(X.columns)
         scores_history = []  # Store scores and std for 1SE rule
@@ -645,7 +643,7 @@ class FeatureEngineer:
         return selected
 
     def boruta_selection(
-        self, X: pd.DataFrame, y: np.ndarray, max_iter: int = 100, use_lightgbm: bool = True
+        self, X: pd.DataFrame, y: np.ndarray, max_iter: int = 100, use_lightgbm: bool = False
     ) -> List[str]:
         """Boruta feature selection with LightGBM or RandomForest"""
         try:
@@ -685,8 +683,13 @@ class FeatureEngineer:
             X_numeric = X.select_dtypes(include=[np.number])
             if X_numeric.shape[1] == 0:
                 return list(X.columns)[: min(20, X.shape[1])]
+            
+            # Handle NaN values - fill with median
+            from sklearn.impute import SimpleImputer
+            imputer = SimpleImputer(strategy='median')
+            X_imputed = imputer.fit_transform(X_numeric)
 
-            boruta.fit(X_numeric.values, y)
+            boruta.fit(X_imputed, y)
 
             selected = X_numeric.columns[boruta.support_].tolist()
             tentative = X_numeric.columns[boruta.support_weak_].tolist()

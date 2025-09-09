@@ -20,6 +20,9 @@ class DataProcessor:
 
     def validate_and_freeze(self, df: pd.DataFrame):
         """Validate input data and freeze time column"""
+        # Make a copy to avoid modifying original
+        df = df.copy()
+        
         # Check required columns
         for c in [self.cfg.id_col, self.cfg.time_col, self.cfg.target_col]:
             if c not in df.columns:
@@ -37,6 +40,8 @@ class DataProcessor:
             )
         except Exception:
             df["snapshot_month"] = df[self.cfg.time_col].apply(month_floor)
+        
+        return df
 
     def downcast_inplace(self, df: pd.DataFrame):
         """Downcast numeric types to save memory"""

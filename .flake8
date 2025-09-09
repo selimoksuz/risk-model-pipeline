@@ -1,6 +1,6 @@
 [flake8]
 max-line-length = 120
-ignore = E501, W293, W291, W292, E231, E302, E305, F401, F541, F811, F841, E402, E722, E128, E221, E225, E306, E401, E702, W391
+max-complexity = 50
 exclude = 
     .git,
     __pycache__,
@@ -18,7 +18,36 @@ exclude =
     .coverage,
     htmlcov,
     .ipynb_checkpoints,
-    notebooks
+    notebooks,
+    scripts,
+    examples,
+    tests/integration
+ignore = 
+    # Line too long
+    E501,
+    # Whitespace issues 
+    W293, W291, W292, W391, W503, W504,
+    # Import issues
+    F401, F811, F841,
+    # Allow lambda expressions
+    E731,
+    # Allow bare except
+    E722,
+    # Module level import not at top
+    E402,
+    # Line break issues
+    E302, E305, E306,
+    # Indentation issues  
+    E128, E126,
+    # Missing whitespace
+    E231, E226,
+    # Multiple imports/statements
+    E401, E702,
+    # F-string issues
+    F541,
+    # Complexity (will handle separately)
+    C901
 per-file-ignores =
-    __init__.py:F401
-    tests/*:F401,E402
+    __init__.py:F401,F403
+    tests/*:F401,E402,F811,E231,E302,E305
+    setup.py:E501

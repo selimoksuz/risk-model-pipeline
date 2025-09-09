@@ -107,12 +107,12 @@ def main():
         with open(f"{OUTPUT_FOLDER}/woe_mapping_{run_id}.json", "w") as f:
             json.dump(woe_dict, f)
 
-    print(f"\n[4] Results:")
+    print("\n[4] Results:")
     print(f"  Best Model: {pipeline.best_model_name_}")
     print(f"  Final Features: {pipeline.final_vars_}")
     print(f"  Runtime: {pipeline_time:.1f} seconds")
 
-    print(f"\n[SUCCESS] Fast pipeline completed!")
+    print("\n[SUCCESS] Fast pipeline completed!")
 
 
 if __name__ == "__main__":

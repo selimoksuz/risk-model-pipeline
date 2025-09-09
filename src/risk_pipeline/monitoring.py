@@ -63,7 +63,7 @@ if left is None or right is None or (pd.isna(left) and pd.isna(right)):
                     miss_woe = float(woe)
 continue
 
-    m = (~miss) & (s >= left) & (s <= right)
+        m = (~miss) & (s >= left) & (s <= right)
     w.loc[m] = float(woe)
             w.loc[miss] = float(miss_woe)
             out[v] = w.values

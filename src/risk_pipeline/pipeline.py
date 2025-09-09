@@ -11,6 +11,9 @@
     """
         """Initialize dual pipeline with config ensuring dual mode is enabled"""
         """
+from .core import random, warnings, warnings.filterwarnings
+from .core import pandas as pd
+from .core import Config, "ignore", .core.config, from, import, os
         Fit the dual pipeline on training data.
 
         Parameters:
@@ -43,9 +46,6 @@
 
                 from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
 
-from .core import Config, "ignore", .core.config, from, import, os
-from .core import pandas as pd
-from .core import random, warnings, warnings.filterwarnings
 
 # Import core modules
     BasePipeline,
@@ -66,41 +66,41 @@ class RiskModelPipeline(BasePipeline):
         super().__init__(config)
 
         # Initialize components
-        self.data_processor = DataProcessor(config)
-        self.feature_engineer = FeatureEngineer(config)
-        self.model_trainer = ModelTrainer(config)
-        self.report_generator = ReportGenerator(config)
+        self.data_processor=DataProcessor(config)
+        self.feature_engineer=FeatureEngineer(config)
+        self.model_trainer=ModelTrainer(config)
+        self.report_generator=ReportGenerator(config)
 
         # Pipeline state
-        self.df_ = None
-        self.final_vars_ = []
-        self.best_model_name_ = None
+        self.df_=None
+        self.final_vars_=[]
+        self.best_model_name_=None
 
         # Results storage
-        self.models_ = {}
-        self.models_summary_ = None
-        self.woe_map = {}
+        self.models_={}
+        self.models_summary_=None
+        self.woe_map={}
 
         # Dual pipeline support
         if getattr(config, 'enable_dual_pipeline', False):
-            self.woe_final_vars_ = []
-            self.raw_final_vars_ = []
-            self.woe_models_ = {}
-            self.raw_models_ = {}
-            self.woe_models_summary_ = None
-            self.raw_models_summary_ = None
+            self.woe_final_vars_=[]
+            self.raw_final_vars_=[]
+            self.woe_models_={}
+            self.raw_models_={}
+            self.woe_models_summary_=None
+            self.raw_models_summary_=None
 
     def run(self, df: pd.DataFrame):
 
         # Get config attributes with defaults
-        target_col = getattr(self.cfg, 'target_col', 'target')
-        id_col = getattr(self.cfg, 'id_col', 'app_id')
-        time_col = getattr(self.cfg, 'time_col', 'app_dt')
-        random_state = getattr(self.cfg, 'random_state', 42)
+        target_col=getattr(self.cfg, 'target_col', 'target')
+        id_col=getattr(self.cfg, 'id_col', 'app_id')
+        time_col=getattr(self.cfg, 'time_col', 'app_dt')
+        random_state=getattr(self.cfg, 'random_state', 42)
 
         # Step 1: Data loading & preparation
         with Timer("1) Data loading & preparation", self._log):
-            self.df_ = df
+            self.df_=df
             self._log(f"   - Data size: {df.shape[0]:, } rows x {df.shape[1]} columns")
             self._log(f"   - Target ratio: {df[target_col].mean():.2%}")
 
@@ -121,11 +121,11 @@ class RiskModelPipeline(BasePipeline):
         if getattr(self.cfg.orchestrator, 'enable_classify', True):
             with Timer("3) Variable classification", self._log):
                 self._activate("classify")
-                var_catalog = self.data_processor.classify_variables(self.df_)
-                self.data_processor.var_catalog_ = var_catalog
+                var_catalog=self.data_processor.classify_variables(self.df_)
+                self.data_processor.var_catalog_=var_catalog
 
-                num_count = (var_catalog.variable_group == 'numeric').sum()
-                cat_count = (var_catalog.variable_group == 'categorical').sum()
+                num_count=(var_catalog.variable_group == 'numeric').sum()
+                cat_count=(var_catalog.variable_group == 'categorical').sum()
                 self._log(f"   - numeric={num_count}, categorical={cat_count}")
 
         # Step 4: Missing & rare value policy
@@ -137,14 +137,14 @@ class RiskModelPipeline(BasePipeline):
         if getattr(self.cfg.orchestrator, 'enable_split', True):
             with Timer("5) Time splitting (Train/Test/OOT)", self._log):
                 self._activate("split")
-                train_idx, test_idx, oot_idx = self.data_processor.split_time(self.df_)
+                train_idx, test_idx, oot_idx=self.data_processor.split_time(self.df_)
 
                 self._log(f"   - Train={len(train_idx)}, "
                          f"Test={len(test_idx) if test_idx is not None else 0}, "
                          f"OOT={len(oot_idx)}")
 
         # Get train/test/OOT data
-        X_tr, y_tr, X_te, y_te, X_oot, y_oot = self.data_processor.get_train_test_oot_data(
+        X_tr, y_tr, X_te, y_te, X_oot, y_oot=self.data_processor.get_train_test_oot_data(
             self.df_, train_idx, test_idx, oot_idx
         )
 

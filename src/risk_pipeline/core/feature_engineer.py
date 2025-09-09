@@ -55,7 +55,6 @@ class FeatureEngineer:
 
             if var_type == "numeric":
                 # Fit numeric WOE bins
-        vw = []  # Initialize vw
                 vw.numeric_bins = self._bin_numeric_adaptive(
                     x_clean,
                     y_clean,

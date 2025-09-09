@@ -118,7 +118,6 @@ def main():
         calibrator = calibrator,  # Add calibrator
     # training_scores=training_scores,
         feature_mapping = feature_mapping
-    )
 
     print("=== SCORING RESULTS ===")
     print(f"📊 Total records scored: {results['n_total']:, }")
@@ -142,20 +141,20 @@ def main():
 
     # Create detailed report
     print("\nCreating detailed report...")
-    reports=create_scoring_report(results)
+    reports = create_scoring_report(results)
 
     # Save results
-    results_folder=f"{output_folder}/scoring_results"
-    os.makedirs(results_folder, exist_ok = True)
+    results_folder = f"{output_folder}/scoring_results"
+    os.makedirs(results_folder, exist_ok=True)
 
     # Save scores
-    scoring_with_scores=scoring_df.copy()
-    scoring_with_scores['predicted_score']=results['scores']
-    scoring_with_scores.to_csv(f"{results_folder}/scoring_results.csv", index = False)
+    scoring_with_scores = scoring_df.copy()
+    scoring_with_scores['predicted_score'] = results['scores']
+    scoring_with_scores.to_csv(f"{results_folder}/scoring_results.csv", index=False)
 
     # Save all report types
     for report_name, report_df in reports.items():
-        report_df.to_csv(f"{results_folder}/report_{report_name}.csv", index = False)
+        report_df.to_csv(f"{results_folder}/report_{report_name}.csv", index=False)
         print(f"   - report_{report_name}.csv")
 
     print(f"✅ Results saved to: {results_folder}/")
@@ -164,14 +163,14 @@ def main():
 
     # Update Excel report with scoring metrics
     print("\nUpdating Excel report with scoring metrics...")
-    excel_path=f"{output_folder}/risk_report_{run_id}.xlsx"
+    excel_path = f"{output_folder}/risk_report_{run_id}.xlsx"
 
     if os.path.exists(excel_path):
         from risk_pipeline.utils.report_updater import update_excel_with_scoring
 
         # Use summary report for Excel update (backward compatibility)
-        summary_report=reports.get('summary', list(reports.values())[0])
-        success=update_excel_with_scoring(excel_path, results, summary_report)
+        summary_report = reports.get('summary', list(reports.values())[0])
+        success = update_excel_with_scoring(excel_path, results, summary_report)
 
         if success:
             print(f"✅ Excel report updated: {excel_path}")
@@ -184,15 +183,15 @@ def main():
         from risk_pipeline.utils.report_updater import create_comprehensive_report
     # pipeline_results = {
             'best_model': 'MLP',
-            'final_features': ['num1_corr95', 'num2_corr92'],
+'final_features': ['num1_corr95', 'num2_corr92'],
             'run_id': run_id
         }
 
-        comprehensive_path=f"{results_folder}/comprehensive_report.xlsx"
+        comprehensive_path = f"{results_folder}/comprehensive_report.xlsx"
         create_comprehensive_report(pipeline_results, results, comprehensive_path)
 
     # Display score distribution
-    scores=results['scores']
+    scores = results['scores']
     print(f"\n📈 Score Distribution:")
     print(f"   Min: {scores.min():.4f}")
     print(f"   25%: {np.percentile(scores, 25):.4f}")

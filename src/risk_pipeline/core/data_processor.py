@@ -1,7 +1,7 @@
-
 def month_floor(dt):
     """Floor datetime to month"""
     import pandas as pd
+
     return pd.Timestamp(dt.year, dt.month, 1)
 
 

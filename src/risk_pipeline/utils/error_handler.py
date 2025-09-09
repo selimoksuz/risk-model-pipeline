@@ -33,7 +33,7 @@ class ErrorHandler:
         """Execute function with error handling."""
         try:
             return func(*args, **kwargs)
-        except Exception:
+        except Exception as e:
             self.log_error(e, func.__name__)
             if self.is_recoverable(e):
                 raise RecoverableError(f"Recoverable error in {func.__name__}: {str(e)}")
@@ -72,7 +72,7 @@ class ErrorHandler:
                 for attempt in range(max_retries):
                     try:
                         return func(*args, **kwargs)
-                    except Exception:
+                    except Exception as e:
                         if attempt == max_retries - 1:
                             raise
                         print(f"Attempt {attempt + 1} failed: {e}. Retrying...")
@@ -128,7 +128,7 @@ class CheckpointManager:
 
             print(f"✓ Checkpoint loaded: {metadata['stage']} ({metadata['timestamp']})")
             return {"metadata": metadata, "data": data}
-        except Exception:
+        except Exception as e:
             print(f"Failed to load checkpoint: {e}")
             return None
 
@@ -177,7 +177,7 @@ def handle_memory_error(func):
             gc.collect()
             return result
 
-        except MemoryError as e:
+        except MemoryError:
             print(f"Memory error in {func.__name__}. Attempting recovery...")
 
             # Force garbage collection

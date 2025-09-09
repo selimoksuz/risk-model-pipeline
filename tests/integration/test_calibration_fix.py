@@ -47,7 +47,7 @@ def main():
             output_excel = "cal_test_report.xlsx",
             use_test_split = True,
             oot_months = 3,
-            **{
+**{
                 'try_mlp': config.try_mlp,
                 'ensemble': config.ensemble,
                 'calibration_data_path': config.calibration_data_path,

@@ -102,7 +102,7 @@ class InputValidator:
         # Check for suspicious column names (SQL injection prevention)
         suspicious_patterns = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'EXEC', '--', ''
                                ']'
-        for col in df.columns:
+    for col in df.columns:
             for pattern in suspicious_patterns:
                 if pattern in str(col).upper():
                     raise ValidationError(
@@ -112,8 +112,8 @@ class InputValidator:
 
         return df
 
-    @staticmethod
-    def sanitize_string(value: str, max_length: int = 255) -> str:
+    @ staticmethod
+    def sanitize_string(value: str, max_length: int=255) -> str:
         """Sanitize string input to prevent injection attacks."""
         if not isinstance(value, str):
             value = str(value)
@@ -131,7 +131,7 @@ class InputValidator:
 
         return value.strip()
 
-    @staticmethod
+    @ staticmethod
     def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         """Validate configuration parameters."""
 
@@ -174,7 +174,7 @@ class InputValidator:
 
         return config
 
-    @staticmethod
+    @ staticmethod
     def hash_dataframe(df: pd.DataFrame) -> str:
         """Generate hash of DataFrame for integrity checking."""
         df_bytes = pd.util.hash_pandas_object(df).values.tobytes()
@@ -184,7 +184,7 @@ class InputValidator:
 class SecurityLogger:
     """Logs security-related events."""
 
-    def __init__(self, log_file: Optional[str] = None):
+    def __init__(self, log_file: Optional[str]=None):
         self.log_file = log_file or "security.log"
 
     def log_event(self, event_type: str, details: Dict[str, Any]):
@@ -200,7 +200,7 @@ class SecurityLogger:
         with open(self.log_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps(event) + '\n')
 
-    def log_access(self, file_path: str, user: Optional[str] = None):
+    def log_access(self, file_path: str, user: Optional[str]=None):
         """Log file access."""
         self.log_event('file_access', {
             'file': str(file_path),
@@ -208,7 +208,7 @@ class SecurityLogger:
         })
 
     def log_validation_failure(self, error: str,
-                               data_hash: Optional[str] = None):
+                               data_hash: Optional[str]=None):
         """Log validation failure."""
         self.log_event('validation_failure', {
             'error': error,

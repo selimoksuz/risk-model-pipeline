@@ -16,7 +16,7 @@ def train_logreg(X: pd.DataFrame, y: pd.Series, **kwargs) -> Any:
 def hpo_logreg(
     X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int | None = None, random_state: int = 42
 ) -> Tuple[Any, Dict[str, Any]]:
-    """Simple Optuna-based HPO for LogisticRegression(C, penalty='l2'). Falls back to fixed model if  # noqa: E501
+    """Simple Optuna-based HPO for LogisticRegression(C, penalty='l2'). Falls back to fixed model if  # noqa: E501"""
     try:
         import optuna
     except Exception:

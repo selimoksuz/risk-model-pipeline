@@ -151,7 +151,7 @@ def main():
     # final_features = list(final_features.values())[0]
 
     # Load data
-    train_df = pd.read_csv("data/input.csv")
+train_df = pd.read_csv("data/input.csv")
     scoring_df = pd.read_csv("data/scoring.csv")
 
     print("Calculating PSI...")

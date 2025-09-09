@@ -10,45 +10,45 @@ sys.path.append('src')
 
 def test_calibration_method():
     print("=== DIRECT CALIBRATION TEST ===")
-    
+
     # Create a mock pipeline instance
-    from risk_pipeline.pipeline16 import RiskPipeline16Config, RiskPipeline16
-    
+    from risk_pipeline.pipeline import RiskPipeline16Config, RiskPipeline16
+
     # Load data
     df = pd.read_csv('data/input.csv')
     cal_df = pd.read_csv('data/calibration_test.csv')
-    
+
     print(f"Training data: {df.shape}")
     print(f"Calibration data: {cal_df.shape}")
-    
+
     # Create a minimal config
     config = RiskPipeline16Config(
         id_col="app_id",
-        time_col="app_dt", 
+        time_col="app_dt",
         target_col="target",
         calibration_data_path="data/calibration_test.csv",
         calibration_method="isotonic"
     )
-    
+
     # Initialize pipeline
     pipeline = RiskPipeline16(config)
     pipeline.df_ = df
-    
+
     # Run minimal setup to get WOE mapping and final vars
     print("\nRunning minimal pipeline setup...")
-    
-    # Set up indices  
+
+    # Set up indices
     import numpy as np
     n = len(df)
     train_size = int(0.7 * n)
     pipeline.train_idx_ = np.arange(train_size)
     pipeline.test_idx_ = np.arange(train_size, n)
     pipeline.oot_idx_ = np.array([])
-    
+
     # Create minimal variable catalog
     from risk_pipeline.stages import create_var_catalog
     pipeline.var_catalog_ = create_var_catalog(df, config.id_col, config.time_col, config.target_col)
-    
+
     # Create minimal WOE mapping for the calibration test
     woe_map = {}
     for col in ['num1', 'num2', 'num3', 'num4']:
@@ -60,13 +60,13 @@ def test_calibration_method():
                 'special': {},
                 'iv': 0.1
             })()
-    
+
     pipeline.woe_map = woe_map
     pipeline.final_vars_ = list(woe_map.keys())[:2]  # Use first 2 features
-    
+
     print(f"Final vars: {pipeline.final_vars_}")
     print(f"WOE map keys: {list(pipeline.woe_map.keys())}")
-    
+
     # Create a simple mock model
     class MockModel:
         def predict_proba(self, X):
@@ -76,15 +76,15 @@ def test_calibration_method():
                 1 - np.random.random(len(X)) * 0.5,  # Class 0 probs
                 np.random.random(len(X)) * 0.5       # Class 1 probs
             ])
-    
+
     pipeline.models_ = {"MockModel": MockModel()}
     pipeline.best_model_name_ = "MockModel"
-    
+
     # Now test calibration method
     print("\nTesting calibration method...")
     try:
         pipeline._calibrate_model()
-        
+
         if pipeline.calibrator_ is not None:
             print("SUCCESS: Calibration successful!")
             print(f"   Calibrator type: {type(pipeline.calibrator_)}")
@@ -92,7 +92,7 @@ def test_calibration_method():
                 print(f"   Brier score: {pipeline.calibration_report_.get('brier', 'N/A')}")
         else:
             print("ERROR: Calibration failed - no calibrator created")
-            
+
     except Exception as e:
         print(f"ERROR: Calibration failed with error: {e}")
         import traceback

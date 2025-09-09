@@ -13,18 +13,18 @@ def setup_utf8_console():
     if sys.platform == 'win32':
         # Set console code page to UTF-8
         os.system('chcp 65001 > nul')
-        
+
         # Wrap stdout and stderr with UTF-8 encoding
         sys.stdout = io.TextIOWrapper(
-            sys.stdout.buffer, 
-            encoding='utf-8', 
+            sys.stdout.buffer,
+            encoding='utf-8',
             errors='replace',
             line_buffering=True
         )
         sys.stderr = io.TextIOWrapper(
             sys.stderr.buffer,
             encoding='utf-8',
-            errors='replace', 
+            errors='replace',
             line_buffering=True
         )
 
@@ -32,7 +32,7 @@ def safe_print(msg, file=None):
     """Print with safe encoding fallback"""
     if file is None:
         file = sys.stdout
-    
+
     try:
         print(msg, file=file, flush=True)
     except UnicodeEncodeError:
@@ -47,14 +47,14 @@ def safe_print(msg, file=None):
         }
         for tr_char, ascii_char in replacements.items():
             safe_msg = safe_msg.replace(tr_char, ascii_char)
-        
+
         print(safe_msg, file=file, flush=True)
     except Exception as e:
         # Final fallback
         try:
             ascii_msg = msg.encode('ascii', 'ignore').decode('ascii')
             print(ascii_msg, file=file, flush=True)
-        except:
+        except Exception:
             pass
 
 # Turkish text mappings for common log messages
@@ -82,7 +82,7 @@ def fix_turkish_text(text):
     result = text
     for turkish, ascii_text in TURKISH_TO_ASCII.items():
         result = result.replace(turkish, ascii_text)
-    
+
     # Individual character replacements
     chars = {
         'ş': 's', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ç': 'c', 'ü': 'u',
@@ -90,5 +90,5 @@ def fix_turkish_text(text):
     }
     for tr_char, ascii_char in chars.items():
         result = result.replace(tr_char, ascii_char)
-    
+
     return result

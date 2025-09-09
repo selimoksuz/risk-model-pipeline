@@ -9,7 +9,7 @@ from .utils import Timer, Timer2, VariableWOE, NumericBin, CategoricalGroup
 
 __all__ = [
     'BasePipeline',
-    'DataProcessor', 
+    'DataProcessor',
     'FeatureEngineer',
     'ModelTrainer',
     'ReportGenerator',

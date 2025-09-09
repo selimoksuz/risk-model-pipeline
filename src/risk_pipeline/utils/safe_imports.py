@@ -9,13 +9,13 @@ from functools import wraps
 
 class OptionalDependency:
     """Wrapper for optional dependencies that might not be installed"""
-    
+
     def __init__(self, module_name: str, package_name: Optional[str] = None):
         self.module_name = module_name
         self.package_name = package_name or module_name
         self._module = None
         self._available = None
-        
+
     @property
     def available(self) -> bool:
         """Check if module is available"""
@@ -27,7 +27,7 @@ class OptionalDependency:
             except ImportError:
                 self._available = False
         return self._available
-    
+
     @property
     def module(self) -> Any:
         """Get the module if available, otherwise return a dummy object"""
@@ -35,7 +35,7 @@ class OptionalDependency:
             return self._module
         else:
             return DummyModule(self.module_name, self.package_name)
-    
+
     def require(self):
         """Raise error if module is not available"""
         if not self.available:
@@ -48,17 +48,17 @@ class OptionalDependency:
 
 class DummyModule:
     """Dummy module that raises helpful errors when accessed"""
-    
+
     def __init__(self, module_name: str, package_name: str):
         self.module_name = module_name
         self.package_name = package_name
-    
+
     def __getattr__(self, name):
         raise ImportError(
             f"Cannot use '{name}' from '{self.module_name}'. "
             f"The module is not installed. Install with: pip install {self.package_name}"
         )
-    
+
     def __call__(self, *args, **kwargs):
         raise ImportError(
             f"Cannot call '{self.module_name}'. "
@@ -69,7 +69,7 @@ class DummyModule:
 def optional_import(module_name: str, package_name: Optional[str] = None):
     """
     Safely import an optional module
-    
+
     Usage:
         matplotlib = optional_import('matplotlib')
         if matplotlib.available:
@@ -83,7 +83,7 @@ def optional_import(module_name: str, package_name: Optional[str] = None):
 def requires(*dependencies: str):
     """
     Decorator to mark functions that require specific dependencies
-    
+
     Usage:
         @requires('matplotlib', 'seaborn')
         def create_plot():
@@ -98,13 +98,13 @@ def requires(*dependencies: str):
                 opt_dep = OptionalDependency(dep)
                 if not opt_dep.available:
                     missing.append(dep)
-            
+
             if missing:
                 raise ImportError(
                     f"Function '{func.__name__}' requires: {', '.join(missing)}. "
                     f"Install with: pip install {' '.join(missing)}"
                 )
-            
+
             return func(*args, **kwargs)
         return wrapper
     return decorator

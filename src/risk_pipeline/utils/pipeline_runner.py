@@ -4,13 +4,14 @@ Pipeline runner utilities for DataFrame inputs
 
 import pandas as pd
 from pathlib import Path
-from ..pipeline16 import RiskModelPipeline, Config, Orchestrator
+from ..pipeline import RiskModelPipeline, Config
+from ..orchestrator import Orchestrator
 
 
 def run_pipeline_from_dataframe(
     df: pd.DataFrame,
     id_col: str = "app_id",
-    time_col: str = "app_dt", 
+    time_col: str = "app_dt",
     target_col: str = "target",
     output_folder: str = "outputs",
     output_excel: str = "model_report.xlsx",
@@ -24,7 +25,7 @@ def run_pipeline_from_dataframe(
 ) -> dict:
     """
     Run the risk model pipeline directly from a pandas DataFrame
-    
+
     Args:
         df: Input DataFrame with features, target, id, and time columns
         id_col: Name of ID column
@@ -39,11 +40,11 @@ def run_pipeline_from_dataframe(
         data_dictionary_df: Optional DataFrame with alan_adi and alan_aciklamasi columns
         data_dictionary_path: Optional Excel file with variable descriptions
         **kwargs: Additional config parameters
-        
+
     Returns:
         dict: Pipeline results including best model name, performance metrics
     """
-    
+
     # Create config
     cfg = Config(
         id_col=id_col,
@@ -59,14 +60,14 @@ def run_pipeline_from_dataframe(
         data_dictionary_path=data_dictionary_path,  # Pass data dictionary path
         **kwargs
     )
-    
+
     # Create output folder
     Path(output_folder).mkdir(parents=True, exist_ok=True)
-    
+
     # Run pipeline
     pipe = RiskModelPipeline(cfg)
     pipe.run(df)
-    
+
     # Return results
     results = {
         "best_model": pipe.best_model_name_,
@@ -75,10 +76,10 @@ def run_pipeline_from_dataframe(
         "output_folder": output_folder,
         "models_performance": getattr(pipe, 'models_summary_', None)
     }
-    
+
     if hasattr(pipe, 'models_'):
         results["best_model_object"] = pipe.models_.get(pipe.best_model_name_)
-        
+
     return results
 
 
@@ -88,11 +89,11 @@ def run_pipeline_from_csv(
 ) -> dict:
     """
     Convenience function to run pipeline from CSV file
-    
+
     Args:
         csv_path: Path to input CSV file
         **kwargs: Arguments passed to run_pipeline_from_dataframe
-        
+
     Returns:
         dict: Pipeline results
     """
@@ -104,14 +105,14 @@ def run_pipeline_from_csv(
 def get_full_config(**overrides) -> Config:
     """
     Get a configuration with all pipeline stages enabled
-    
+
     Args:
         **overrides: Configuration overrides
-        
+
     Returns:
         Config: Full configuration object
     """
-    
+
     # Create orchestrator with all stages enabled
     orchestrator = Orchestrator(
         enable_validate=True,
@@ -130,13 +131,13 @@ def get_full_config(**overrides) -> Config:
         enable_report=True,
         enable_dictionary=True,  # Enable dictionary support
     )
-    
+
     # Default full config
     config = Config(
         # Core settings
         use_test_split=True,
         oot_window_months=3,
-        
+
         # Feature engineering
         psi_threshold=0.25,
         psi_threshold_feature=0.25,
@@ -144,7 +145,7 @@ def get_full_config(**overrides) -> Config:
         iv_min=0.02,
         rho_threshold=0.8,
         vif_threshold=5.0,
-        
+
         # Model settings
         cv_folds=5,
         hpo_trials=30,
@@ -153,21 +154,21 @@ def get_full_config(**overrides) -> Config:
         try_mlp=True,  # Enable MLP
         ensemble=True,  # Enable ensemble
         ensemble_top_k=3,
-        
+
         # Calibration
         calibration_method="isotonic",
-        
+
         # Outputs
         write_parquet=True,
         write_csv=True,
-        
+
         # Orchestrator - all stages enabled
         orchestrator=orchestrator
     )
-    
+
     # Apply overrides using setattr
     for key, value in overrides.items():
         if hasattr(config, key):
             setattr(config, key, value)
-    
+
     return config

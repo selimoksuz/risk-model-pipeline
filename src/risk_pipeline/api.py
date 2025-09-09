@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
-import json
-import os
 import pandas as pd
 import numpy as np
 
@@ -51,7 +47,9 @@ def score_df(
                 miss = s.isna()
                 miss_woe = 0.0
                 for b in info.get("bins", []):
-                    left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
+                    left = b.get("left")
+                    right = b.get("right")
+                    woe = b.get("woe", 0.0)
                     if left is None or right is None or (pd.isna(left) and pd.isna(right)):
                         miss_woe = float(woe)
                         continue
@@ -71,9 +69,11 @@ def score_df(
                     lab = g.get("label")
                     woe = float(g.get("woe", 0.0))
                     if lab == "MISSING":
-                        miss_woe = woe; continue
+                        miss_woe = woe
+                        continue
                     if lab == "OTHER":
-                        other_woe = woe; continue
+                        other_woe = woe
+                        continue
                     members = set(map(str, g.get("members", [])))
                     m = (~miss) & (s.astype(str).isin(members))
                     w.loc[m] = woe

@@ -2,31 +2,44 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, development ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, development ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10']
+    
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
+      
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
+      
       - name: Install dependencies
         run: |
-          python -m venv .venv
-          source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -e .[dev]
-          pip install flake8
-      - name: Lint
+      
+      - name: Run flake8 linting
         run: |
-          source .venv/bin/activate
-          flake8 src tests
-      - name: Test
+          flake8 src tests --config=.flake8
+      
+      - name: Run tests
         run: |
-          source .venv/bin/activate
-          pytest -q
+          pytest tests/ -v --tb=short
+      
+      - name: Check code formatting with black
+        run: |
+          black --check src tests
+        continue-on-error: true
+      
+      - name: Check import sorting with isort
+        run: |
+          isort --check-only src tests
+        continue-on-error: true

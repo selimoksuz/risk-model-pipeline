@@ -35,6 +35,7 @@ class Config:
 
         # Feature selection parameters
         self.iv_min = kwargs.get("iv_min", 0.02)
+        self.iv_threshold = kwargs.get("iv_threshold", 0.02)  # Alias for iv_min
         self.iv_high_threshold = kwargs.get("iv_high_threshold", 0.5)
         self.psi_threshold = kwargs.get("psi_threshold", 0.25)
         self.rho_threshold = kwargs.get("rho_threshold", 0.90)

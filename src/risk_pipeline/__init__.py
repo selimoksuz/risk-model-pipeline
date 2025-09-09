@@ -7,7 +7,7 @@ from .api import run_pipeline, score_df
 from .core.config import Config
 from .pipeline import DualRiskModelPipeline, RiskModelPipeline
 from .complete_pipeline import CompletePipeline
-from .advanced_pipeline import AdvancedPipeline
+from .advanced_pipeline import AdvancedRiskPipeline
 
 __all__ = [
     "__version__", 
@@ -17,7 +17,7 @@ __all__ = [
     "RiskModelPipeline", 
     "DualRiskModelPipeline", 
     "CompletePipeline",
-    "AdvancedPipeline",
+    "AdvancedRiskPipeline",
     "Config"
 ]
 

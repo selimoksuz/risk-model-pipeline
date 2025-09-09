@@ -7,7 +7,8 @@ from typing import Dict
 from ..features.psi import psi as psi_scalar
 
 
-def feature_psi(train_woe: pd.DataFrame, other_woe: pd.DataFrame, *, sample: int | None = None, bins: int = 10) -> Dict[str, float]:
+def feature_psi(train_woe: pd.DataFrame, other_woe: pd.DataFrame, *
+    , sample: int | None = None, bins: int = 10) -> Dict[str, float]:
     """Compute PSI per-column between two WOE-transformed frames (same columns).
     Optionally subsample rows for speed. Returns a dict {variable: psi_value}.
     """
@@ -23,4 +24,3 @@ def feature_psi(train_woe: pd.DataFrame, other_woe: pd.DataFrame, *, sample: int
         if c in b.columns:
             out[c] = psi_scalar(a[c], b[c], bins=bins)
     return out
-

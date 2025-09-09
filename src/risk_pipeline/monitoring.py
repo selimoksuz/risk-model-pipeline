@@ -47,23 +47,26 @@ def _apply_woe(df_in: pd.DataFrame, mapping: dict) -> pd.DataFrame:
             miss = s.isna()
             miss_woe = 0.0
             for b in info.get("bins", []):
-                left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
-                if left is None or right is None or (pd.isna(left) and pd.isna(right)):
+                left = b.get("left")
+        right = b.get("right")
+        woe = b.get("woe", 0.0)
+if left is None or right is None or (pd.isna(left) and pd.isna(right)):
                     miss_woe = float(woe)
                     continue
-                m = (~miss) & (s >= left) & (s <= right)
+    m = (~miss) & (s >= left) & (s <= right)
                 w.loc[m] = float(woe)
             w.loc[miss] = float(miss_woe)
             out[v] = w.values
         else:
             s = df_in[v].astype(object)
-            w = pd.Series(index=s.index, dtype="float32")
+            w = pd.Series(index = s.index, dtype="float32")
             miss = s.isna()
             assigned = miss.copy()
             miss_woe = 0.0
             other_woe = 0.0
             for g in info.get("groups", []):
-                lab = g.get("label"); woe = float(g.get("woe", 0.0))
+                lab = g.get("label")
+        woe = float(g.get("woe", 0.0))
                 if lab == "MISSING":
                     miss_woe = woe
                     continue
@@ -77,10 +80,10 @@ def _apply_woe(df_in: pd.DataFrame, mapping: dict) -> pd.DataFrame:
             w.loc[miss] = float(miss_woe)
             w.loc[~assigned] = float(other_woe)
             out[v] = w.values
-    return pd.DataFrame(out, index=df_in.index)
+    return pd.DataFrame(out, index = df_in.index)
 
 
-def monitor_scores(baseline_path, new_path, woe_mapping, final_vars, model_path, calibrator_path=None, bins=10):
+def monitor_scores(baseline_path, new_path, woe_mapping, final_vars, model_path, calibrator_path = None, bins = 10):
     bas = pd.read_csv(baseline_path)
     new = pd.read_csv(new_path)
     if isinstance(woe_mapping, str):
@@ -96,15 +99,16 @@ def monitor_scores(baseline_path, new_path, woe_mapping, final_vars, model_path,
     except Exception:
         with open(model_path, "rb") as f:
             mdl = pickle.load(f)
+
     def score(m, Xdf):
         if hasattr(m, "predict_proba"):
             p = m.predict_proba(Xdf)
             p = np.asarray(p)
             if p.ndim == 2 and p.shape[1] >= 2:
-                return p[:,1]
+                return p[:, 1]
             if p.ndim == 1:
                 return p
-            return p[:,0]
+            return p[:, 0]
         return m.predict(Xdf)
     bas_scores = score(mdl, X_bas[cols])
     new_scores = score(mdl, X_new[cols])
@@ -118,7 +122,7 @@ def monitor_scores(baseline_path, new_path, woe_mapping, final_vars, model_path,
         except Exception:
             pass
     result = {
-        "score_psi": compute_score_psi(bas_scores, new_scores, bins=bins),
+        "score_psi": compute_score_psi(bas_scores, new_scores, bins = bins),
         "feature_psi": compute_feature_psi(X_bas[cols], X_new[cols], cols),
     }
     pd.DataFrame([result]).to_json("monitor_report.json", orient="records")

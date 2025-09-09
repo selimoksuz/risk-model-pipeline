@@ -1,17 +1,60 @@
 """Fixed Modular Risk Model Pipeline - Main Orchestrator"""
+"""Main pipeline orchestrator using modular components"""
+"""Initialize pipeline with modular components"""
 
+        """Main pipeline execution"""
+        """Combine results from dual pipeline"""
+        """Export reports (compatibility method)"""
+    """
+    Dual Pipeline that automatically runs both WOE and RAW pipelines
+    and selects the best performing model.
+    """
+        """Initialize dual pipeline with config ensuring dual mode is enabled"""
+        """
+        Fit the dual pipeline on training data.
+
+        Parameters:
+        -----------
+        X_train : pd.DataFrame
+            Training features
+        y_train : pd.Series or np.array
+            Training target
+        X_valid : pd.DataFrame, optional
+            Validation features
+        y_valid : pd.Series or np.array, optional
+            Validation target
+        X_oot : pd.DataFrame, optional
+            Out-of-time features
+        y_oot : pd.Series or np.array, optional
+            Out-of-time target
+
+        Returns:
+        --------
+        self : DualPipeline
+            Fitted pipeline
+        """
+        """Predict using the best model from dual pipeline"""
+        """Predict probabilities using the best model from dual pipeline"""
+        """Predict using best WOE model"""
+        """Predict using best RAW model"""
+        """Apply WOE transformation to features"""
+        """Apply RAW transformation to features"""
+        """Get summary of dual pipeline results"""
+
+                from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
+from .core import (
+from .core.config import Config
 import os
-import numpy as np
 import pandas as pd
 import random
 import warnings
+
+
+
 warnings.filterwarnings("ignore")
 
-from typing import Optional
-from dataclasses import dataclass
 
 # Import core modules
-from .core import (
     BasePipeline,
     DataProcessor,
     FeatureEngineer,
@@ -22,13 +65,11 @@ from .core import (
 )
 
 # Import existing config (keep compatibility)
-from .core.config import Config
+
 
 class RiskModelPipeline(BasePipeline):
-    """Main pipeline orchestrator using modular components"""
 
     def __init__(self, config: Config):
-        """Initialize pipeline with modular components"""
         super().__init__(config)
 
         # Initialize components
@@ -57,7 +98,6 @@ class RiskModelPipeline(BasePipeline):
             self.raw_models_summary_ = None
 
     def run(self, df: pd.DataFrame):
-        """Main pipeline execution"""
 
         # Get config attributes with defaults
         target_col = getattr(self.cfg, 'target_col', 'target')
@@ -68,7 +108,7 @@ class RiskModelPipeline(BasePipeline):
         # Step 1: Data loading & preparation
         with Timer("1) Data loading & preparation", self._log):
             self.df_ = df
-            self._log(f"   - Data size: {df.shape[0]:,} rows x {df.shape[1]} columns")
+            self._log(f"   - Data size: {df.shape[0]:, } rows x {df.shape[1]} columns")
             self._log(f"   - Target ratio: {df[target_col].mean():.2%}")
 
             # Set random seed for reproducibility
@@ -117,13 +157,14 @@ class RiskModelPipeline(BasePipeline):
 
         # Step 6: WOE binning (train only)
         if getattr(self.cfg.orchestrator, 'enable_woe', True):
-            with Timer("6) WOE binning (Train only; adaptive)", self._log):
+            with Timer("6) WOE binning(Train only
+    adaptive)", self._log):
                 self._activate("woe")
 
-                train_df = self.df_.iloc[train_idx]
-                policy = {"missing_strategy": "as_category"}
+                train_df=self.df_.iloc[train_idx]
+                policy={"missing_strategy": "as_category"}
 
-                self.woe_map = self.feature_engineer.fit_woe_mapping(
+                self.woe_map=self.feature_engineer.fit_woe_mapping(
                     train_df,
                     self.data_processor.var_catalog_,
                     policy
@@ -147,7 +188,7 @@ class RiskModelPipeline(BasePipeline):
                 keep_vars = psi_results[psi_results['status'] == 'KEEP']['variable'].tolist()
                 drop_vars = psi_results[psi_results['status'] == 'DROP']['variable'].tolist()
 
-                self._log(f"   * PSI summary: KEEP={len(keep_vars)} | DROP={len(drop_vars)} | WARN=0")
+                self._log(f"   * PSI summary: KEEP={len(keep_vars)} | DROP={len(drop_vars)} | WARN = 0")
                 self._log(f"   - Remaining after PSI: {len(keep_vars)}")
 
                 self.feature_engineer.psi_summary_ = psi_results
@@ -162,7 +203,7 @@ class RiskModelPipeline(BasePipeline):
                 high_iv.append(var)
 
         if high_iv:
-            self._log(f"   - High IV flags: {','.join(high_iv)}")
+            self._log(f"   - High IV flags: {', '.join(high_iv)}")
             self.feature_engineer.high_iv_flags_ = high_iv
 
         # Step 8: WOE transformation
@@ -186,7 +227,7 @@ class RiskModelPipeline(BasePipeline):
                 rho_threshold = getattr(self.cfg, 'rho_threshold', 0.95)
                 cluster_vars = self.feature_engineer.correlation_clustering(
                     X_tr_woe,
-                    threshold=rho_threshold
+                    threshold = rho_threshold
                 )
 
                 self._log(f"   - cluster representatives={len(cluster_vars)}")
@@ -195,7 +236,7 @@ class RiskModelPipeline(BasePipeline):
 
         # Step 10: Feature selection
         if getattr(self.cfg.orchestrator, 'enable_selection', True):
-            with Timer("10) Feature selection (Forward+1SE)", self._log):
+            with Timer("10) Feature selection (Forward + 1SE)", self._log):
                 self._activate("selection")
 
                 # Boruta selection
@@ -204,8 +245,8 @@ class RiskModelPipeline(BasePipeline):
                 if use_boruta:
                     try:
                         boruta_vars = self.feature_engineer.boruta_selection(
-                            X_tr_woe[cluster_vars],
-                            y_tr
+                          X_tr_woe[cluster_vars],
+                          y_tr
                         )
                         self._log(f"   - Boruta: {len(boruta_vars)}/{len(cluster_vars)} remained")
                     except Exception:
@@ -220,8 +261,8 @@ class RiskModelPipeline(BasePipeline):
                     selected_vars = self.feature_engineer.forward_selection(
                         X_tr_woe[boruta_vars],
                         y_tr,
-                        max_features=max_features,
-                        cv_folds=cv_folds
+                        max_features = max_features,
+                        cv_folds = cv_folds
                     )
 
                     # Ensure minimum features
@@ -229,7 +270,7 @@ class RiskModelPipeline(BasePipeline):
                     if len(selected_vars) < min_features:
                         selected_vars = boruta_vars[:min_features]
 
-                    self._log(f"   - Forward+1SE selected: {len(selected_vars)}")
+                    self._log(f"   - Forward + 1SE selected: {len(selected_vars)}")
                 else:
                     max_features = getattr(self.cfg, 'max_features', 20)
                     selected_vars = boruta_vars[:max_features]
@@ -247,7 +288,7 @@ class RiskModelPipeline(BasePipeline):
                 rho_threshold = getattr(self.cfg, 'rho_threshold', 0.95)
                 final_vars = self.feature_engineer.correlation_clustering(
                     X_tr_woe[pre_final],
-                    threshold=rho_threshold
+                    threshold = rho_threshold
                 )
 
                 self._log(f"   - after correlation={len(final_vars)}")
@@ -265,16 +306,16 @@ class RiskModelPipeline(BasePipeline):
                 # Add noise features for checking
                 np.random.seed(random_state)
                 X_noise = X_tr_woe[final_vars].copy()
-                X_noise["__noise_g"] = np.random.normal(size=len(X_noise))
-                X_noise["__noise_p"] = np.random.permutation(X_tr_woe[final_vars[0]].values) if final_vars else np.random.normal(size=len(X_noise))
+                X_noise["__noise_g"] = np.random.normal(size = len(X_noise))
+                X_noise["__noise_p"] = np.random.permutation(X_tr_woe[final_vars[0]].values) if final_vars else np.random.normal(size = len(X_noise))
 
                 # Re-run feature selection with noise
                 cv_folds = getattr(self.cfg, 'cv_folds', 5)
                 noise_vars = self.feature_engineer.forward_selection(
                     X_noise,
                     y_tr,
-                    max_features=len(final_vars) + 2,
-                    cv_folds=cv_folds
+                    max_features = len(final_vars) + 2,
+                    cv_folds = cv_folds
                 )
 
                 # Remove noise variables
@@ -317,11 +358,11 @@ class RiskModelPipeline(BasePipeline):
 
                 # Remove target and special columns
                 numeric_vars = [v for v in numeric_vars
-                               if v not in [target_col, id_col, time_col]]
+                             if v not in [target_col, id_col, time_col]]
 
                 # Apply raw transformations
                 X_tr_raw, imputer, scaler = self.data_processor.apply_raw_transformations(
-                    X_tr[numeric_vars], fit=True
+                    X_tr[numeric_vars], fit = True
                 )
 
                 # Save imputer and scaler for later use
@@ -331,11 +372,11 @@ class RiskModelPipeline(BasePipeline):
                 X_te_raw = None
                 if X_te is not None:
                     X_te_raw, _, _ = self.data_processor.apply_raw_transformations(
-                        X_te[numeric_vars], fit=False, imputer=imputer, scaler=scaler
+                        X_te[numeric_vars], fit = False, imputer = imputer, scaler = scaler
                     )
 
                 X_oot_raw, _, _ = self.data_processor.apply_raw_transformations(
-                    X_oot[numeric_vars], fit=False, imputer=imputer, scaler=scaler
+                    X_oot[numeric_vars], fit = False, imputer = imputer, scaler = scaler
                 )
 
                 self._log(f"   - X_train_raw={X_tr_raw.shape}, "
@@ -343,15 +384,15 @@ class RiskModelPipeline(BasePipeline):
                          f"X_oot_raw={X_oot_raw.shape}")
 
             # Step 10b: Feature selection for raw
-            with Timer("10b) Feature selection RAW (Forward+1SE)", self._log):
+            with Timer("10b) Feature selection RAW (Forward + 1SE)", self._log):
                 # Boruta for raw
                 raw_vars = list(X_tr_raw.columns)
 
                 if use_boruta:
                     try:
                         raw_vars = self.feature_engineer.boruta_selection(
-                            X_tr_raw,
-                            y_tr
+                          X_tr_raw,
+                          y_tr
                         )
                         self._log(f"   - Boruta: {len(raw_vars)}/{len(X_tr_raw.columns)} remained")
                     except Exception:
@@ -365,8 +406,8 @@ class RiskModelPipeline(BasePipeline):
                     raw_selected = self.feature_engineer.forward_selection(
                         X_tr_raw[raw_vars],
                         y_tr,
-                        max_features=max_features,
-                        cv_folds=cv_folds
+                        max_features = max_features,
+                        cv_folds = cv_folds
                     )
 
                     # Ensure minimum features
@@ -374,7 +415,7 @@ class RiskModelPipeline(BasePipeline):
                     if len(raw_selected) < min_features:
                         raw_selected = raw_vars[:min_features]
 
-                    self._log(f"   - Forward+1SE selected: {len(raw_selected)}")
+                    self._log(f"   - Forward + 1SE selected: {len(raw_selected)}")
                 else:
                     max_features = getattr(self.cfg, 'max_features', 20)
                     raw_selected = raw_vars[:max_features]
@@ -386,7 +427,7 @@ class RiskModelPipeline(BasePipeline):
                 rho_threshold = getattr(self.cfg, 'rho_threshold', 0.95)
                 raw_final = self.feature_engineer.correlation_clustering(
                     X_tr_raw[raw_selected],
-                    threshold=rho_threshold
+                    threshold = rho_threshold
                 )
 
                 self._log(f"   - raw after correlation={len(raw_final)}")
@@ -397,16 +438,16 @@ class RiskModelPipeline(BasePipeline):
                     # Add noise features
                     np.random.seed(random_state)
                     X_noise = X_tr_raw[raw_final].copy()
-                    X_noise["__noise_g"] = np.random.normal(size=len(X_noise))
-                    X_noise["__noise_p"] = np.random.permutation(X_tr_raw[raw_final[0]].values) if raw_final else np.random.normal(size=len(X_noise))
+                    X_noise["__noise_g"] = np.random.normal(size = len(X_noise))
+                    X_noise["__noise_p"] = np.random.permutation(X_tr_raw[raw_final[0]].values) if raw_final else np.random.normal(size = len(X_noise))
 
                     # Re-run selection
                     cv_folds = getattr(self.cfg, 'cv_folds', 5)
                     noise_vars = self.feature_engineer.forward_selection(
                         X_noise,
                         y_tr,
-                        max_features=len(raw_final) + 2,
-                        cv_folds=cv_folds
+                        max_features = len(raw_final) + 2,
+                        cv_folds = cv_folds
                     )
 
                     # Remove noise
@@ -460,7 +501,6 @@ class RiskModelPipeline(BasePipeline):
         shap_summary = None
         if self.best_model_name_ and self.final_vars_:
             try:
-                from risk_pipeline.reporting.shap_utils import compute_shap_values, summarize_shap
                 with Timer("14b) SHAP analysis", self._log):
                     best_model = self.models_.get(self.best_model_name_)
 
@@ -475,16 +515,16 @@ class RiskModelPipeline(BasePipeline):
                         shap_cols = [col for col in self.final_vars_ if col in X_for_shap.columns]
 
                         if shap_cols:
-                            shap_values = compute_shap_values(
-                                best_model,
-                                X_for_shap[shap_cols],
-                                shap_sample=min(1000, len(X_for_shap))
-                            )
-                            if shap_values:
-                                shap_summary = summarize_shap(shap_values, shap_cols)
-                            self._log(f"   - SHAP values computed for {len(self.final_vars_)} features")
-                            self.shap_values_ = shap_values
-                            self.shap_summary_ = shap_summary
+                          shap_values = compute_shap_values(
+                              best_model,
+                              X_for_shap[shap_cols],
+                              shap_sample = min(1000, len(X_for_shap))
+                          )
+                          if shap_values:
+                              shap_summary = summarize_shap(shap_values, shap_cols)
+                          self._log(f"   - SHAP values computed for {len(self.final_vars_)} features")
+                          self.shap_values_ = shap_values
+                          self.shap_summary_ = shap_summary
             except Exception as e:
                 self._log(f"   - SHAP analysis skipped: {str(e)}")
 
@@ -506,8 +546,8 @@ class RiskModelPipeline(BasePipeline):
                     self.feature_engineer.psi_summary_,
                     X_tr_woe if 'X_tr_woe' in locals() else None,
                     y_tr,
-                    shap_values=shap_values,
-                    shap_summary=shap_summary
+                    shap_values = shap_values,
+                    shap_summary = shap_summary
                 )
 
                 self.report_sheets_ = sheets
@@ -535,7 +575,9 @@ class RiskModelPipeline(BasePipeline):
                     best_model
                 )
 
-        self._log(f"[{utils.now_str()}] >> RUN complete - run_id={getattr(self.cfg, 'run_id', 'N/A')}{utils.sys_metrics()}")
+        self._log(f"[{utils.now_str()}] >> RUN complete - run_id={getattr(self.cfg,
+            'run_id'
+            'N/A')}{utils.sys_metrics()}")
 
         # Close log file
         self.close()
@@ -543,7 +585,6 @@ class RiskModelPipeline(BasePipeline):
         return self
 
     def _combine_dual_pipeline_results(self):
-        """Combine results from dual pipeline"""
         enable_dual = getattr(self.cfg, 'enable_dual_pipeline', False)
         if not enable_dual:
             return
@@ -563,7 +604,7 @@ class RiskModelPipeline(BasePipeline):
             raw_summary['pipeline'] = 'RAW'
 
             # Combine
-            self.models_summary_ = pd.concat([woe_summary, raw_summary], ignore_index=True)
+            self.models_summary_ = pd.concat([woe_summary, raw_summary], ignore_index = True)
 
             # Combine models dict
             self.models_ = {}
@@ -587,7 +628,6 @@ class RiskModelPipeline(BasePipeline):
                 self._log(f"Best RAW Model: {best_raw['model_name']} - Gini OOT: {best_raw['Gini_OOT']:.4f}")
 
     def export_reports(self):
-        """Export reports (compatibility method)"""
         if hasattr(self, 'report_sheets_'):
             output_folder = getattr(self.cfg, 'output_folder', 'output')
             output_excel = getattr(self.cfg, 'output_excel_path', None)
@@ -602,15 +642,9 @@ class RiskModelPipeline(BasePipeline):
 
 
 class DualPipeline(RiskModelPipeline):
-    """
-    Dual Pipeline that automatically runs both WOE and RAW pipelines
-    and selects the best performing model.
-    """
 
-    def __init__(self, config=None):
-        """Initialize dual pipeline with config ensuring dual mode is enabled"""
+    def __init__(self, config = None):
         if config is None:
-            from .core.config import Config
             config = Config()
 
         # Ensure dual pipeline is enabled
@@ -623,32 +657,8 @@ class DualPipeline(RiskModelPipeline):
         self.raw_pipeline_results = None
         self.best_pipeline = None  # 'WOE' or 'RAW'
 
-    def fit(self, X_train, y_train, X_valid=None, y_valid=None, X_oot=None, y_oot=None):
-        """
-        Fit the dual pipeline on training data.
-
-        Parameters:
-        -----------
-        X_train : pd.DataFrame
-            Training features
-        y_train : pd.Series or np.array
-            Training target
-        X_valid : pd.DataFrame, optional
-            Validation features
-        y_valid : pd.Series or np.array, optional
-            Validation target
-        X_oot : pd.DataFrame, optional
-            Out-of-time features
-        y_oot : pd.Series or np.array, optional
-            Out-of-time target
-
-        Returns:
-        --------
-        self : DualPipeline
-            Fitted pipeline
-        """
+    def fit(self, X_train, y_train, X_valid = None, y_valid = None, X_oot = None, y_oot = None):
         # Prepare dataframe for pipeline
-        import pandas as pd
 
         df_train = X_train.copy()
         df_train[self.cfg.target_col] = y_train
@@ -656,22 +666,21 @@ class DualPipeline(RiskModelPipeline):
         if X_valid is not None and y_valid is not None:
             df_valid = X_valid.copy()
             df_valid[self.cfg.target_col] = y_valid
-            df_train = pd.concat([df_train, df_valid], ignore_index=True)
+            df_train = pd.concat([df_train, df_valid], ignore_index = True)
 
         if X_oot is not None and y_oot is not None:
             df_oot = X_oot.copy()
             df_oot[self.cfg.target_col] = y_oot
 
             # Add time column to distinguish OOT
-            import numpy as np
-            df_train[self.cfg.time_col] = pd.date_range('2022-01-01', periods=len(df_train), freq='D')
-            df_oot[self.cfg.time_col] = pd.date_range('2023-01-01', periods=len(df_oot), freq='D')
+            df_train[self.cfg.time_col] = pd.date_range('2022-01-01', periods = len(df_train), freq='D')
+            df_oot[self.cfg.time_col] = pd.date_range('2023-01-01', periods = len(df_oot), freq='D')
 
-            df = pd.concat([df_train, df_oot], ignore_index=True)
+            df = pd.concat([df_train, df_oot], ignore_index = True)
         else:
             df = df_train
             # Add dummy time column
-            df[self.cfg.time_col] = pd.date_range('2022-01-01', periods=len(df), freq='D')
+            df[self.cfg.time_col] = pd.date_range('2022-01-01', periods = len(df), freq='D')
 
         # Run the pipeline
         self.run(df)
@@ -687,7 +696,6 @@ class DualPipeline(RiskModelPipeline):
         return self
 
     def predict(self, X):
-        """Predict using the best model from dual pipeline"""
         if self.best_model_name_ and self.best_model_name_ in self.models_:
             model = self.models_[self.best_model_name_]
 
@@ -713,7 +721,6 @@ class DualPipeline(RiskModelPipeline):
             raise ValueError("No model has been trained yet. Call fit() first.")
 
     def predict_proba(self, X):
-        """Predict probabilities using the best model from dual pipeline"""
         if self.best_model_name_ and self.best_model_name_ in self.models_:
             model = self.models_[self.best_model_name_]
 
@@ -736,22 +743,20 @@ class DualPipeline(RiskModelPipeline):
             else:
                 # For models without predict_proba, return predictions as probabilities
                 preds = self.predict(X)
-                import numpy as np
                 return np.column_stack([1 - preds, preds])
         else:
             raise ValueError("No model has been trained yet. Call fit() first.")
 
     def predict_woe(self, X):
-        """Predict using best WOE model"""
         woe_models = {k: v for k, v in self.models_.items() if 'WOE_' in k}
         if not woe_models:
             raise ValueError("No WOE models available")
 
         # Get best WOE model
         best_woe_name = max(woe_models.keys(),
-                           key=lambda x: self.models_summary_[
-                               self.models_summary_['model_name'] == x
-                           ]['Gini_OOT'].values[0])
+                         key = lambda x: self.models_summary_[
+                             self.models_summary_['model_name'] == x
+                         ]['Gini_OOT'].values[0])
 
         model = woe_models[best_woe_name]
         X_transformed = self.transform_woe(X)
@@ -764,16 +769,15 @@ class DualPipeline(RiskModelPipeline):
             return model.predict(X_final)
 
     def predict_raw(self, X):
-        """Predict using best RAW model"""
         raw_models = {k: v for k, v in self.models_.items() if 'RAW_' in k}
         if not raw_models:
             raise ValueError("No RAW models available")
 
         # Get best RAW model
         best_raw_name = max(raw_models.keys(),
-                           key=lambda x: self.models_summary_[
-                               self.models_summary_['model_name'] == x
-                           ]['Gini_OOT'].values[0])
+                         key = lambda x: self.models_summary_[
+                             self.models_summary_['model_name'] == x
+                         ]['Gini_OOT'].values[0])
 
         model = raw_models[best_raw_name]
         X_transformed = self.transform_raw(X)
@@ -786,14 +790,12 @@ class DualPipeline(RiskModelPipeline):
             return model.predict(X_final)
 
     def transform_woe(self, X):
-        """Apply WOE transformation to features"""
         if not hasattr(self, 'woe_map') or not self.woe_map:
             raise ValueError("WOE mapping not available. Run fit() first.")
 
         return self.feature_engineer.apply_woe_transform(X, list(self.woe_map.keys()))
 
     def transform_raw(self, X):
-        """Apply RAW transformation to features"""
         if not hasattr(self.data_processor, 'imputer_') or not hasattr(self.data_processor, 'scaler_'):
             raise ValueError("RAW transformation not available. Run fit() first.")
 
@@ -809,15 +811,14 @@ class DualPipeline(RiskModelPipeline):
 
         X_transformed, _, _ = self.data_processor.apply_raw_transformations(
             X[numeric_vars],
-            fit=False,
-            imputer=self.data_processor.imputer_,
-            scaler=self.data_processor.scaler_
+            fit = False,
+            imputer = self.data_processor.imputer_,
+            scaler = self.data_processor.scaler_
         )
 
         return X_transformed
 
     def get_summary(self):
-        """Get summary of dual pipeline results"""
         summary = {
             'best_model': self.best_model_name_,
             'best_pipeline': self.best_pipeline,

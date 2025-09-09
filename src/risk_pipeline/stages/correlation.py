@@ -25,4 +25,3 @@ def drop_correlated(df: pd.DataFrame, *, threshold: float = 0.8) -> Tuple[List[s
             dropped_rows.append({"var1": a, "var2": b, "rho": r})
     dropped_df = pd.DataFrame(dropped_rows)
     return list(kept), dropped_df
-

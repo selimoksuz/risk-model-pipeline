@@ -12,4 +12,3 @@ def fit_calibrator(y_true: np.ndarray, proba: np.ndarray, method: str = "isotoni
 
 def apply_calibrator(model: Any, proba: np.ndarray) -> np.ndarray:
     return _apply(model, proba)
-

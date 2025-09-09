@@ -30,7 +30,7 @@ def run_pipeline_from_dataframe(
         df: Input DataFrame with features, target, id, and time columns
         id_col: Name of ID column
         time_col: Name of time/date column
-        target_col: Name of binary target column {0,1}
+        target_col: Name of binary target column {0, 1}
         output_folder: Output folder for reports and artifacts
         output_excel: Excel report filename
         use_test_split: Whether to create internal TEST split

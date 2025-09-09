@@ -37,7 +37,7 @@ def test_stratified_split_preserves_target_distribution():
     )
 
     # Check that we have both train and test sets
-    assert test_idx is not None, "Test set should be created when use_test_split=True"
+    assert test_idx is not None, "Test set should be created when use_test_split = True"
     assert len(train_idx) > 0, "Train set should not be empty"
     assert len(test_idx) > 0, "Test set should not be empty"
 
@@ -86,7 +86,7 @@ def test_fallback_when_stratification_fails():
 
 
 def test_no_test_split_when_disabled():
-    """Test that no test split is created when use_test_split=False."""
+    """Test that no test split is created when use_test_split = False."""
     df = pd.DataFrame({
         'app_id': range(100),
         'app_dt': pd.date_range('2024-01-01', periods=100, freq='D'),
@@ -102,6 +102,6 @@ def test_no_test_split_when_disabled():
         oot_window_months=1
     )
 
-    assert test_idx is None, "No test set should be created when use_test_split=False"
+    assert test_idx is None, "No test set should be created when use_test_split = False"
     assert len(train_idx) > 0, "Train set should not be empty"
     assert len(oot_idx) > 0, "OOT set should not be empty"

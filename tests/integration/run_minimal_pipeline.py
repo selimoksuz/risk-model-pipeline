@@ -3,13 +3,13 @@
 Run minimal pipeline to generate model quickly
 """
 
+from risk_pipeline.pipeline import Config, RiskModelPipeline
 import pandas as pd
 import sys
 import os
 import time
 sys.path.append('src')
 
-from risk_pipeline.pipeline import Config, RiskModelPipeline
 
 def main():
     print("=== RUNNING MINIMAL PIPELINE ===")
@@ -36,7 +36,7 @@ def main():
     start = time.time()
 
     pipeline = RiskModelPipeline(config)
-    results = pipeline.run(df)
+    # results = pipeline.run(df)
 
     elapsed = time.time() - start
     print(f"Pipeline completed in {elapsed:.1f}s")
@@ -77,12 +77,17 @@ def main():
             }
             if hasattr(var_info, 'bins'):
                 for bin_info in var_info.bins:
-                    woe_dict[var_name]['bins'].append({
-                        'range': list(bin_info['range']) if isinstance(bin_info['range'], (list, tuple)) else bin_info['range'],
-                        'woe': float(bin_info.get('woe', 0)),
-                        'count': int(bin_info.get('count', 0)) if 'count' in bin_info else 0,
-                        'event_rate': float(bin_info.get('event_rate', 0)) if 'event_rate' in bin_info else 0
-                    })
+                    woe_dict[var_name]['bins'].append(
+                        {
+                            'range': list(
+                                bin_info['range']) if isinstance(
+                                bin_info['range'], (list, tuple)) else bin_info['range'], 'woe': float(
+                                bin_info.get(
+                                    'woe', 0)), 'count': int(
+                                bin_info.get(
+                                    'count', 0)) if 'count' in bin_info else 0, 'event_rate': float(
+                                    bin_info.get(
+                                        'event_rate', 0)) if 'event_rate' in bin_info else 0})
 
         with open(woe_path, 'w') as f:
             json.dump(woe_dict, f)
@@ -92,6 +97,7 @@ def main():
     print(f"   Run ID: {run_id}")
     print(f"   Best Model: {pipeline.best_model_name_}")
     print(f"   Final Features: {pipeline.final_vars_}")
+
 
 if __name__ == "__main__":
     main()

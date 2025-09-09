@@ -20,4 +20,3 @@ def classify_variables(df: pd.DataFrame, *, id_col: str, time_col: str, target_c
         grp = "numeric" if c in num else "categorical"
         out.append({"variable": c, "variable_group": grp})
     return pd.DataFrame(out)
-

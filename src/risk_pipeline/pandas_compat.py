@@ -2,7 +2,6 @@
 Pandas 2.x compatibility layer
 """
 import pandas as pd
-import numpy as np
 
 
 def safe_string_strip_casefold(series):

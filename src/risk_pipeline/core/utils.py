@@ -1,16 +1,15 @@
 """Utility classes and functions for the pipeline"""
 
-import os
-import sys
 import time
 import psutil
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Any, Dict
 from datetime import datetime
-import json
 
 # Encoding utilities
+
+
 def safe_print(msg, file=None):
     try:
         if file:
@@ -29,9 +28,11 @@ def safe_print(msg, file=None):
         except Exception:
             pass
 
+
 def now_str() -> str:
     """Return current time as string"""
     return datetime.now().strftime("%H:%M:%S")
+
 
 def sys_metrics() -> str:
     """Return system metrics as string"""
@@ -42,6 +43,7 @@ def sys_metrics() -> str:
     except Exception:
         return ""
 
+
 def month_floor(date_value) -> datetime:
     """Floor date to month start"""
     try:
@@ -51,9 +53,11 @@ def month_floor(date_value) -> datetime:
     except Exception:
         return datetime(2020, 1, 1)
 
+
 def gini_from_auc(auc: float) -> float:
     """Convert AUC to Gini coefficient"""
     return 2 * auc - 1
+
 
 def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray):
     """Calculate KS statistic"""
@@ -80,16 +84,19 @@ def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray):
 
     return float(max_ks), float(threshold)
 
+
 def ks_table(y_true: np.ndarray, y_proba: np.ndarray, n_bands: int = 10) -> Dict:
     """Generate KS table"""
     # Implementation for KS table generation
     return {}
+
 
 def jeffreys_counts(total_event: int, total_nonevent: int, alpha: float = 0.5):
     """Jeffreys smoothing for counts"""
     te_s = total_event + alpha
     tne_s = total_nonevent + alpha
     return te_s, tne_s
+
 
 def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: int, alpha: float = 0.5):
     """Compute WOE and IV for a bin/group - Standard calculation"""
@@ -126,8 +133,11 @@ def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: 
     return woe, float(actual_rate), iv_contrib
 
 # Timer classes
+
+
 class Timer:
     """Context manager for timing operations"""
+
     def __init__(self, label: str, logger=print):
         self.label, self.logger, self.t0 = label, logger, None
 
@@ -138,12 +148,15 @@ class Timer:
     def __exit__(self, exc_type, exc, tb):
         ok_fail = " — FAIL" if exc_type else " — OK"
         if exc_type:
-            self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}")
+            self.logger(
+                f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}: {exc}{sys_metrics()}")
         else:
             self.logger(f"[{now_str()}] â--  {self.label} completed ({time.time()-self.t0:.2f}s){ok_fail}{sys_metrics()}")
 
+
 class Timer2:
     """Alternative timer implementation"""
+
     def __init__(self, logger=print):
         self.logger = logger
 
@@ -151,6 +164,8 @@ class Timer2:
         return Timer(label, self.logger)
 
 # Data structures for WOE
+
+
 @dataclass
 class NumericBin:
     """Numeric bin for WOE transformation"""
@@ -163,6 +178,7 @@ class NumericBin:
     event_rate: float = 0.0
     iv_contrib: float = 0.0
 
+
 @dataclass
 class CategoricalGroup:
     """Categorical group for WOE transformation"""
@@ -174,6 +190,7 @@ class CategoricalGroup:
     total_count: int = 0
     event_rate: float = 0.0
     iv_contrib: float = 0.0
+
 
 @dataclass
 class VariableWOE:

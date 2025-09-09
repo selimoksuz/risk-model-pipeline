@@ -1,10 +1,9 @@
 """Base pipeline class"""
 
 import os
-import sys
 from datetime import datetime
-from typing import Optional
 from .utils import safe_print
+
 
 class BasePipeline:
     """Base class for pipelines with common functionality"""

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
+
 
 class RunConfig(BaseModel):
     experiment_name: str = Field(default="default_experiment")
@@ -15,10 +16,12 @@ class RunConfig(BaseModel):
     enable_calibration: bool = True
     enable_report: bool = True
 
+
 class PathConfig(BaseModel):
     data_input: str = "data/input.csv"
     artifacts_dir: str = "artifacts"
     reports_dir: str = "reports"
+
 
 class Config(BaseModel):
     run: RunConfig = RunConfig()

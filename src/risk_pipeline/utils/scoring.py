@@ -11,6 +11,7 @@ from sklearn.calibration import CalibratedClassifierCV, IsotonicRegression
 import json
 import joblib
 
+
 def load_model_artifacts(output_folder: str, run_id: str) -> Tuple[object, list, dict, Optional[object]]:
     """Load trained model, features, WOE mapping, and calibrator"""
 
@@ -41,6 +42,7 @@ def load_model_artifacts(output_folder: str, run_id: str) -> Tuple[object, list,
         print(f"⚠️  Could not load calibrator: {e}")
 
     return model, final_features, woe_mapping, calibrator
+
 
 def apply_woe_transform(df: pd.DataFrame, woe_mapping: dict) -> pd.DataFrame:
     """Apply WOE transformation to scoring data"""
@@ -109,6 +111,7 @@ def apply_woe_transform(df: pd.DataFrame, woe_mapping: dict) -> pd.DataFrame:
 
     return df_woe_extended
 
+
 def calculate_psi(expected: np.ndarray, actual: np.ndarray, bins: int = 10) -> float:
     """Calculate Population Stability Index"""
 
@@ -142,17 +145,20 @@ def calculate_psi(expected: np.ndarray, actual: np.ndarray, bins: int = 10) -> f
 
     return float(psi)
 
+
 def calculate_gini(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """Calculate Gini coefficient"""
     auc = roc_auc_score(y_true, y_score)
     gini = 2 * auc - 1
     return float(gini)
 
+
 def calculate_ks_statistic(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """Calculate Kolmogorov-Smirnov statistic"""
     fpr, tpr, _ = roc_curve(y_true, y_score)
     ks = np.max(tpr - fpr)
     return float(ks)
+
 
 def score_data(scoring_df: pd.DataFrame,
                model: object,
@@ -293,6 +299,7 @@ def score_data(scoring_df: pd.DataFrame,
 
     return results
 
+
 def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
     """Create comprehensive scoring reports"""
 
@@ -308,9 +315,9 @@ def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
             'Calibration Applied'
         ],
         'Value': [
-            f"{results['n_total']:,}",
-            f"{results['n_with_target']:,}",
-            f"{results['n_without_target']:,}",
+            f"{results['n_total']:, }",
+            f"{results['n_with_target']:, }",
+            f"{results['n_without_target']:, }",
             f"{results['n_with_target'] / results['n_total'] * 100:.1f}%",
             'Yes' if results.get('calibration_applied', False) else 'No'
         ]
@@ -342,7 +349,7 @@ def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
                 'Score Max'
             ],
             'Value': [
-                f"{wt['n_records']:,}",
+                f"{wt['n_records']:, }",
                 f"{wt['default_rate']:.3f}",
                 f"{wt['auc']:.4f}",
                 f"{wt['gini']:.4f}",
@@ -373,7 +380,7 @@ def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
                 'Score Max'
             ],
             'Value': [
-                f"{wot['n_records']:,}",
+                f"{wot['n_records']:, }",
                 f"{wot['score_stats']['mean']:.4f}",
                 f"{wot['score_stats']['std']:.4f}",
                 f"{wot['score_stats']['min']:.4f}",

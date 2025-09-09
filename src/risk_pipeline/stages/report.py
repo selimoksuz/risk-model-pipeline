@@ -17,4 +17,3 @@ def write_multi_sheet(xlsx_path: str, sheets: Dict[str, pd.DataFrame]) -> None:
             except Exception:
                 # sheet name too long or other issues: fallback to sanitized name
                 df.to_excel(w, sheet_name="sheet", index=False)
-

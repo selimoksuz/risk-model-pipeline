@@ -99,7 +99,8 @@ class InputValidator:
                 print(f"WARNING: Highly imbalanced target (minority: {minority_ratio:.2%})")
 
         # Check for suspicious column names (SQL injection prevention)
-        suspicious_patterns = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'EXEC', '--', ';']
+        suspicious_patterns = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'EXEC', '--', '
+                               ']
         for col in df.columns:
             for pattern in suspicious_patterns:
                 if pattern in str(col).upper():

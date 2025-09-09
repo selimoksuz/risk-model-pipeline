@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+
 def psi(expected: pd.Series, actual: pd.Series, bins: int = 10) -> float:
     """
     Calculate PSI between two series. For WOE values, use unique values directly.

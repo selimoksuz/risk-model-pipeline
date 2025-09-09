@@ -7,6 +7,7 @@ import sys
 from typing import Any, Optional, Callable
 from functools import wraps
 
+
 class OptionalDependency:
     """Wrapper for optional dependencies that might not be installed"""
 

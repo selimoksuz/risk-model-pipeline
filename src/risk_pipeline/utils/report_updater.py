@@ -7,6 +7,7 @@ from openpyxl import load_workbook
 from pathlib import Path
 from typing import Dict
 
+
 def update_excel_with_scoring(excel_path: str, scoring_results: Dict, scoring_summary: pd.DataFrame):
     """Update existing Excel report with scoring results"""
 
@@ -26,8 +27,8 @@ def update_excel_with_scoring(excel_path: str, scoring_results: Dict, scoring_su
 
         # Write summary table
         for idx, row in scoring_summary.iterrows():
-            ws_summary.cell(row=idx+3, column=1, value=row['Metric'])
-            ws_summary.cell(row=idx+3, column=2, value=row['Value'])
+            ws_summary.cell(row=idx + 3, column=1, value=row['Metric'])
+            ws_summary.cell(row=idx + 3, column=2, value=row['Value'])
 
         # Add headers
         ws_summary['A2'] = 'Metric'
@@ -70,8 +71,14 @@ def update_excel_with_scoring(excel_path: str, scoring_results: Dict, scoring_su
         ws_dist['B2'].font = ws_dist['B2'].font.copy(bold=True)
 
         for idx, row in score_stats.iterrows():
-            ws_dist.cell(row=idx+3, column=1, value=row['Statistic'])
-            ws_dist.cell(row=idx+3, column=2, value=f"{row['Value']:.4f}" if isinstance(row['Value'], float) else str(row['Value']))
+            ws_dist.cell(row=idx + 3, column=1, value=row['Statistic'])
+            ws_dist.cell(
+                row=idx + 3,
+                column=2,
+                value=f"{row['Value']:.4f}" if isinstance(
+                    row['Value'],
+                    float) else str(
+                    row['Value']))
 
         ws_dist.column_dimensions['A'].width = 15
         ws_dist.column_dimensions['B'].width = 15
@@ -89,6 +96,7 @@ def update_excel_with_scoring(excel_path: str, scoring_results: Dict, scoring_su
     except Exception as e:
         print(f"❌ Error updating Excel report: {e}")
         return False
+
 
 def create_comprehensive_report(pipeline_results: Dict, scoring_results: Dict, output_path: str):
     """Create a comprehensive Excel report with both pipeline and scoring results"""

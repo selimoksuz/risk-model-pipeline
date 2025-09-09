@@ -1,5 +1,9 @@
 """Feature engineering module for WOE, PSI, and feature selection"""
 
+from .utils import (
+    VariableWOE, NumericBin, CategoricalGroup,
+    compute_woe_iv, jeffreys_counts, ks_statistic, safe_print
+)
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional, Any
@@ -11,10 +15,6 @@ from sklearn.metrics import roc_auc_score
 import warnings
 warnings.filterwarnings("ignore")
 
-from .utils import (
-    VariableWOE, NumericBin, CategoricalGroup,
-    compute_woe_iv, jeffreys_counts, ks_statistic, safe_print
-)
 
 class FeatureEngineer:
     """Handles WOE transformation, PSI calculation, and feature selection"""
@@ -56,8 +56,7 @@ class FeatureEngineer:
             if len(x_clean) == 0:
                 continue
 
-            vw = VariableWOE(variable=var, var_type=var_type)
-
+            
             if var_type == "numeric":
                 # Fit numeric WOE bins
                 vw.numeric_bins = self._bin_numeric_adaptive(
@@ -173,7 +172,8 @@ class FeatureEngineer:
             # Fallback to single bin
             return [NumericBin(left=-np.inf, right=np.inf, woe=0.0)]
 
-    def _optimize_bins(self, bins: List[NumericBin], min_bin_size: float = 0.05, woe_threshold: float = 0.1) -> List[NumericBin]:
+    def _optimize_bins(self, bins: List[NumericBin], min_bin_size: float = 0.05,
+                       woe_threshold: float = 0.1) -> List[NumericBin]:
         """Merge bins with similar WOE values to reduce overfitting"""
         if len(bins) <= 2:
             return bins
@@ -323,7 +323,10 @@ class FeatureEngineer:
 
         return groups
 
-    def _optimize_categorical_groups(self, groups: List[CategoricalGroup], woe_threshold: float = 0.1) -> List[CategoricalGroup]:
+    def _optimize_categorical_groups(
+            self,
+            groups: List[CategoricalGroup],
+            woe_threshold: float = 0.1) -> List[CategoricalGroup]:
         """Merge categorical groups with similar WOE values"""
         if len(groups) <= 2:
             return groups
@@ -368,7 +371,7 @@ class FeatureEngineer:
 
                 # Create label for merged group
                 if len(merged_members) <= 3:
-                    label = ','.join(str(m) for m in merged_members[:3])
+                    label = ', '.join(str(m) for m in merged_members[:3])
                 else:
                     label = f"{merged_members[0]}+{len(merged_members)-1}_others"
 
@@ -415,8 +418,7 @@ class FeatureEngineer:
             if var not in self.woe_map:
                 continue
 
-            vw = self.woe_map[var]
-            x = df[var] if var in df.columns else pd.Series(index=df.index)
+                x = df[var] if var in df.columns else pd.Series(index=df.index)
 
             # Initialize with 0.0 (will be overwritten for valid values)
             woe_values = pd.Series(0.0, index=df.index)
@@ -499,8 +501,7 @@ class FeatureEngineer:
             if var not in self.woe_map:
                 continue
 
-            vw = self.woe_map[var]
-
+            
             # Get WOE values
             base_woe = self.apply_woe_transform(base_df, [var])[var]
             compare_woe = self.apply_woe_transform(compare_df, [var])[var]
@@ -699,7 +700,6 @@ class FeatureEngineer:
         except Exception as e:
             print(f"   - Boruta failed: {e}, using fallback")
             # Fallback to simple univariate selection
-            from sklearn.feature_selection import SelectKBest, f_classif
             selector = SelectKBest(f_classif, k=min(20, X.shape[1]))
             selector.fit(X, y)
             return X.columns[selector.get_support()].tolist()

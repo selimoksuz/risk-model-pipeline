@@ -3,12 +3,12 @@
 Test full pipeline with all features enabled
 """
 
+from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
 import pandas as pd
 import sys
 import os
 sys.path.append('src')
 
-from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
 
 def main():
     print("=== FULL PIPELINE TEST ===")
@@ -16,7 +16,7 @@ def main():
     # Load data
     print("Loading data...")
     df = pd.read_csv('data/input.csv')
-    print(f"Dataset: {df.shape[0]:,} rows x {df.shape[1]} columns")
+    print(f"Dataset: {df.shape[0]:, } rows x {df.shape[1]} columns")
 
     # Get full configuration with all stages enabled (disable calibration for now)
     config = get_full_config(
@@ -85,6 +85,7 @@ def main():
         print(f"Could not load results: {e}")
 
     print(f"\n📁 Check detailed results in: {results['output_folder']}/")
+
 
 if __name__ == "__main__":
     main()

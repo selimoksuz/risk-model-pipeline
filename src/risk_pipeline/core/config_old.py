@@ -1,6 +1,6 @@
 """Configuration module for Risk Model Pipeline"""
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 import os
 
 
@@ -87,7 +87,7 @@ class Config:
     # Data splitting settings
     use_test_split: bool = True  # Whether to create a test split (if False, all pre-OOT goes to train)
     train_ratio: float = 0.60
-    test_ratio: float = 0.20  # Ratio of test within pre-OOT data (if use_test_split=True)
+    test_ratio: float = 0.20  # Ratio of test within pre-OOT data (if use_test_split = True)
     oot_ratio: float = 0.20  # Ratio for OOT (time-based split)
     oot_months: Optional[int] = None  # If set, use last N months for OOT instead of ratio
     min_oot_size: int = 50  # Minimum OOT samples

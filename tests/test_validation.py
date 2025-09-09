@@ -20,7 +20,7 @@ class TestInputValidator:
         """Test valid file path validation."""
         tf = tempfile.NamedTemporaryFile(suffix='.csv', delete=False)
         try:
-            tf.write(b'col1,col2\n1,2\n')
+            tf.write(b'col1, col2\n1, 2\n')
             tf.flush()
             tf.close()  # Close before validation to avoid Windows file lock
 

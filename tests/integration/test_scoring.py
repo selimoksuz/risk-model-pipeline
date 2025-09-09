@@ -3,12 +3,12 @@
 Test scoring functionality with the trained model
 """
 
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
 import pandas as pd
 import sys
 import os
 sys.path.append('src')
 
-from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
 
 def main():
     print("=== SCORING TEST ===")
@@ -16,7 +16,7 @@ def main():
     # Load scoring data
     print("Loading scoring data...")
     scoring_df = pd.read_csv('data/scoring.csv')
-    print(f"Scoring data: {scoring_df.shape[0]:,} rows x {scoring_df.shape[1]} columns")
+    print(f"Scoring data: {scoring_df.shape[0]:, } rows x {scoring_df.shape[1]} columns")
 
     # Get the latest run artifacts
     output_folder = "outputs"
@@ -52,7 +52,7 @@ def main():
     except Exception:
         training_scores = model.predict(X_train)
 
-    print(f"✅ Training scores calculated: {len(training_scores):,} records")
+    print(f"✅ Training scores calculated: {len(training_scores):, } records")
 
     # Score the new data
     print("\nScoring new data...")
@@ -118,9 +118,9 @@ def main():
     )
 
     print("=== SCORING RESULTS ===")
-    print(f"📊 Total records scored: {results['n_total']:,}")
-    print(f"📊 Records with target: {results['n_with_target']:,}")
-    print(f"📊 Records without target: {results['n_without_target']:,}")
+    print(f"📊 Total records scored: {results['n_total']:, }")
+    print(f"📊 Records with target: {results['n_with_target']:, }")
+    print(f"📊 Records without target: {results['n_without_target']:, }")
 
     if results.get('psi_score'):
         print(f"📊 PSI (Population Stability): {results['psi_score']:.4f}")
@@ -196,6 +196,7 @@ def main():
     print(f"   75%: {np.percentile(scores, 75):.4f}")
     print(f"   Max: {scores.max():.4f}")
     print(f"   Mean: {scores.mean():.4f}")
+
 
 if __name__ == "__main__":
     import numpy as np

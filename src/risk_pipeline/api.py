@@ -13,8 +13,9 @@ from .model.calibrate import apply_calibrator
 def run_pipeline(df: pd.DataFrame, config: Optional[Config] = None, **config_kwargs) -> RiskModelPipeline:
     """Run the risk model pipeline on an in-memory DataFrame.
 
-    Returns the fitted pipeline object. Reports are written to Excel only; CSV exports are
-    disabled unless explicitly enabled via config (write_csv=True).
+    Returns the fitted pipeline object. Reports are written to Excel only
+    CSV exports are
+    disabled unless explicitly enabled via config (write_csv = True).
     """
     cfg = config or Config(**config_kwargs)
     pipe = RiskModelPipeline(cfg)
@@ -127,4 +128,3 @@ def score_df(
         out.drop(columns=[id_col] + (["target"] if "target" in out.columns else [])).reset_index(drop=True),
     ], axis=1)
     return combined
-

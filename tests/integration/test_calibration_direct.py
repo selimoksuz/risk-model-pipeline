@@ -8,6 +8,7 @@ import sys
 import os
 sys.path.append('src')
 
+
 def test_calibration_method():
     print("=== DIRECT CALIBRATION TEST ===")
 
@@ -97,6 +98,7 @@ def test_calibration_method():
         print(f"ERROR: Calibration failed with error: {e}")
         import traceback
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     test_calibration_method()

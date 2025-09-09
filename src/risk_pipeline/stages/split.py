@@ -29,7 +29,8 @@ def time_based_split(
     """Split into TRAIN/TEST (optional)/OOT by months.
 
     - OOT is the last `oot_window_months` months.
-    - TRAIN is the remaining earlier months; optional TEST is a row-fraction split from TRAIN.
+    - TRAIN is the remaining earlier months
+    optional TEST is a row-fraction split from TRAIN.
     Returns (train_idx, test_idx_or_none, oot_idx).
     """
     dfx = df.copy()
@@ -74,4 +75,3 @@ def time_based_split(
     else:
         train_idx = rem
     return pd.Index(train_idx), (pd.Index(test_idx) if test_idx is not None else None), pd.Index(oot_idx)
-

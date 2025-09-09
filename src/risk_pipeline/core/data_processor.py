@@ -2,9 +2,8 @@
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional, List, Dict, Any
-from datetime import datetime
-from .utils import Timer, month_floor, safe_print
+from typing import Tuple, Optional
+
 
 class DataProcessor:
     """Handles data validation, splitting, and preprocessing"""
@@ -24,7 +23,7 @@ class DataProcessor:
         # Validate target values
         target_values = set(pd.Series(df[self.cfg.target_col]).dropna().unique())
         if not target_values.issubset({0, 1}):
-            raise ValueError("target_col yalniz {0,1} olmali.")
+            raise ValueError("target_col yalniz {0, 1} olmali.")
 
         # Create snapshot_month
         try:
@@ -87,7 +86,7 @@ class DataProcessor:
             return self.var_catalog_
 
     def impute_missing_values(self, X: pd.DataFrame, y: Optional[np.ndarray] = None,
-                             strategy: str = 'multiple', fit: bool = True) -> pd.DataFrame:
+                              strategy: str = 'multiple', fit: bool = True) -> pd.DataFrame:
         """Apply multiple imputation strategies for missing values
 
         Parameters:
@@ -165,7 +164,7 @@ class DataProcessor:
                 # Linear interpolation
                 return series.interpolate(method='linear').fillna(series.median())
             elif strategy == 'target_mean' and y is not None:
-                # Impute with mean value for target=1 vs target=0
+                # Impute with mean value for target = 1 vs target = 0
                 mask_1 = (y == 1) & series.notna()
                 mask_0 = (y == 0) & series.notna()
 
@@ -309,8 +308,8 @@ class DataProcessor:
             n_oot = len(oot_idx) if oot_idx is not None else 0
 
             self._log(f"   - Data split: Train={n_train} ({n_train/total:.1%}), "
-                     f"Test={n_test} ({n_test/total:.1%}), "
-                     f"OOT={n_oot} ({n_oot/total:.1%})")
+                      f"Test={n_test} ({n_test/total:.1%}), "
+                      f"OOT={n_oot} ({n_oot/total:.1%})")
 
             # Check target distribution
             if self.cfg.target_col in df.columns:

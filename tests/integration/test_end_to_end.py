@@ -3,6 +3,8 @@
 Complete End-to-End Test: Pipeline + Scoring + Reporting
 """
 
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
+from risk_pipeline.pipeline import Config, RiskModelPipeline
 import pandas as pd
 import numpy as np
 import sys
@@ -12,8 +14,6 @@ import shutil
 from pathlib import Path
 sys.path.append('src')
 
-from risk_pipeline.pipeline import Config, RiskModelPipeline
-from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
 
 def clean_outputs():
     """Clean all output folders"""
@@ -23,13 +23,14 @@ def clean_outputs():
             try:
                 shutil.rmtree(folder)
                 print(f"  Cleaned: {folder}")
-            except:
+            except Exception:
                 pass
 
+
 def main():
-    print("="*60)
+    print("=" * 60)
     print("END-TO-END TEST: Pipeline + Scoring + Excel Reporting")
-    print("="*60)
+    print("=" * 60)
 
     # Step 0: Clean old outputs
     print("\n[STEP 0] Cleaning old outputs...")
@@ -51,7 +52,7 @@ def main():
 
     # Load training data
     train_df = pd.read_csv('data/input.csv')
-    print(f"  Training data: {train_df.shape[0]:,} rows x {train_df.shape[1]} columns")
+    print(f"  Training data: {train_df.shape[0]:, } rows x {train_df.shape[1]} columns")
 
     # Configure pipeline (minimal for speed)
     config = Config(
@@ -111,10 +112,8 @@ def main():
             }
             if hasattr(var_info, 'bins'):
                 for bin_info in var_info.bins:
-                    woe_dict[var_name]['bins'].append({
-                        'range': list(bin_info['range']) if isinstance(bin_info['range'], (list, tuple)) else bin_info['range'],
-                        'woe': float(bin_info.get('woe', 0))
-                    })
+                    woe_dict[var_name]['bins'].append({'range': list(bin_info['range']) if isinstance(
+                        bin_info['range'], (list, tuple)) else bin_info['range'], 'woe': float(bin_info.get('woe', 0))})
         with open(woe_path, 'w') as f:
             json.dump(woe_dict, f)
         print(f"  WOE mapping saved: woe_mapping_{run_id}.json")
@@ -130,9 +129,9 @@ def main():
 
     # Load scoring data
     scoring_df = pd.read_csv('data/scoring.csv')
-    print(f"  Scoring data: {scoring_df.shape[0]:,} rows")
-    print(f"    With target: {(~scoring_df['target'].isna()).sum():,}")
-    print(f"    Without target: {scoring_df['target'].isna().sum():,}")
+    print(f"  Scoring data: {scoring_df.shape[0]:, } rows")
+    print(f"    With target: {(~scoring_df['target'].isna()).sum():, }")
+    print(f"    Without target: {scoring_df['target'].isna().sum():, }")
 
     # Load model artifacts
     model, final_features, woe_mapping, calibrator = load_model_artifacts(OUTPUT_FOLDER, run_id)
@@ -162,7 +161,8 @@ def main():
         X_train = train_woe[[feature_mapping.get(f, f) for f in final_features]]
         X_train.columns = final_features
     else:
-        X_train = train_woe[final_features] if all(f in train_woe.columns for f in final_features) else train_woe[[f for f in final_features if f in train_woe.columns]]
+        X_train = train_woe[final_features] if all(f in train_woe.columns for f in final_features) else train_woe[[
+            f for f in final_features if f in train_woe.columns]]
 
     # Clean NaN/Inf
     X_train = X_train.replace([np.inf, -np.inf], np.nan).fillna(0)
@@ -172,10 +172,10 @@ def main():
         training_scores = model.predict_proba(X_train)
         if training_scores.ndim == 2:
             training_scores = training_scores[:, 1]
-    except:
+    except Exception:
         training_scores = model.predict(X_train)
 
-    print(f"  Training scores calculated: {len(training_scores):,}")
+    print(f"  Training scores calculated: {len(training_scores):, }")
 
     # Score new data
     start_time = time.time()
@@ -194,7 +194,7 @@ def main():
     # Step 4: Display results
     print("\n[STEP 4] Results Summary:")
     print("-" * 40)
-    print(f"Total scored: {scoring_results['n_total']:,}")
+    print(f"Total scored: {scoring_results['n_total']:, }")
     print(f"Calibration applied: {'Yes' if scoring_results.get('calibration_applied') else 'No'}")
 
     if scoring_results.get('psi_score') is not None:
@@ -203,7 +203,7 @@ def main():
 
     if 'with_target' in scoring_results:
         wt = scoring_results['with_target']
-        print(f"\nWith Target ({wt['n_records']:,} records):")
+        print(f"\nWith Target ({wt['n_records']:, } records):")
         print(f"  AUC: {wt['auc']:.4f}")
         print(f"  Gini: {wt['gini']:.4f}")
         print(f"  KS: {wt['ks']:.4f}")
@@ -211,7 +211,7 @@ def main():
 
     if 'without_target' in scoring_results:
         wot = scoring_results['without_target']
-        print(f"\nWithout Target ({wot['n_records']:,} records):")
+        print(f"\nWithout Target ({wot['n_records']:, } records):")
         print(f"  Score Mean: {wot['score_stats']['mean']:.4f}")
         print(f"  Score Std: {wot['score_stats']['std']:.4f}")
 
@@ -240,9 +240,9 @@ def main():
         print(f"  [WARNING] Excel report not found: {excel_path}")
 
     # Step 6: Final summary
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("END-TO-END TEST COMPLETED SUCCESSFULLY!")
-    print("="*60)
+    print("=" * 60)
     print(f"Pipeline time: {pipeline_time:.1f}s")
     print(f"Scoring time: {scoring_time:.1f}s")
     print(f"Total time: {pipeline_time + scoring_time:.1f}s")
@@ -260,6 +260,7 @@ def main():
         print(f"  ... and {len(outputs)-10} more files")
 
     print("\n[SUCCESS] All systems working correctly!")
+
 
 if __name__ == "__main__":
     main()

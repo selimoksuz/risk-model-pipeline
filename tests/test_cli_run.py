@@ -8,7 +8,7 @@ def test_cli_run_creates_metrics(tmp_path: Path):
     # minimal numeric-only dataset
     df = pd.DataFrame({
         'app_id': [1, 2, 3, 4, 5, 6],
-        'app_dt': ['2024-01-01']*6,
+        'app_dt': ['2024-01-01'] * 6,
         'target': [0, 1, 0, 1, 0, 1],
         'x1': [0.1, 0.3, -0.2, 1.1, 0.0, -0.5],
         'x2': [1.0, 0.0, 1.0, 0.5, 0.2, 0.8],

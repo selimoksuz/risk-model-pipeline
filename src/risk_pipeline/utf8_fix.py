@@ -8,6 +8,7 @@ import sys
 import io
 import os
 
+
 def setup_utf8_console():
     """Setup UTF-8 encoding for Windows console"""
     if sys.platform == 'win32':
@@ -27,6 +28,7 @@ def setup_utf8_console():
             errors='replace',
             line_buffering=True
         )
+
 
 def safe_print(msg, file=None):
     """Print with safe encoding fallback"""
@@ -49,13 +51,14 @@ def safe_print(msg, file=None):
             safe_msg = safe_msg.replace(tr_char, ascii_char)
 
         print(safe_msg, file=file, flush=True)
-    except Exception as e:
+    except Exception:
         # Final fallback
         try:
             ascii_msg = msg.encode('ascii', 'ignore').decode('ascii')
             print(ascii_msg, file=file, flush=True)
         except Exception:
             pass
+
 
 # Turkish text mappings for common log messages
 TURKISH_TO_ASCII = {
@@ -76,6 +79,7 @@ TURKISH_TO_ASCII = {
     'seçti': 'secti',
     'kaldı': 'kaldi'
 }
+
 
 def fix_turkish_text(text):
     """Replace Turkish characters with ASCII equivalents"""

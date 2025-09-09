@@ -3,13 +3,13 @@
 Add PSI results to Excel report
 """
 
+from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
 import pandas as pd
 import numpy as np
 import sys
 import os
 sys.path.append('src')
 
-from risk_pipeline.utils.scoring import load_model_artifacts, score_data, create_scoring_report
 
 def add_psi_to_excel(excel_path, scoring_results):
     """Add PSI analysis to Excel report"""
@@ -55,9 +55,9 @@ def add_psi_to_excel(excel_path, scoring_results):
                 'Monitor model performance' if psi_score and psi_score < 0.25 else
                 'Consider model retraining' if psi_score else 'Check data quality',
 
-                f"{scoring_results['n_total']:,}",
-                f"{scoring_results['n_with_target']:,}",
-                f"{scoring_results['n_without_target']:,}"
+                f"{scoring_results['n_total']:, }",
+                f"{scoring_results['n_with_target']:, }",
+                f"{scoring_results['n_without_target']:, }"
             ]
         }
 
@@ -112,6 +112,7 @@ def add_psi_to_excel(excel_path, scoring_results):
         print("  Added: PSI_Analysis sheet")
 
     return True
+
 
 def main():
     print("=== ADDING PSI TO EXCEL REPORT ===\n")
@@ -201,6 +202,7 @@ def main():
         print(f"Excel not found: {excel_path}")
 
     print("\n[SUCCESS] PSI analysis added to Excel report!")
+
 
 if __name__ == "__main__":
     main()

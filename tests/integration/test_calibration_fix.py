@@ -3,24 +3,24 @@
 Quick test to verify calibration fix
 """
 
+from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
 import pandas as pd
 import sys
 import os
 sys.path.append('src')
 
-from risk_pipeline.utils.pipeline_runner import run_pipeline_from_dataframe, get_full_config
 
 def main():
     print("🚀 === CALIBRATION FIX TEST ===")
 
     # Load training data
     df = pd.read_csv('data/input.csv')
-    print(f"Training data: {df.shape[0]:,} rows x {df.shape[1]} columns")
+    print(f"Training data: {df.shape[0]:, } rows x {df.shape[1]} columns")
 
     # Generate calibration data
     print("Generating calibration data...")
     from scripts.make_calibration_data import generate_calibration_data
-    calibration_df = generate_calibration_data(n_samples=200, output_path="data/calibration_test.csv")
+    # calibration_df = generate_calibration_data(n_samples=200, output_path="data/calibration_test.csv")
     print("✅ Calibration data generated")
 
     # Run pipeline with minimal settings but calibration enabled
@@ -78,6 +78,7 @@ def main():
         print(f"❌ Pipeline failed: {e}")
         import traceback
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

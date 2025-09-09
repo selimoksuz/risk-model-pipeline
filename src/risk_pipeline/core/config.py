@@ -1,6 +1,5 @@
 """Configuration module for Risk Model Pipeline - Fixed version"""
 from dataclasses import dataclass
-from typing import Optional
 import os
 
 

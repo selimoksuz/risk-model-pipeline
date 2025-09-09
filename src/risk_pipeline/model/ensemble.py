@@ -4,7 +4,10 @@ from typing import List, Optional
 from .calibrate import apply_calibrator
 
 
-def soft_voting_ensemble(models: List, calibrators: Optional[List] = None, weights: Optional[List[float]] = None, X=None):
+def soft_voting_ensemble(models: List,
+                         calibrators: Optional[List] = None,
+                         weights: Optional[List[float]] = None,
+                         X=None):
     """Return weighted average of model probabilities."""
     probs = []
     for i, m in enumerate(models):

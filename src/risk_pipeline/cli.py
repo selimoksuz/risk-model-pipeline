@@ -9,15 +9,18 @@ try:
 except Exception:
     pass
 
+import os
 import json
+import pickle
 import joblib
 import pandas as pd
 import typer
-from pathlib import Path
+from openpyxl import load_workbook
 
 from .core.config import Config
 from .pipeline import RiskModelPipeline, DualPipeline
 from .stages.scoring import build_scored_frame
+
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
@@ -62,7 +65,7 @@ def run_advanced(
     input_csv: str = typer.Option(..., help="Path to input CSV with features + target"),
     id_col: str = typer.Option("app_id", help="ID column"),
     time_col: str = typer.Option("app_dt", help="Time column (date-like)"),
-    target_col: str = typer.Option("target", help="Binary target column {0,1}"),
+    target_col: str = typer.Option("target", help="Binary target column {0, 1}"),
     oot_months: int = typer.Option(3, help="Number of months for OOT window"),
     use_test_split: bool = typer.Option(False, help="Create an internal TEST split from pre-OOT months"),
     output_folder: str = typer.Option("outputs", help="Report/artifact output folder"),
@@ -121,14 +124,14 @@ def run_advanced(
 @app.command()
 def score(
     input_csv: str = typer.Option(..., help="Path to input CSV with features"),
-    woe_mapping: str = typer.Option(..., help="Path to WOE mapping JSON (woe_mapping_<run_id>.json)"),
-    final_vars_json: str = typer.Option(..., help="Path to final vars JSON (final_vars_<run_id>.json)"),
+    woe_mapping: str = typer.Option(..., help="Path to WOE mapping JSON file"),
+    final_vars_json: str = typer.Option(..., help="Path to final vars JSON file"),
     model_path: str = typer.Option(..., help="Path to best model file (.joblib or .pkl)"),
     id_col: str = typer.Option("app_id", help="ID column to keep in output"),
-    output_csv: str = typer.Option(None, help="Optional CSV path for scores (combined); if omitted, CSV is not written"),
+    output_csv: str = typer.Option(None, help="Optional CSV path for scores"),
     output_xlsx: str = typer.Option(None, help="Optional Excel output path (writes combined raw+woe+preds)"),
     calibrator_path: str = typer.Option(None, help="Optional calibrator pickle path"),
-    report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional model report path to append 'external_scores' sheet"),
+    report_xlsx: str = typer.Option(None, "--report-xlsx", help="Optional report path for external scores"),
 ):
     """Score new data using a trained model"""
     df = pd.read_csv(input_csv)
@@ -139,7 +142,6 @@ def score(
     try:
         mdl = joblib.load(model_path)
     except Exception:
-        import pickle
         with open(model_path, "rb") as f:
             mdl = pickle.load(f)
 
@@ -201,7 +203,8 @@ def score(
         with open(calibrator_path, "rb") as f:
             calib = pickle.load(f)
 
-    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib)
+    combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars,
+                                  model=mdl, id_col=id_col, calibrator=calib)
 
     if output_csv:
         combined.to_csv(output_csv, index=False)
@@ -214,8 +217,6 @@ def score(
 
     # Append to existing report if requested
     if report_xlsx and os.path.exists(report_xlsx):
-        import openpyxl
-        from openpyxl import load_workbook
         book = load_workbook(report_xlsx)
         with pd.ExcelWriter(report_xlsx, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
             writer.book = book

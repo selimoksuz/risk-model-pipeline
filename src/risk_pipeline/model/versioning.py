@@ -301,7 +301,7 @@ class ModelComparator:
         traffic_split: float = 0.5
     ) -> Dict[str, Any]:
         """Perform A/B test between champion and challenger."""
-        from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
+        from sklearn.metrics import roc_auc_score
 
         # Split test data
         n = len(test_data)

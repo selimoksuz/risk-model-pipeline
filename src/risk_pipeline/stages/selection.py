@@ -6,7 +6,7 @@ from typing import List
 
 def iv_rank_select(iv_df: pd.DataFrame, *, min_iv: float = 0.02, max_features: int | None = None) -> List[str]:
     """Select variables by IV threshold and rank.
-    Expects columns ['variable','iv'] in iv_df.
+    Expects columns ['variable', 'iv'] in iv_df.
     """
     if iv_df is None or iv_df.empty:
         return []
@@ -15,4 +15,3 @@ def iv_rank_select(iv_df: pd.DataFrame, *, min_iv: float = 0.02, max_features: i
     if max_features is not None:
         df = df.head(max_features)
     return [str(v) for v in df["variable"].tolist()]
-

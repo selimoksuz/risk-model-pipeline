@@ -3,6 +3,7 @@
 Fast pipeline run with minimal configuration for quick testing
 """
 
+from risk_pipeline.pipeline import Config, RiskModelPipeline
 import pandas as pd
 import sys
 import os
@@ -12,12 +13,11 @@ import json
 from datetime import datetime
 sys.path.append('src')
 
-from risk_pipeline.pipeline import Config, RiskModelPipeline
 
 def main():
-    print("="*60)
+    print("=" * 60)
     print("FAST PIPELINE RUN")
-    print("="*60)
+    print("=" * 60)
 
     OUTPUT_FOLDER = "outputs"
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -25,7 +25,7 @@ def main():
     # Load data
     print("\n[1] Loading data...")
     df = pd.read_csv('data/input.csv')
-    print(f"  Data: {df.shape[0]:,} rows x {df.shape[1]} columns")
+    print(f"  Data: {df.shape[0]:, } rows x {df.shape[1]} columns")
 
     # Create MINIMAL config for maximum speed
     print("\n[2] Configuration (optimized for speed):")
@@ -74,7 +74,7 @@ def main():
     config.orchestrator.enable_logreg = True
 
     pipeline = RiskModelPipeline(config)
-    results = pipeline.run(df)
+    # results = pipeline.run(df)
 
     pipeline_time = time.time() - start_time
     print(f"\n  Pipeline completed in {pipeline_time:.1f}s")
@@ -100,10 +100,8 @@ def main():
             }
             if hasattr(var_info, 'bins'):
                 for bin_info in var_info.bins:
-                    woe_dict[var_name]['bins'].append({
-                        'range': list(bin_info['range']) if isinstance(bin_info['range'], (list, tuple)) else bin_info['range'],
-                        'woe': float(bin_info.get('woe', 0))
-                    })
+                    woe_dict[var_name]['bins'].append({'range': list(bin_info['range']) if isinstance(
+                        bin_info['range'], (list, tuple)) else bin_info['range'], 'woe': float(bin_info.get('woe', 0))})
         with open(f"{OUTPUT_FOLDER}/woe_mapping_{run_id}.json", 'w') as f:
             json.dump(woe_dict, f)
 
@@ -113,6 +111,7 @@ def main():
     print(f"  Runtime: {pipeline_time:.1f} seconds")
 
     print(f"\n[SUCCESS] Fast pipeline completed!")
+
 
 if __name__ == "__main__":
     main()

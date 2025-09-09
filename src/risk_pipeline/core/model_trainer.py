@@ -1,10 +1,11 @@
 """Model training and evaluation module"""
 
+from .utils import ks_statistic, gini_from_auc, now_str, sys_metrics
 import numpy as np
 import pandas as pd
 import time
 import optuna
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Any
 from sklearn.base import clone
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_auc_score
@@ -29,7 +30,6 @@ try:
 except ImportError:
     LogisticGAM = None
 
-from .utils import ks_statistic, ks_table, gini_from_auc, now_str, sys_metrics
 
 class ModelTrainer:
     """Handles model training, hyperparameter tuning, and evaluation"""
@@ -204,7 +204,13 @@ class ModelTrainer:
 
             return float(np.mean(scores)) if scores else -np.inf
 
-        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=getattr(self.cfg, 'random_state', 42)))
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=optuna.samplers.TPESampler(
+                seed=getattr(
+                    self.cfg,
+                    'random_state',
+                    42)))
         study.optimize(objective, n_trials=n_trials, timeout=timeout)
 
         best_params = study.best_trial.params if study.best_trial else {}

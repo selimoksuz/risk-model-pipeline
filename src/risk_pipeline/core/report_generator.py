@@ -11,6 +11,7 @@ import joblib
 
 class CustomJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for handling pandas/numpy types"""
+
     def default(self, obj):
         if isinstance(obj, (pd.Timestamp, datetime, date)):
             return obj.isoformat()
@@ -27,6 +28,7 @@ class CustomJSONEncoder(json.JSONEncoder):
         elif pd.isna(obj):
             return None
         return super().default(obj)
+
 
 class ReportGenerator:
     """Handles report generation and export"""
@@ -287,7 +289,7 @@ class ReportGenerator:
             # Try xlsxwriter formatting
             try:
                 worksheet.add_table(
-                    0, 0, nrows, ncols-1,
+                    0, 0, nrows, ncols - 1,
                     {
                         "name": f"tbl_{sheet_name}",
                         "style": "Table Style Medium 9"
@@ -472,7 +474,7 @@ class ReportGenerator:
                             "variable": base_var,
                             "type": "categorical",
                             "bin_number": i + 1,
-                            "bin_range": f"{group.label}: {','.join(str(m) for m in group.members[:3])}...",
+                            "bin_range": f"{group.label}: {', '.join(str(m) for m in group.members[:3])}...",
                             "woe": group.woe,  # Always show WOE values
                             "event_count": group.event_count,
                             "nonevent_count": group.nonevent_count,

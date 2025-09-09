@@ -1,0 +1,268 @@
+src\risk_pipeline\api.py:130:1: W391 blank line at end of file
+src\risk_pipeline\cli.py:12:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:13:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:14:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:15:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:16:1: F401 'pathlib.Path' imported but unused
+src\risk_pipeline\cli.py:16:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:18:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:19:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:20:1: E402 module level import not at top of file
+src\risk_pipeline\cli.py:128:121: E501 line too long (121 > 120 characters)
+src\risk_pipeline\cli.py:131:121: E501 line too long (128 > 120 characters)
+src\risk_pipeline\cli.py:200:28: F821 undefined name 'os'
+src\risk_pipeline\cli.py:204:121: E501 line too long (121 > 120 characters)
+src\risk_pipeline\cli.py:216:24: F821 undefined name 'os'
+src\risk_pipeline\cli.py:217:9: F401 'openpyxl' imported but unused
+src\risk_pipeline\monitoring.py:50:37: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\monitoring.py:50:61: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\monitoring.py:66:37: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\monitoring.py:99:5: E306 expected 1 blank line before a nested definition, found 0
+src\risk_pipeline\monitoring.py:104:27: E231 missing whitespace after ','
+src\risk_pipeline\monitoring.py:107:23: E231 missing whitespace after ','
+src\risk_pipeline\pandas_compat.py:5:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\pipeline.py:10:1: F401 'typing.Optional' imported but unused
+src\risk_pipeline\pipeline.py:10:1: E402 module level import not at top of file
+src\risk_pipeline\pipeline.py:11:1: F401 'dataclasses.dataclass' imported but unused
+src\risk_pipeline\pipeline.py:11:1: E402 module level import not at top of file
+src\risk_pipeline\pipeline.py:14:1: E402 module level import not at top of file
+src\risk_pipeline\pipeline.py:25:1: E402 module level import not at top of file
+src\risk_pipeline\pipeline.py:27:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\pipeline.py:110:26: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:111:26: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:178:26: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:179:26: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:269:121: E501 line too long (147 > 120 characters)
+src\risk_pipeline\pipeline.py:307:33: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\pipeline.py:309:26: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\pipeline.py:320:32: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:342:26: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:343:26: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:401:121: E501 line too long (149 > 120 characters)
+src\risk_pipeline\pipeline.py:538:121: E501 line too long (124 > 120 characters)
+src\risk_pipeline\pipeline.py:574:33: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\pipeline.py:576:26: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\pipeline.py:666:13: F401 'numpy as np' imported but unused
+src\risk_pipeline\pipeline.py:752:28: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:754:28: E126 continuation line over-indented for hanging indent
+src\risk_pipeline\pipeline.py:774:28: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:776:28: E126 continuation line over-indented for hanging indent
+src\risk_pipeline\pipeline.py:807:24: E128 continuation line under-indented for visual indent
+src\risk_pipeline\pipeline.py:808:24: W503 line break before binary operator
+src\risk_pipeline\pipeline.py:808:24: E128 continuation line under-indented for visual indent
+src\risk_pipeline\utf8_fix.py:11:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utf8_fix.py:31:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utf8_fix.py:52:5: F841 local variable 'e' is assigned to but never used
+src\risk_pipeline\utf8_fix.py:61:1: E305 expected 2 blank lines after class or function definition, found 1
+src\risk_pipeline\utf8_fix.py:80:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\config\schema.py:2:1: F401 'typing.List' imported but unused
+src\risk_pipeline\config\schema.py:4:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\config\schema.py:18:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\config\schema.py:23:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\base.py:4:1: F401 'sys' imported but unused
+src\risk_pipeline\core\base.py:6:1: F401 'typing.Optional' imported but unused
+src\risk_pipeline\core\base.py:9:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\config.py:3:1: F401 'typing.Optional' imported but unused
+src\risk_pipeline\core\config_old.py:3:1: F401 'typing.List' imported but unused
+src\risk_pipeline\core\data_processor.py:5:1: F401 'typing.List' imported but unused
+src\risk_pipeline\core\data_processor.py:5:1: F401 'typing.Dict' imported but unused
+src\risk_pipeline\core\data_processor.py:5:1: F401 'typing.Any' imported but unused
+src\risk_pipeline\core\data_processor.py:6:1: F401 'datetime.datetime' imported but unused
+src\risk_pipeline\core\data_processor.py:7:1: F401 '.utils.Timer' imported but unused
+src\risk_pipeline\core\data_processor.py:7:1: F401 '.utils.safe_print' imported but unused
+src\risk_pipeline\core\data_processor.py:9:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\data_processor.py:90:30: E128 continuation line under-indented for visual indent
+src\risk_pipeline\core\data_processor.py:312:22: E128 continuation line under-indented for visual indent
+src\risk_pipeline\core\data_processor.py:313:22: E128 continuation line under-indented for visual indent
+src\risk_pipeline\core\feature_engineer.py:5:1: F401 'typing.Tuple' imported but unused
+src\risk_pipeline\core\feature_engineer.py:5:1: F401 'typing.Optional' imported but unused
+src\risk_pipeline\core\feature_engineer.py:7:1: F401 'sklearn.feature_selection.SelectKBest' imported but unused
+src\risk_pipeline\core\feature_engineer.py:7:1: F401 'sklearn.feature_selection.f_classif' imported but unused
+src\risk_pipeline\core\feature_engineer.py:14:1: F401 '.utils.jeffreys_counts' imported but unused
+src\risk_pipeline\core\feature_engineer.py:14:1: F401 '.utils.ks_statistic' imported but unused
+src\risk_pipeline\core\feature_engineer.py:14:1: F401 '.utils.safe_print' imported but unused
+src\risk_pipeline\core\feature_engineer.py:14:1: E402 module level import not at top of file
+src\risk_pipeline\core\feature_engineer.py:19:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\feature_engineer.py:176:121: E501 line too long (129 > 120 characters)
+src\risk_pipeline\core\feature_engineer.py:201:48: W504 line break after binary operator
+src\risk_pipeline\core\feature_engineer.py:202:51: W504 line break after binary operator
+src\risk_pipeline\core\feature_engineer.py:203:48: W504 line break after binary operator
+src\risk_pipeline\core\feature_engineer.py:326:121: E501 line too long (129 > 120 characters)
+src\risk_pipeline\core\feature_engineer.py:502:13: F841 local variable 'vw' is assigned to but never used
+src\risk_pipeline\core\feature_engineer.py:686:17: F811 redefinition of unused 'f_classif' from line 7
+src\risk_pipeline\core\feature_engineer.py:695:13: F811 redefinition of unused 'SelectKBest' from line 7
+src\risk_pipeline\core\model_trainer.py:7:1: F401 'typing.Tuple' imported but unused
+src\risk_pipeline\core\model_trainer.py:7:1: F401 'typing.Optional' imported but unused
+src\risk_pipeline\core\model_trainer.py:32:1: F401 '.utils.ks_table' imported but unused
+src\risk_pipeline\core\model_trainer.py:32:1: E402 module level import not at top of file
+src\risk_pipeline\core\model_trainer.py:34:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\model_trainer.py:207:121: E501 line too long (137 > 120 characters)
+src\risk_pipeline\core\model_trainer.py:443:73: W504 line break after binary operator
+src\risk_pipeline\core\report_generator.py:31:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\report_generator.py:290:39: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\core\utils.py:3:1: F401 'os' imported but unused
+src\risk_pipeline\core\utils.py:4:1: F401 'sys' imported but unused
+src\risk_pipeline\core\utils.py:8:1: F401 'dataclasses.field' imported but unused
+src\risk_pipeline\core\utils.py:11:1: F401 'json' imported but unused
+src\risk_pipeline\core\utils.py:14:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:32:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:36:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:45:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:54:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:58:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:83:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:88:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:94:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:129:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:141:121: E501 line too long (129 > 120 characters)
+src\risk_pipeline\core\utils.py:143:121: E501 line too long (122 > 120 characters)
+src\risk_pipeline\core\utils.py:145:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:154:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:166:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\core\utils.py:178:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\data\load.py:4:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\features\psi.py:4:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\features\woe.py:4:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\features\woe.py:8:48: E231 missing whitespace after ','
+src\risk_pipeline\model\ensemble.py:7:121: E501 line too long (122 > 120 characters)
+src\risk_pipeline\model\mlp.py:6:121: E501 line too long (127 > 120 characters)
+src\risk_pipeline\model\train.py:1:1: F401 'typing.Tuple' imported but unused
+src\risk_pipeline\model\train.py:2:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\model\train.py:8:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\model\train.py:12:37: E231 missing whitespace after ','
+src\risk_pipeline\model\versioning.py:11:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\model\versioning.py:304:9: F401 'sklearn.metrics.precision_score' imported but unused
+src\risk_pipeline\model\versioning.py:304:9: F401 'sklearn.metrics.recall_score' imported but unused
+src\risk_pipeline\model\versioning.py:304:9: F401 'sklearn.metrics.f1_score' imported but unused
+src\risk_pipeline\reporting\shap_utils.py:2:1: F401 'pandas as pd' imported but unused
+src\risk_pipeline\stages\calibration.py:3:1: F401 'typing.Tuple' imported but unused
+src\risk_pipeline\stages\calibration.py:15:1: W391 blank line at end of file
+src\risk_pipeline\stages\classify.py:23:1: W391 blank line at end of file
+src\risk_pipeline\stages\correlation.py:28:1: W391 blank line at end of file
+src\risk_pipeline\stages\feature_selection.py:7:121: E501 line too long (131 > 120 characters)
+src\risk_pipeline\stages\feature_selection.py:21:1: W391 blank line at end of file
+src\risk_pipeline\stages\modeling.py:4:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\stages\modeling.py:20:1: W391 blank line at end of file
+src\risk_pipeline\stages\model_train_and_hpo.py:4:1: F401 'numpy as np' imported but unused
+src\risk_pipeline\stages\model_train_and_hpo.py:17:121: E501 line too long (148 > 120 characters)
+src\risk_pipeline\stages\model_train_and_hpo.py:18:121: E501 line too long (123 > 120 characters)
+src\risk_pipeline\stages\model_train_and_hpo.py:43:1: W391 blank line at end of file
+src\risk_pipeline\stages\psi.py:10:121: E501 line too long (132 > 120 characters)
+src\risk_pipeline\stages\psi.py:26:1: W391 blank line at end of file
+src\risk_pipeline\stages\report.py:20:1: W391 blank line at end of file
+src\risk_pipeline\stages\selection.py:18:1: W391 blank line at end of file
+src\risk_pipeline\stages\split.py:77:1: W391 blank line at end of file
+src\risk_pipeline\stages\woe.py:23:37: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\stages\woe.py:23:61: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\stages\woe.py:43:35: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\stages\woe.py:45:36: E702 multiple statements on one line (semicolon)
+src\risk_pipeline\stages\woe.py:54:1: W391 blank line at end of file
+src\risk_pipeline\utils\error_handler.py:3:1: F401 'os' imported but unused
+src\risk_pipeline\utils\error_handler.py:189:9: F841 local variable 'e' is assigned to but never used
+src\risk_pipeline\utils\report_updater.py:7:1: F401 'pathlib.Path' imported but unused
+src\risk_pipeline\utils\report_updater.py:10:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\report_updater.py:29:36: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\utils\report_updater.py:30:36: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\utils\report_updater.py:73:33: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\utils\report_updater.py:74:33: E226 missing whitespace around arithmetic operator
+src\risk_pipeline\utils\report_updater.py:74:121: E501 line too long (132 > 120 characters)
+src\risk_pipeline\utils\report_updater.py:93:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\safe_imports.py:6:1: F401 'sys' imported but unused
+src\risk_pipeline\utils\safe_imports.py:10:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:10:1: F401 'sklearn.calibration.CalibratedClassifierCV' imported but unused
+src\risk_pipeline\utils\scoring.py:10:1: F401 'sklearn.calibration.IsotonicRegression' imported but unused
+src\risk_pipeline\utils\scoring.py:14:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:45:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:112:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:145:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:151:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:157:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\scoring.py:223:15: F541 f-string is missing placeholders
+src\risk_pipeline\utils\scoring.py:296:1: E302 expected 2 blank lines, found 1
+src\risk_pipeline\utils\validation.py:3:1: F401 'os' imported but unused
+tests\test_cli_run.py:11:33: E226 missing whitespace around arithmetic operator
+tests\test_error_handler.py:5:1: F401 'json' imported but unused
+tests\test_error_handler.py:6:1: F401 'pickle' imported but unused
+tests\test_error_handler.py:7:1: F401 'pathlib.Path' imported but unused
+tests\test_error_handler.py:9:1: F401 'risk_pipeline.utils.error_handler.PipelineError' imported but unused
+tests\test_error_handler.py:244:13: F841 local variable 'result3' is assigned to but never used
+tests\test_smoke.py:4:1: E302 expected 2 blank lines, found 1
+tests\test_smoke.py:5:26: E231 missing whitespace after ':'
+tests\test_smoke.py:5:29: E231 missing whitespace after ','
+tests\test_smoke.py:5:31: E231 missing whitespace after ','
+tests\test_smoke.py:5:33: E231 missing whitespace after ','
+tests\test_smoke.py:5:35: E231 missing whitespace after ','
+tests\test_smoke.py:5:37: E231 missing whitespace after ','
+tests\test_smoke.py:5:39: E231 missing whitespace after ','
+tests\test_smoke.py:5:41: E231 missing whitespace after ','
+tests\test_smoke.py:5:49: E231 missing whitespace after ':'
+tests\test_smoke.py:5:52: E231 missing whitespace after ','
+tests\test_smoke.py:5:54: E231 missing whitespace after ','
+tests\test_smoke.py:5:56: E231 missing whitespace after ','
+tests\test_smoke.py:5:58: E231 missing whitespace after ','
+tests\test_smoke.py:5:60: E231 missing whitespace after ','
+tests\test_smoke.py:5:62: E231 missing whitespace after ','
+tests\test_smoke.py:5:64: E231 missing whitespace after ','
+tests\test_smoke.py:6:21: E231 missing whitespace after ','
+tests\test_smoke.py:6:23: E231 missing whitespace after ','
+tests\test_smoke.py:6:25: E231 missing whitespace after ','
+tests\test_smoke.py:6:27: E231 missing whitespace after ','
+tests\test_smoke.py:6:29: E231 missing whitespace after ','
+tests\test_smoke.py:6:31: E231 missing whitespace after ','
+tests\test_smoke.py:6:33: E231 missing whitespace after ','
+tests\test_validation.py:5:1: F401 'numpy as np' imported but unused
+tests\test_validation.py:6:1: F401 'pathlib.Path' imported but unused
+tests\integration\add_psi_to_excel.py:12:1: F401 'risk_pipeline.utils.scoring.create_scoring_report' imported but unused
+tests\integration\add_psi_to_excel.py:12:1: E402 module level import not at top of file
+tests\integration\add_psi_to_excel.py:14:1: E302 expected 2 blank lines, found 1
+tests\integration\add_psi_to_excel.py:52:121: E501 line too long (128 > 120 characters)
+tests\integration\add_psi_to_excel.py:116:1: E302 expected 2 blank lines, found 1
+tests\integration\add_psi_to_excel.py:195:15: F541 f-string is missing placeholders
+tests\integration\add_psi_to_excel.py:205:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\run_fast_pipeline.py:15:1: E402 module level import not at top of file
+tests\integration\run_fast_pipeline.py:17:1: E302 expected 2 blank lines, found 1
+tests\integration\run_fast_pipeline.py:18:14: E226 missing whitespace around arithmetic operator
+tests\integration\run_fast_pipeline.py:20:14: E226 missing whitespace around arithmetic operator
+tests\integration\run_fast_pipeline.py:77:5: F841 local variable 'results' is assigned to but never used
+tests\integration\run_fast_pipeline.py:104:121: E501 line too long (128 > 120 characters)
+tests\integration\run_fast_pipeline.py:110:11: F541 f-string is missing placeholders
+tests\integration\run_fast_pipeline.py:115:11: F541 f-string is missing placeholders
+tests\integration\run_fast_pipeline.py:117:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\run_minimal_pipeline.py:12:1: E402 module level import not at top of file
+tests\integration\run_minimal_pipeline.py:14:1: E302 expected 2 blank lines, found 1
+tests\integration\run_minimal_pipeline.py:39:5: F841 local variable 'results' is assigned to but never used
+tests\integration\run_minimal_pipeline.py:81:121: E501 line too long (128 > 120 characters)
+tests\integration\run_minimal_pipeline.py:96:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\test_calibration_direct.py:8:1: F401 'os' imported but unused
+tests\integration\test_calibration_direct.py:11:1: E302 expected 2 blank lines, found 1
+tests\integration\test_calibration_direct.py:101:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\test_calibration_fix.py:11:1: E402 module level import not at top of file
+tests\integration\test_calibration_fix.py:13:1: E302 expected 2 blank lines, found 1
+tests\integration\test_calibration_fix.py:23:5: F841 local variable 'calibration_df' is assigned to but never used
+tests\integration\test_calibration_fix.py:82:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\test_end_to_end.py:12:1: F401 'pathlib.Path' imported but unused
+tests\integration\test_end_to_end.py:15:1: E402 module level import not at top of file
+tests\integration\test_end_to_end.py:16:1: F401 'risk_pipeline.utils.scoring.create_scoring_report' imported but unused
+tests\integration\test_end_to_end.py:16:1: E402 module level import not at top of file
+tests\integration\test_end_to_end.py:18:1: E302 expected 2 blank lines, found 1
+tests\integration\test_end_to_end.py:26:13: E722 do not use bare 'except'
+tests\integration\test_end_to_end.py:29:1: E302 expected 2 blank lines, found 1
+tests\integration\test_end_to_end.py:30:14: E226 missing whitespace around arithmetic operator
+tests\integration\test_end_to_end.py:32:14: E226 missing whitespace around arithmetic operator
+tests\integration\test_end_to_end.py:115:121: E501 line too long (128 > 120 characters)
+tests\integration\test_end_to_end.py:165:121: E501 line too long (168 > 120 characters)
+tests\integration\test_end_to_end.py:175:5: E722 do not use bare 'except'
+tests\integration\test_end_to_end.py:243:21: E226 missing whitespace around arithmetic operator
+tests\integration\test_end_to_end.py:245:14: E226 missing whitespace around arithmetic operator
+tests\integration\test_end_to_end.py:264:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\test_full_pipeline.py:8:1: F401 'os' imported but unused
+tests\integration\test_full_pipeline.py:11:1: E402 module level import not at top of file
+tests\integration\test_full_pipeline.py:13:1: E302 expected 2 blank lines, found 1
+tests\integration\test_full_pipeline.py:42:11: F541 f-string is missing placeholders
+tests\integration\test_full_pipeline.py:81:15: F541 f-string is missing placeholders
+tests\integration\test_full_pipeline.py:89:1: E305 expected 2 blank lines after class or function definition, found 1
+tests\integration\test_scoring.py:11:1: E402 module level import not at top of file
+tests\integration\test_scoring.py:13:1: E302 expected 2 blank lines, found 1
+tests\integration\test_scoring.py:175:19: F541 f-string is missing placeholders
+tests\integration\test_scoring.py:192:11: F541 f-string is missing placeholders
+tests\integration\test_scoring.py:200:1: E305 expected 2 blank lines after class or function definition, found 1

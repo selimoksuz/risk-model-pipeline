@@ -17,4 +17,3 @@ def train_baseline_logreg(X: pd.DataFrame, y: pd.Series, *, random_state: int = 
     auc = float(roc_auc_score(y, proba))
     name = "logreg"
     return ({name: {"estimator": clf, "auc_train": auc}}, name)
-

@@ -14,7 +14,8 @@ def train_logreg(X: pd.DataFrame, y: pd.Series, **kwargs) -> Any:
     return clf
 
 
-def hpo_logreg(X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int | None = None, random_state: int = 42) -> Tuple[Any, Dict[str, Any]]:
+def hpo_logreg(X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int |
+               None = None, random_state: int = 42) -> Tuple[Any, Dict[str, Any]]:
     """Simple Optuna-based HPO for LogisticRegression(C, penalty='l2'). Falls back to fixed model if Optuna unavailable."""
     try:
         import optuna
@@ -40,4 +41,3 @@ def hpo_logreg(X: pd.DataFrame, y: pd.Series, n_trials: int = 30, timeout: int |
     best.fit(X, y)
     proba = best.predict_proba(X)[:, 1]
     return best, {"auc_train": float(roc_auc_score(y, proba)), "best_params": best_params, "method": "optuna"}
-

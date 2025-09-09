@@ -89,7 +89,7 @@ class RiskModelPipeline:
             scores={self.best_model_name_: self.best_score_},
         )
 
-        print("Pipeline completed successfully!")
+        print("Pipeline finished.")
 
         return {
             "best_model": self.best_model_,

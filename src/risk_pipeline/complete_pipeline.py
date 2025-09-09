@@ -87,7 +87,7 @@ class CompletePipeline:
         """
         
         print("\n" + "="*80)
-        print("COMPLETE RISK MODEL PIPELINE")
+        print("RISK MODEL PIPELINE")
         print("="*80)
         
         # 1. Data Processing and Validation
@@ -215,7 +215,7 @@ class CompletePipeline:
         self._perform_shap_analysis()
         
         print("\n" + "="*80)
-        print("PIPELINE COMPLETED SUCCESSFULLY!")
+        print("Pipeline finished.")
         print("="*80)
         
         return self._get_results()

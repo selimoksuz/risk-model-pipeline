@@ -156,7 +156,7 @@ class AdvancedRiskPipeline:
         self._generate_comprehensive_reports()
         
         print("\n" + "="*80)
-        print("PIPELINE COMPLETED SUCCESSFULLY!")
+        print("Pipeline finished.")
         print("="*80)
         
         return self._get_final_results()

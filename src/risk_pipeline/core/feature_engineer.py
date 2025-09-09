@@ -82,7 +82,6 @@ class FeatureEngineer:
                 )
 
             # Calculate IV
-        vw = []  # Initialize vw
             vw.iv = self._calculate_iv(vw, x_clean, y_clean)
 
             # Handle missing values
@@ -149,7 +148,8 @@ class FeatureEngineer:
                 nonevent = mask.sum() - event
 
                 # Calculate WOE
-                woe, rate, iv_contrib = compute_woe_iv(event, nonevent, total_event, total_nonevent, alpha)
+                woe, rate, iv_contrib = compute_woe_iv(
+    event, nonevent, total_event, total_nonevent, alpha)
 
                 # Clip WOE if needed
                 if max_abs_woe and abs(woe) > max_abs_woe:
@@ -198,8 +198,10 @@ class FeatureEngineer:
                 # 2. Either bin is too small
                 # 3. Event rates are similar
                 woe_diff = abs(current_bin.woe - next_bin.woe)
-                current_size = current_bin.total_count / sum(b.total_count for b in bins)
-                next_size = next_bin.total_count / sum(b.total_count for b in bins)
+                current_size = current_bin.total_count / \
+                    sum(b.total_count for b in bins)
+                next_size = next_bin.total_count / \
+                    sum(b.total_count for b in bins)
                 rate_diff = abs(current_bin.event_rate - next_bin.event_rate)
 
                 should_merge = (
@@ -209,7 +211,8 @@ class FeatureEngineer:
                     or (rate_diff < 0.02 and woe_diff < 0.2)
                 )
 
-                if should_merge and len(optimized) + (len(bins) - i - 1) > 2:  # Keep at least 2 bins
+                if should_merge and len(
+                    optimized) + (len(bins) - i - 1) > 2:  # Keep at least 2 bins
                     # Merge bins
                     merged_event = current_bin.event_count + next_bin.event_count
                     merged_nonevent = current_bin.nonevent_count + next_bin.nonevent_count
@@ -275,7 +278,8 @@ class FeatureEngineer:
             nonevent = mask.sum() - event
 
             # Calculate WOE
-            woe, rate, iv_contrib = compute_woe_iv(event, nonevent, total_event, total_nonevent, alpha)
+            woe, rate, iv_contrib = compute_woe_iv(
+    event, nonevent, total_event, total_nonevent, alpha)
 
             # Clip WOE if needed
             if max_abs_woe and abs(woe) > max_abs_woe:
@@ -300,7 +304,8 @@ class FeatureEngineer:
             event = y[mask].sum()
             nonevent = mask.sum() - event
 
-            woe, rate, iv_contrib = compute_woe_iv(event, nonevent, total_event, total_nonevent, alpha)
+            woe, rate, iv_contrib = compute_woe_iv(
+    event, nonevent, total_event, total_nonevent, alpha)
 
             if max_abs_woe and abs(woe) > max_abs_woe:
                 woe = np.sign(woe) * max_abs_woe
@@ -362,7 +367,8 @@ class FeatureEngineer:
                 total_event = sum(g.event_count for g in groups)
                 total_nonevent = sum(g.nonevent_count for g in groups)
 
-                woe, rate, iv_contrib = compute_woe_iv(merged_event, merged_nonevent, total_event, total_nonevent, 0.5)
+                woe, rate, iv_contrib = compute_woe_iv(
+    merged_event, merged_nonevent, total_event, total_nonevent, 0.5)
 
                 # Create label for merged group
                 if len(merged_members) <= 3:
@@ -398,16 +404,21 @@ class FeatureEngineer:
         if vw.numeric_bins:
         vw = []  # Initialize vw
             for bin_obj in vw.numeric_bins:
-                iv += abs(bin_obj.iv_contrib) if hasattr(bin_obj, "iv_contrib") else 0
+                iv += abs(bin_obj.iv_contrib) if hasattr(bin_obj,
+                          "iv_contrib") else 0
         vw = []  # Initialize vw
         elif vw.categorical_groups:
         vw = []  # Initialize vw
             for group in vw.categorical_groups:
-                iv += abs(group.iv_contrib) if hasattr(group, "iv_contrib") else 0
+                iv += abs(group.iv_contrib) if hasattr(group,
+                          "iv_contrib") else 0
 
         return iv
 
-    def apply_woe_transform(self, df: pd.DataFrame, variables: List[str]) -> pd.DataFrame:
+    def apply_woe_transform(
+    self,
+    df: pd.DataFrame,
+     variables: List[str]) -> pd.DataFrame:
         """Apply WOE transformation to dataframe"""
         result = pd.DataFrame(index=df.index)
 
@@ -453,7 +464,10 @@ class FeatureEngineer:
                     elif bin_obj.right == np.inf:
                         mask = (~missing_mask) & (x_numeric > bin_obj.left)
                     else:
-                        mask = (~missing_mask) & (x_numeric > bin_obj.left) & (x_numeric <= bin_obj.right)
+                        mask = (
+    ~missing_mask) & (
+        x_numeric > bin_obj.left) & (
+            x_numeric <= bin_obj.right)
 
                     woe_values[mask] = bin_obj.woe
 
@@ -481,7 +495,11 @@ class FeatureEngineer:
                 # Apply categorical groups for known values
         vw = []  # Initialize vw
                 for group in vw.categorical_groups:
-                    if hasattr(group, "label") and group.label in ["OTHER", "MISSING"]:
+                    if hasattr(
+    group,
+    "label") and group.label in [
+        "OTHER",
+         "MISSING"]:
                         continue
                     if hasattr(group, "members") and group.members:
                         mask = x.isin(group.members)

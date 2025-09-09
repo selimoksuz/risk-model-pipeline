@@ -1,11 +1,13 @@
 """Feature engineering module for WOE, PSI, and feature selection"""
 
+import os
 import warnings
 from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold
@@ -80,7 +82,6 @@ class FeatureEngineer:
                 )
 
             # Calculate IV
-        vw = []  # Initialize vw
             vw.iv = self._calculate_iv(vw, x_clean, y_clean)
 
             # Handle missing values
@@ -147,7 +148,8 @@ class FeatureEngineer:
                 nonevent = mask.sum() - event
 
                 # Calculate WOE
-                woe, rate, iv_contrib = compute_woe_iv(event, nonevent, total_event, total_nonevent, alpha)
+                woe, rate, iv_contrib = compute_woe_iv(
+    event, nonevent, total_event, total_nonevent, alpha)
 
                 # Clip WOE if needed
                 if max_abs_woe and abs(woe) > max_abs_woe:
@@ -196,8 +198,10 @@ class FeatureEngineer:
                 # 2. Either bin is too small
                 # 3. Event rates are similar
                 woe_diff = abs(current_bin.woe - next_bin.woe)
-                current_size = current_bin.total_count / sum(b.total_count for b in bins)
-                next_size = next_bin.total_count / sum(b.total_count for b in bins)
+                current_size = current_bin.total_count / \
+                    sum(b.total_count for b in bins)
+                next_size = next_bin.total_count / \
+                    sum(b.total_count for b in bins)
                 rate_diff = abs(current_bin.event_rate - next_bin.event_rate)
 
                 should_merge = (
@@ -207,7 +211,8 @@ class FeatureEngineer:
                     or (rate_diff < 0.02 and woe_diff < 0.2)
                 )
 
-                if should_merge and len(optimized) + (len(bins) - i - 1) > 2:  # Keep at least 2 bins
+                if should_merge and len(
+                    optimized) + (len(bins) - i - 1) > 2:  # Keep at least 2 bins
                     # Merge bins
                     merged_event = current_bin.event_count + next_bin.event_count
                     merged_nonevent = current_bin.nonevent_count + next_bin.nonevent_count
@@ -273,7 +278,8 @@ class FeatureEngineer:
             nonevent = mask.sum() - event
 
             # Calculate WOE
-            woe, rate, iv_contrib = compute_woe_iv(event, nonevent, total_event, total_nonevent, alpha)
+            woe, rate, iv_contrib = compute_woe_iv(
+    event, nonevent, total_event, total_nonevent, alpha)
 
             # Clip WOE if needed
             if max_abs_woe and abs(woe) > max_abs_woe:
@@ -298,7 +304,8 @@ class FeatureEngineer:
             event = y[mask].sum()
             nonevent = mask.sum() - event
 
-            woe, rate, iv_contrib = compute_woe_iv(event, nonevent, total_event, total_nonevent, alpha)
+            woe, rate, iv_contrib = compute_woe_iv(
+    event, nonevent, total_event, total_nonevent, alpha)
 
             if max_abs_woe and abs(woe) > max_abs_woe:
                 woe = np.sign(woe) * max_abs_woe
@@ -360,7 +367,8 @@ class FeatureEngineer:
                 total_event = sum(g.event_count for g in groups)
                 total_nonevent = sum(g.nonevent_count for g in groups)
 
-                woe, rate, iv_contrib = compute_woe_iv(merged_event, merged_nonevent, total_event, total_nonevent, 0.5)
+                woe, rate, iv_contrib = compute_woe_iv(
+    merged_event, merged_nonevent, total_event, total_nonevent, 0.5)
 
                 # Create label for merged group
                 if len(merged_members) <= 3:
@@ -396,16 +404,21 @@ class FeatureEngineer:
         if vw.numeric_bins:
         vw = []  # Initialize vw
             for bin_obj in vw.numeric_bins:
-                iv += abs(bin_obj.iv_contrib) if hasattr(bin_obj, "iv_contrib") else 0
+                iv += abs(bin_obj.iv_contrib) if hasattr(bin_obj,
+                          "iv_contrib") else 0
         vw = []  # Initialize vw
         elif vw.categorical_groups:
         vw = []  # Initialize vw
             for group in vw.categorical_groups:
-                iv += abs(group.iv_contrib) if hasattr(group, "iv_contrib") else 0
+                iv += abs(group.iv_contrib) if hasattr(group,
+                          "iv_contrib") else 0
 
         return iv
 
-    def apply_woe_transform(self, df: pd.DataFrame, variables: List[str]) -> pd.DataFrame:
+    def apply_woe_transform(
+    self,
+    df: pd.DataFrame,
+     variables: List[str]) -> pd.DataFrame:
         """Apply WOE transformation to dataframe"""
         result = pd.DataFrame(index=df.index)
 
@@ -451,7 +464,10 @@ class FeatureEngineer:
                     elif bin_obj.right == np.inf:
                         mask = (~missing_mask) & (x_numeric > bin_obj.left)
                     else:
-                        mask = (~missing_mask) & (x_numeric > bin_obj.left) & (x_numeric <= bin_obj.right)
+                        mask = (
+    ~missing_mask) & (
+        x_numeric > bin_obj.left) & (
+            x_numeric <= bin_obj.right)
 
                     woe_values[mask] = bin_obj.woe
 
@@ -479,7 +495,11 @@ class FeatureEngineer:
                 # Apply categorical groups for known values
         vw = []  # Initialize vw
                 for group in vw.categorical_groups:
-                    if hasattr(group, "label") and group.label in ["OTHER", "MISSING"]:
+                    if hasattr(
+    group,
+    "label") and group.label in [
+        "OTHER",
+         "MISSING"]:
                         continue
                     if hasattr(group, "members") and group.members:
                         mask = x.isin(group.members)
@@ -551,15 +571,16 @@ class FeatureEngineer:
         return keep_vars
 
     def forward_selection(self, X: pd.DataFrame, y: np.ndarray, max_features: int = 20, cv_folds: int = 5) -> List[str]:
-        """Forward feature selection with cross-validation"""
+        """Forward feature selection with cross-validation and 1SE rule"""
         selected = []
         remaining = list(X.columns)
+        scores_history = []  # Store scores and std for 1SE rule
 
         skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=self.cfg.random_state)
 
         def cv_score(cols):
             if not cols:
-                return 0.0
+                return 0.0, 0.0
             scores = []
             for train_idx, val_idx in skf.split(X[cols], y):
                 model = LogisticRegression(
@@ -578,17 +599,19 @@ class FeatureEngineer:
                 except Exception:
                     scores.append(0.5)
 
-            return np.mean(scores)
+            return np.mean(scores), np.std(scores)
 
         # Forward selection
         while remaining and len(selected) < max_features:
             best_score = -np.inf
+            best_std = 0
             best_var = None
 
             for var in remaining:
-                score = cv_score(selected + [var])
-                if score > best_score:
-                    best_score = score
+                score_mean, score_std = cv_score(selected + [var])
+                if score_mean > best_score:
+                    best_score = score_mean
+                    best_std = score_std
                     best_var = var
 
             if best_var is None:
@@ -596,11 +619,27 @@ class FeatureEngineer:
 
             selected.append(best_var)
             remaining.remove(best_var)
+            scores_history.append((len(selected), best_score, best_std))
 
             # Early stopping if score doesn't improve much
             if len(selected) > 3:
-                prev_score = cv_score(selected[:-1])
+                prev_score, _ = cv_score(selected[:-1])
                 if best_score - prev_score < 0.001:
+                    break
+
+        # Apply 1SE rule if enabled
+        if getattr(self.cfg, 'forward_1se', True) and len(scores_history) > 1:
+            # Find best score
+            best_idx = np.argmax([s[1] for s in scores_history])
+            best_score = scores_history[best_idx][1]
+            best_std = scores_history[best_idx][2]
+            
+            # Find smallest model within 1 SE of best
+            threshold = best_score - best_std
+            for i, (n_features, score, _) in enumerate(scores_history):
+                if score >= threshold:
+                    selected = selected[:n_features]
+                    print(f"   - 1SE rule: Selected {n_features} features (best: {best_idx+1})")
                     break
 
         return selected
@@ -671,9 +710,167 @@ class FeatureEngineer:
             selector = SelectKBest(f_classif, k=min(20, X.shape[1]))
             selector.fit(X, y)
             return X.columns[selector.get_support()].tolist()
+    
+    def noise_sentinel_check(self, X: pd.DataFrame, y: np.ndarray, selected_features: List[str]) -> List[str]:
+        """Add noise variables to check for overfitting"""
+        if not getattr(self.cfg, 'use_noise_sentinel', False):
+            return selected_features
+        
+        print("   - Running noise sentinel check...")
+        
+        # Add noise variables
+        X_with_noise = X.copy()
+        X_with_noise['_noise_gaussian'] = np.random.randn(len(X))
+        X_with_noise['_noise_permuted'] = np.random.permutation(y)
+        
+        # Run forward selection with noise variables
+        all_features = list(selected_features) + ['_noise_gaussian', '_noise_permuted']
+        X_subset = X_with_noise[all_features]
+        
+        # Re-run selection
+        new_selected = self.forward_selection(X_subset, y, max_features=len(selected_features)+2)
+        
+        # Check if noise variables were selected
+        noise_selected = [f for f in new_selected if f.startswith('_noise_')]
+        if noise_selected:
+            print(f"   - WARNING: Noise variables selected: {noise_selected}")
+            print("   - Removing noise and re-selecting features")
+            # Remove noise and return original features
+            new_selected = [f for f in new_selected if not f.startswith('_noise_')]
+        else:
+            print("   - PASS: No noise variables selected")
+        
+        return new_selected
+    
+    def calculate_vif(self, X: pd.DataFrame, threshold: float = 5.0) -> pd.DataFrame:
+        """Calculate Variance Inflation Factor for features"""
+        try:
+            from statsmodels.stats.outliers_influence import variance_inflation_factor
+            
+            vif_data = pd.DataFrame()
+            vif_data["feature"] = X.columns
+            vif_data["VIF"] = [variance_inflation_factor(X.values, i) 
+                               for i in range(len(X.columns))]
+            
+            high_vif = vif_data[vif_data["VIF"] > threshold]
+            if not high_vif.empty:
+                print(f"   - Features with high VIF (>{threshold}):")
+                print(high_vif)
+            
+            return vif_data
+        except ImportError:
+            print("   - statsmodels not installed, skipping VIF calculation")
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"   - VIF calculation failed: {e}")
+            return pd.DataFrame()
+    
+    def integrate_dictionary(self, results: Dict, dictionary_path: str) -> Dict:
+        """Integrate variable descriptions from data dictionary"""
+        if not dictionary_path or not os.path.exists(dictionary_path):
+            return results
+        
+        try:
+            print("   - Integrating data dictionary...")
+            dict_df = pd.read_excel(dictionary_path)
+            
+            # Assume dictionary has 'variable' and 'description' columns
+            desc_map = dict(zip(dict_df['variable'], dict_df['description']))
+            
+            # Add descriptions to final variables
+            if 'final_features' in results:
+                features_with_desc = []
+                for feat in results['final_features']:
+                    desc = desc_map.get(feat, '')
+                    features_with_desc.append({'feature': feat, 'description': desc})
+                results['features_with_descriptions'] = pd.DataFrame(features_with_desc)
+            
+            return results
+        except Exception as e:
+            print(f"   - Dictionary integration failed: {e}")
+            return results
         except Exception as e:
             print(f"   - Boruta failed: {e}, using fallback")
             # Fallback to simple univariate selection
             selector = SelectKBest(f_classif, k=min(20, X.shape[1]))
             selector.fit(X, y)
             return X.columns[selector.get_support()].tolist()
+    
+    def noise_sentinel_check(self, X: pd.DataFrame, y: np.ndarray, selected_features: List[str]) -> List[str]:
+        """Add noise variables to check for overfitting"""
+        if not getattr(self.cfg, 'use_noise_sentinel', False):
+            return selected_features
+        
+        print("   - Running noise sentinel check...")
+        
+        # Add noise variables
+        X_with_noise = X.copy()
+        X_with_noise['_noise_gaussian'] = np.random.randn(len(X))
+        X_with_noise['_noise_permuted'] = np.random.permutation(y)
+        
+        # Run forward selection with noise variables
+        all_features = list(selected_features) + ['_noise_gaussian', '_noise_permuted']
+        X_subset = X_with_noise[all_features]
+        
+        # Re-run selection
+        new_selected = self.forward_selection(X_subset, y, max_features=len(selected_features)+2)
+        
+        # Check if noise variables were selected
+        noise_selected = [f for f in new_selected if f.startswith('_noise_')]
+        if noise_selected:
+            print(f"   - WARNING: Noise variables selected: {noise_selected}")
+            print("   - Removing noise and re-selecting features")
+            # Remove noise and return original features
+            new_selected = [f for f in new_selected if not f.startswith('_noise_')]
+        else:
+            print("   - PASS: No noise variables selected")
+        
+        return new_selected
+    
+    def calculate_vif(self, X: pd.DataFrame, threshold: float = 5.0) -> pd.DataFrame:
+        """Calculate Variance Inflation Factor for features"""
+        try:
+            from statsmodels.stats.outliers_influence import variance_inflation_factor
+            
+            vif_data = pd.DataFrame()
+            vif_data["feature"] = X.columns
+            vif_data["VIF"] = [variance_inflation_factor(X.values, i) 
+                               for i in range(len(X.columns))]
+            
+            high_vif = vif_data[vif_data["VIF"] > threshold]
+            if not high_vif.empty:
+                print(f"   - Features with high VIF (>{threshold}):")
+                print(high_vif)
+            
+            return vif_data
+        except ImportError:
+            print("   - statsmodels not installed, skipping VIF calculation")
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"   - VIF calculation failed: {e}")
+            return pd.DataFrame()
+    
+    def integrate_dictionary(self, results: Dict, dictionary_path: str) -> Dict:
+        """Integrate variable descriptions from data dictionary"""
+        if not dictionary_path or not os.path.exists(dictionary_path):
+            return results
+        
+        try:
+            print("   - Integrating data dictionary...")
+            dict_df = pd.read_excel(dictionary_path)
+            
+            # Assume dictionary has 'variable' and 'description' columns
+            desc_map = dict(zip(dict_df['variable'], dict_df['description']))
+            
+            # Add descriptions to final variables
+            if 'final_features' in results:
+                features_with_desc = []
+                for feat in results['final_features']:
+                    desc = desc_map.get(feat, '')
+                    features_with_desc.append({'feature': feat, 'description': desc})
+                results['features_with_descriptions'] = pd.DataFrame(features_with_desc)
+            
+            return results
+        except Exception as e:
+            print(f"   - Dictionary integration failed: {e}")
+            return results

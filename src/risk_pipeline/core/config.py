@@ -63,10 +63,12 @@ class Config:
 
         # Feature selection settings
         self.use_boruta = kwargs.get("use_boruta", True)
+        self.forward_selection = kwargs.get("forward_selection", True)
         self.forward_1se = kwargs.get("forward_1se", True)
         self.max_features = kwargs.get("max_features", 20)
         self.min_features = kwargs.get("min_features", 3)
         self.use_noise_sentinel = kwargs.get("use_noise_sentinel", True)
+        self.enable_psi = kwargs.get("enable_psi", True)
 
         # Imputation settings
         self.imputation_strategy = kwargs.get("imputation_strategy", "median")

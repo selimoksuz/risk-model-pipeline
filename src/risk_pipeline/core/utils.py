@@ -59,25 +59,25 @@ def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray):
     """Calculate KS statistic"""
     y_true = np.asarray(y_true)
     y_proba = np.asarray(y_proba)
-    
+
     sorted_idx = np.argsort(y_proba)
     y_true_sorted = y_true[sorted_idx]
-    
+
     n_total = len(y_true)
     n_positives = np.sum(y_true)
     n_negatives = n_total - n_positives
-    
+
     if n_positives == 0 or n_negatives == 0:
         return 0.0, 0.5
-    
+
     tpr = np.cumsum(y_true_sorted) / n_positives
     fpr = np.cumsum(1 - y_true_sorted) / n_negatives
-    
+
     ks_values = np.abs(tpr - fpr)
     max_ks_idx = np.argmax(ks_values)
     max_ks = ks_values[max_ks_idx]
     threshold = y_proba[sorted_idx[max_ks_idx]]
-    
+
     return float(max_ks), float(threshold)
 
 def ks_table(y_true: np.ndarray, y_proba: np.ndarray, n_bands: int = 10) -> Dict:
@@ -98,31 +98,31 @@ def compute_woe_iv(event: int, nonevent: int, total_event: int, total_nonevent: 
         actual_rate = event / (event + nonevent)
     else:
         actual_rate = 0.0
-    
+
     # Apply Laplace smoothing to avoid division by zero
     # This is standard practice in WOE calculation
     e_s = event + alpha
     ne_s = nonevent + alpha
-    
+
     # Total events and non-events with smoothing
     te_s = total_event + alpha * 10  # Smoothing for totals
     tne_s = total_nonevent + alpha * 10
-    
+
     # Calculate distributions
     dist_event = e_s / te_s
     dist_nonevent = ne_s / tne_s
-    
+
     # Standard WOE calculation: ln(% of events / % of non-events)
     if dist_nonevent == 0:
         dist_nonevent = 1e-10  # Small value to avoid log(0)
     if dist_event == 0:
         dist_event = 1e-10
-        
+
     woe = float(np.log(dist_event / dist_nonevent))
-    
+
     # IV contribution for this bin: (dist_event - dist_nonevent) * WOE
     iv_contrib = float((dist_event - dist_nonevent) * woe)
-    
+
     return woe, float(actual_rate), iv_contrib
 
 # Timer classes
@@ -130,11 +130,11 @@ class Timer:
     """Context manager for timing operations"""
     def __init__(self, label: str, logger=print):
         self.label, self.logger, self.t0 = label, logger, None
-        
+
     def __enter__(self):
         self.t0 = time.time()
         self.logger(f"[{now_str()}] >> {self.label} starting{sys_metrics()}")
-        
+
     def __exit__(self, exc_type, exc, tb):
         ok_fail = " — FAIL" if exc_type else " — OK"
         if exc_type:
@@ -146,7 +146,7 @@ class Timer2:
     """Alternative timer implementation"""
     def __init__(self, logger=print):
         self.logger = logger
-        
+
     def __call__(self, label: str):
         return Timer(label, self.logger)
 
@@ -185,7 +185,7 @@ class VariableWOE:
     categorical_groups: Optional[List[CategoricalGroup]] = None
     missing_woe: Optional[float] = None
     missing_rate: float = 0.0
-    
+
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization"""
         result = {
@@ -195,7 +195,7 @@ class VariableWOE:
             "missing_woe": self.missing_woe,
             "missing_rate": self.missing_rate
         }
-        
+
         if self.numeric_bins:
             result["numeric_bins"] = [
                 {
@@ -209,7 +209,7 @@ class VariableWOE:
                 }
                 for b in self.numeric_bins
             ]
-        
+
         if self.categorical_groups:
             result["categorical_groups"] = [
                 {
@@ -223,5 +223,5 @@ class VariableWOE:
                 }
                 for g in self.categorical_groups
             ]
-        
+
         return result

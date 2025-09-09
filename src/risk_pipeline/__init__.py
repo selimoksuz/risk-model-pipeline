@@ -10,7 +10,7 @@ from .core.config import Config
 __all__ = [
     "__version__",
     "__version_info__",
-    "run_pipeline", 
+    "run_pipeline",
     "score_df",
     "RiskModelPipeline",
     "DualPipeline",

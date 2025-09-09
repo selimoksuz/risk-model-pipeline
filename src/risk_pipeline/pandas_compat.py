@@ -12,7 +12,7 @@ def safe_string_strip_casefold(series):
     """
     if series is None or series.empty:
         return series
-    
+
     # Convert to string type explicitly
     if hasattr(series, 'astype'):
         # For pandas 2.x, ensure we use string dtype
@@ -20,7 +20,7 @@ def safe_string_strip_casefold(series):
             str_series = series.astype(pd.StringDtype())
         else:
             str_series = series.astype(str)
-        
+
         # Apply string methods
         result = str_series.str.strip()
         result = result.str.casefold()
@@ -54,7 +54,7 @@ def safe_categorical(data, categories=None):
     if categories is not None:
         # Ensure categories are unique and sorted
         categories = pd.Index(categories).unique()
-    
+
     return pd.Categorical(data, categories=categories)
 
 

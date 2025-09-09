@@ -1,6 +1,7 @@
 """Command Line Interface for Risk Model Pipeline"""
-import os as _os_utf8, sys as _sys_utf8
-_os_utf8.environ.setdefault('PYTHONUTF8','1')
+import os as _os_utf8
+import sys as _sys_utf8
+_os_utf8.environ.setdefault('PYTHONUTF8', '1')
 try:
     if hasattr(_sys_utf8.stdout, 'reconfigure'):
         _sys_utf8.stdout.reconfigure(encoding='utf-8')
@@ -11,14 +12,11 @@ except Exception:
 import json
 import joblib
 import pandas as pd
-import pickle
 import typer
 from pathlib import Path
-import os
 
 from .core.config import Config
 from .pipeline import RiskModelPipeline, DualPipeline
-from .model.calibrate import apply_calibrator
 from .stages.scoring import build_scored_frame
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
@@ -38,7 +36,7 @@ def run(
 ):
     """Run the main risk model pipeline"""
     df = pd.read_csv(input_csv)
-    
+
     cfg = Config(
         target_col=target_col,
         id_col=id_col,
@@ -49,12 +47,12 @@ def run(
         psi_threshold=psi_threshold,
         model_type=model_type
     )
-    
+
     if dual_pipeline:
         pipe = DualPipeline(cfg)
     else:
         pipe = RiskModelPipeline(cfg)
-    
+
     pipe.run(df)
     typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
 
@@ -91,18 +89,18 @@ def run_advanced(
 ):
     """Run the risk model pipeline with advanced configuration"""
     df = pd.read_csv(input_csv)
-    
+
     cfg = Config(
-        id_col=id_col, 
-        time_col=time_col, 
+        id_col=id_col,
+        time_col=time_col,
         target_col=target_col,
         oot_months=oot_months,
-        output_excel_path=output_excel, 
+        output_excel_path=output_excel,
         output_folder=output_folder,
-        cluster_top_k=cluster_top_k, 
+        cluster_top_k=cluster_top_k,
         rho_threshold=rho_threshold,
-        vif_threshold=vif_threshold, 
-        iv_min=iv_min, 
+        vif_threshold=vif_threshold,
+        iv_min=iv_min,
         iv_high_threshold=iv_high_flag,
         psi_threshold=psi_threshold_feature,
         use_optuna=(hpo_method != 'none'),
@@ -110,12 +108,12 @@ def run_advanced(
         optuna_timeout=hpo_timeout_sec,
         enable_dual_pipeline=ensemble
     )
-    
+
     if ensemble:
         pipe = DualPipeline(cfg)
     else:
         pipe = RiskModelPipeline(cfg)
-    
+
     pipe.run(df)
     typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
 
@@ -156,7 +154,9 @@ def score(
                 # Missing bin: any bin with NaN edges
                 miss_woe = 0.0
                 for b in info.get("bins", []):
-                    left = b.get("left"); right = b.get("right"); woe = b.get("woe", 0.0)
+                    left = b.get("left")
+                    right = b.get("right")
+                    woe = b.get("woe", 0.0)
                     if left is None or right is None or (pd.isna(left) and pd.isna(right)):
                         miss_woe = float(woe)
                         continue
@@ -176,9 +176,11 @@ def score(
                     lab = g.get("label")
                     woe = float(g.get("woe", 0.0))
                     if lab == "MISSING":
-                        miss_woe = woe; continue
+                        miss_woe = woe
+                        continue
                     if lab == "OTHER":
-                        other_woe = woe; continue
+                        other_woe = woe
+                        continue
                     members = set(map(str, g.get("members", [])))
                     m = (~miss) & (s.astype(str).isin(members))
                     w.loc[m] = woe
@@ -200,11 +202,11 @@ def score(
             calib = pickle.load(f)
 
     combined = build_scored_frame(df, mapping=mapping, final_vars=final_vars, model=mdl, id_col=id_col, calibrator=calib)
-    
+
     if output_csv:
         combined.to_csv(output_csv, index=False)
         typer.echo(f"Scores saved to {output_csv}")
-    
+
     if output_xlsx:
         with pd.ExcelWriter(output_xlsx, engine="xlsxwriter") as w:
             combined.to_excel(w, sheet_name="combined_scores", index=False)

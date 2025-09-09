@@ -54,7 +54,7 @@ def time_based_split(
             try:
                 # Use stratified split to maintain target distribution
                 train_indices, test_indices = train_test_split(
-                    rem, 
+                    rem,
                     test_size=test_size_row_frac,
                     stratify=rem_df[target_col],
                     random_state=42

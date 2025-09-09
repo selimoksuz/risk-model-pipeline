@@ -1,16 +1,13 @@
-def month_floor(dt):
-    """Floor datetime to month"""
-    import pandas as pd
-
-    return pd.Timestamp(dt.year, dt.month, 1)
-
-
 """Data processing module for the pipeline"""
 
+import pandas as pd
+import numpy as np
 from typing import Optional, Tuple
 
-import numpy as np
-import pandas as pd
+
+def month_floor(dt):
+    """Floor datetime to month"""
+    return pd.Timestamp(dt.year, dt.month, 1)
 
 
 class DataProcessor:

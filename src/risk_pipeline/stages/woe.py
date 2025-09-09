@@ -25,7 +25,7 @@ def apply_woe(df_in: pd.DataFrame, mapping: Dict[str, Any]) -> pd.DataFrame:
     right = b.get("right")
     woe = b.get("woe", 0.0)
     if left is None or right is None or (
-                pd.isna(left) and pd.isna(right)):
+                    pd.isna(left) and pd.isna(right)):
                     miss_woe = float(woe)
                     continue
                 m = (~miss) & (s >= left) & (s <= right)

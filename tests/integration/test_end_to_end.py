@@ -143,9 +143,9 @@ def main():
     if isinstance(final_features, dict):
         final_features = final_features.get('final_vars', final_features)
     if isinstance(final_features, dict):
-    # final_features = list(final_features.values())[0]
+        final_features = list(final_features.values())[0]
 
-print(f"  Model loaded: {type(model).__name__}")
+    print(f"  Model loaded: {type(model).__name__}")
     print(f"  Calibrator: {'Available' if calibrator else 'Not available'}")
 
     # Calculate training scores for PSI

@@ -47,7 +47,7 @@ def main():
             output_excel = "cal_test_report.xlsx",
             use_test_split = True,
             oot_months = 3,
-**{
+            **{
                 'try_mlp': config.try_mlp,
                 'ensemble': config.ensemble,
                 'calibration_data_path': config.calibration_data_path,
@@ -62,15 +62,15 @@ def main():
         print(f"   Run ID: {pipeline_results['run_id']}")
 
         # Check if calibrator was created
-        run_id = pipeline_results['run_id']
-        calibrator_path = f"outputs_cal_test/calibrator_{run_id}.joblib"
+        run_id=pipeline_results['run_id']
+        calibrator_path=f"outputs_cal_test/calibrator_{run_id}.joblib"
 
         if os.path.exists(calibrator_path):
             print("✅ Calibrator file exists!")
 
             # Try to load it
             import joblib
-            calibrator = joblib.load(calibrator_path)
+            calibrator=joblib.load(calibrator_path)
             print(f"✅ Calibrator loaded: {type(calibrator)}")
 
         else:

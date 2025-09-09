@@ -148,10 +148,10 @@ def main():
     if isinstance(final_features, dict):
         final_features = final_features.get("final_vars", final_features)
     if isinstance(final_features, dict):
-    # final_features = list(final_features.values())[0]
+        final_features = list(final_features.values())[0]
 
     # Load data
-train_df = pd.read_csv("data/input.csv")
+    train_df = pd.read_csv("data/input.csv")
     scoring_df = pd.read_csv("data/scoring.csv")
 
     print("Calculating PSI...")
@@ -187,12 +187,12 @@ train_df = pd.read_csv("data/input.csv")
     # Score new data
     # scoring_results = score_data(
         scoring_df = scoring_df,
-        model = model,
-    # final_features=final_features,
-        woe_mapping = woe_mapping,
-        calibrator = calibrator,
-    # training_scores=training_scores,
-        feature_mapping = feature_mapping if feature_mapping else None,
+        model=model,
+        # final_features=final_features,
+        woe_mapping=woe_mapping,
+        calibrator=calibrator,
+        # training_scores=training_scores,
+        feature_mapping=feature_mapping if feature_mapping else None,
     )
 
     print(f"\nPSI Score: {scoring_results.get('psi_score', 'N/A')}")

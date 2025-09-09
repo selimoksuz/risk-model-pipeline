@@ -181,9 +181,9 @@ def main():
 
         # Create comprehensive report instead
         from risk_pipeline.utils.report_updater import create_comprehensive_report
-    # pipeline_results = {
+        pipeline_results = {
             'best_model': 'MLP',
-'final_features': ['num1_corr95', 'num2_corr92'],
+            'final_features': ['num1_corr95', 'num2_corr92'],
             'run_id': run_id
         }
 

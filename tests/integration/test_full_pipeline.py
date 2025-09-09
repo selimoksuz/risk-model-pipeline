@@ -46,9 +46,9 @@ def main():
     print()
 
     # Run pipeline
-    # results = run_pipeline_from_dataframe(
-df = df,
-id_col = "app_id",
+    results = run_pipeline_from_dataframe(
+        df = df,
+        id_col = "app_id",
         time_col = "app_dt",
         target_col = "target",
         output_folder = "outputs_full",

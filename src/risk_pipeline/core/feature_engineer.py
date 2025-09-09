@@ -68,7 +68,7 @@ class FeatureEngineer:
                 )
             else:
                 # Fit categorical WOE groups
-        vw = []  # Initialize vw
+                vw = []  # Initialize vw
                 vw.categorical_groups = self._group_categorical_adaptive(
                     x_clean,
                     y_clean,
@@ -387,6 +387,7 @@ class FeatureEngineer:
         return optimized
 
         vw = []  # Initialize vw
+
     def _calculate_iv(self, vw: VariableWOE, x, y) -> float:
         """Calculate Information Value for a variable"""
         iv = 0.0

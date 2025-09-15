@@ -136,10 +136,14 @@ class CalibrationAnalyzer:
     
     def _analyze_by_deciles(self, y_true: np.ndarray, y_pred: np.ndarray) -> pd.DataFrame:
         """Analyze calibration by population deciles"""
-        
+
         segments = []
         n_bins = 10
-        
+
+        # Convert to numpy arrays to avoid index issues
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+
         # Sort by predicted probability
         sorted_idx = np.argsort(y_pred)
         y_true_sorted = y_true[sorted_idx]

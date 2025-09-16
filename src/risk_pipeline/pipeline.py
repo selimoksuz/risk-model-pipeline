@@ -5,6 +5,7 @@ import random
 import warnings
 from typing import Any, Dict, Optional, Union
 
+import numpy as np
 import pandas as pd
 
 from .core.config import Config
@@ -125,7 +126,25 @@ class RiskModelPipeline:
     def score(self, df: pd.DataFrame) -> pd.DataFrame:
         """Score new data (alias for predict)."""
         return self.predict(df)
-    
+
+    def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
+        """Return probability predictions for new data."""
+        if self.best_model_ is None:
+            raise ValueError("Pipeline must be run before making predictions")
+
+        # Process data
+        df_processed = self.processor.validate_and_freeze(df)
+
+        # Apply WOE transformation
+        if self.woe_mapping_:
+            df_woe = self.woe_transformer.transform(df_processed, self.woe_mapping_)
+            X = df_woe[self.final_vars_]
+        else:
+            X = df_processed[self.final_vars_]
+
+        # Return probabilities
+        return self.best_model_.predict_proba(X)
+
     def extract_results(self) -> Dict[str, Any]:
         """Extract comprehensive results from the fitted pipeline."""
         if self.best_model_ is None:

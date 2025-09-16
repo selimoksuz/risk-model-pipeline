@@ -3,8 +3,43 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 
 from .feature_engineer import FeatureEngineer
+
+
+# Move dataclasses to module level for pickling
+@dataclass
+class WOEBin:
+    """Represents a WOE bin for numeric variables"""
+    left: float
+    right: float
+    woe: float
+    iv_contrib: float
+    event_count: int
+    nonevent_count: int
+    event_rate: float
+
+
+@dataclass
+class WOEGroup:
+    """Represents a WOE group for categorical variables"""
+    label: str
+    members: list
+    woe: float
+    iv_contrib: float
+    event_count: int
+    nonevent_count: int
+    event_rate: float
+
+
+@dataclass
+class VariableWOE:
+    """Container for WOE mapping of a variable"""
+    numeric_bins: list = None
+    categorical_groups: list = None
+    missing_woe: float = 0.0
+    iv: float = 0.0
 
 
 class WOETransformer:
@@ -119,35 +154,6 @@ class WOETransformer:
     
     def _fit_woe_simple(self, series: pd.Series, target: pd.Series) -> Dict:
         """Simple WOE fitting for a single feature"""
-        from dataclasses import dataclass
-        
-        @dataclass
-        class WOEBin:
-            left: float
-            right: float
-            woe: float
-            iv_contrib: float
-            event_count: int
-            nonevent_count: int
-            event_rate: float
-        
-        @dataclass
-        class WOEGroup:
-            label: str
-            members: list
-            woe: float
-            iv_contrib: float
-            event_count: int
-            nonevent_count: int
-            event_rate: float
-        
-        @dataclass
-        class VariableWOE:
-            numeric_bins: list = None
-            categorical_groups: list = None
-            missing_woe: float = 0.0
-            iv: float = 0.0
-        
         result = VariableWOE()
         
         # Handle numeric variables

@@ -105,7 +105,7 @@ class RiskModelPipeline:
             raise ValueError("Pipeline must be run before making predictions")
 
         # Process data
-        df_processed = self.processor.process(df)
+        df_processed = self.processor.validate_and_freeze(df)
 
         # Apply WOE transformation
         if self.woe_mapping_:

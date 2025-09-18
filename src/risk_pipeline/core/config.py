@@ -48,11 +48,59 @@ class Config:
         self.min_bin_size = kwargs.get("min_bin_size", 0.05)
         self.woe_monotonic = kwargs.get("woe_monotonic", False)
         self.max_abs_woe = kwargs.get("max_abs_woe", None)
+
+        # Enhanced pipeline settings
+        self.enable_scoring = kwargs.get("enable_scoring", False)
+        self.enable_woe = kwargs.get("enable_woe", True)
+        self.enable_noise_sentinel = kwargs.get("enable_noise_sentinel", False)
+        self.enable_calibration = kwargs.get("enable_calibration", True)
+
+        # Selection configuration
+        self.selection_order = kwargs.get("selection_order", ['psi', 'vif', 'correlation', 'iv', 'boruta', 'stepwise'])
+        self.selection_method = kwargs.get("selection_method", 'stepwise')
+        self.max_features = kwargs.get("max_features", 20)
+
+        # Enhanced binning settings
+        self.binning_method = kwargs.get("binning_method", 'quantile')
+        self.max_bins = kwargs.get("max_bins", 10)
+        self.monotonic_woe = kwargs.get("monotonic_woe", True)
+
+        # Threshold settings
+        self.correlation_threshold = kwargs.get("correlation_threshold", 0.9)
+
+        # Data processing settings
+        self.numeric_imputation = kwargs.get("numeric_imputation", 'median')
+        self.categorical_imputation = kwargs.get("categorical_imputation", 'missing')
+        self.outlier_method = kwargs.get("outlier_method", 'clip')
+        self.min_category_freq = kwargs.get("min_category_freq", 0.01)
+
+        # Calibration settings
+        self.calibration_method = kwargs.get("calibration_method", 'isotonic')
+        self.stage2_method = kwargs.get("stage2_method", 'lower_mean')
+
+        # Risk band settings
+        self.n_risk_bands = kwargs.get("n_risk_bands", 10)
+        self.band_method = kwargs.get("band_method", 'quantile')
+
+        # Model settings
+        self.model_type = kwargs.get("model_type", 'all')
+        self.use_optuna = kwargs.get("use_optuna", False)
+        self.n_optuna_trials = kwargs.get("n_optuna_trials", 20)
+
+        # Split settings
+        self.test_ratio = kwargs.get("test_ratio", 0.2)
+        self.oot_months = kwargs.get("oot_months", 3)
+        self.equal_default_splits = kwargs.get("equal_default_splits", False)
+        self.min_oot_size = kwargs.get("min_oot_size", 100)
+
+        # Output settings
+        self.output_dir = kwargs.get("output_dir", '../outputs')
+        self.save_plots = kwargs.get("save_plots", True)
+        self.save_model = kwargs.get("save_model", True)
         self.handle_missing = kwargs.get("handle_missing", "as_category")
 
-        # Model training settings - FIXED n_trials
-        self.use_optuna = kwargs.get("use_optuna", True)
-        self.n_trials = kwargs.get("n_trials", 100)  # This will work properly now
+        # Model training settings - use values from above if not already set
+        self.n_trials = kwargs.get("n_trials", self.n_optuna_trials if hasattr(self, 'n_optuna_trials') else 100)
         self.optuna_timeout = kwargs.get("optuna_timeout", None)
         self.cv_folds = kwargs.get("cv_folds", 5)
 
@@ -66,7 +114,6 @@ class Config:
         self.use_boruta = kwargs.get("use_boruta", True)
         self.forward_selection = kwargs.get("forward_selection", True)
         self.forward_1se = kwargs.get("forward_1se", True)
-        self.max_features = kwargs.get("max_features", 20)
         self.min_features = kwargs.get("min_features", 3)
         self.use_noise_sentinel = kwargs.get("use_noise_sentinel", True)
         self.enable_psi = kwargs.get("enable_psi", True)
@@ -88,13 +135,10 @@ class Config:
         self.write_csv = kwargs.get("write_csv", False)
         self.run_id = kwargs.get("run_id", None)
 
-        # Data splitting settings
+        # Data splitting settings - using values from above if already set
         self.use_test_split = kwargs.get("use_test_split", True)
         self.train_ratio = kwargs.get("train_ratio", 0.60)
-        self.test_ratio = kwargs.get("test_ratio", 0.20)
         self.oot_ratio = kwargs.get("oot_ratio", 0.20)
-        self.oot_months = kwargs.get("oot_months", None)
-        self.min_oot_size = kwargs.get("min_oot_size", 50)
 
         # Initialize orchestrator config
         self.orchestrator = OrchestratorConfig()

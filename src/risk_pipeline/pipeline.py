@@ -11,10 +11,10 @@ import pandas as pd
 from .core.config import Config
 from .core.data_processor import DataProcessor
 from .core.feature_selector import FeatureSelector
-from .core.model_builder import ModelBuilder
-from .core.reporter import Reporter
-from .core.splitter import DataSplitter
-from .core.woe_transformer import WOETransformer
+from .core.model_builder import ComprehensiveModelBuilder as ModelBuilder
+from .core.reporter import EnhancedReporter as Reporter
+from .core.splitter import SmartDataSplitter as DataSplitter
+from .core.woe_transformer import EnhancedWOETransformer as WOETransformer
 
 warnings.filterwarnings("ignore")
 

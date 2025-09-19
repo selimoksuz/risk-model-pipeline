@@ -7,10 +7,10 @@ import pandas as pd
 
 from .core.config import Config
 from .model.calibrate import apply_calibrator
-from .pipeline import RiskModelPipeline
+from .unified_pipeline import UnifiedRiskPipeline
 
 
-def run_pipeline(df: pd.DataFrame, config: Optional[Config] = None, **config_kwargs) -> RiskModelPipeline:
+def run_pipeline(df: pd.DataFrame, config: Optional[Config] = None, **config_kwargs) -> UnifiedRiskPipeline:
     """Run the risk model pipeline on an in-memory DataFrame.
 
     Returns the fitted pipeline object. Reports are written to Excel only
@@ -18,8 +18,8 @@ def run_pipeline(df: pd.DataFrame, config: Optional[Config] = None, **config_kwa
     disabled unless explicitly enabled via config (write_csv = True).
     """
     cfg = config or Config(**config_kwargs)
-    pipe = RiskModelPipeline(cfg)
-    pipe.run(df)
+    pipe = UnifiedRiskPipeline(cfg)
+    pipe.fit(df)
     return pipe
 
 

@@ -20,7 +20,7 @@ import typer  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
 
 from .core.config import Config  # noqa: E402
-from .pipeline import DualPipeline, RiskModelPipeline  # noqa: E402
+from .unified_pipeline import UnifiedRiskPipeline  # noqa: E402
 from .stages.scoring import build_scored_frame  # noqa: E402
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
@@ -52,12 +52,8 @@ def run(
         model_type=model_type,
     )
 
-    if dual_pipeline:
-        pipe = DualPipeline(cfg)
-    else:
-        pipe = RiskModelPipeline(cfg)
-
-    pipe.run(df)
+    pipe = UnifiedRiskPipeline(cfg)
+    pipe.fit(df)
     typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
 
 
@@ -113,10 +109,7 @@ def run_advanced(
         enable_dual_pipeline=ensemble,
     )
 
-    if ensemble:
-        pipe = DualPipeline(cfg)
-    else:
-        pipe = RiskModelPipeline(cfg)
+    pipe = UnifiedRiskPipeline(cfg)
 
     pipe.run(df)
     typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")

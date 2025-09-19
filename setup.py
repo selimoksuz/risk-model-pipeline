@@ -46,6 +46,10 @@ setup(
         "joblib>=1.0.0",
         "openpyxl>=3.0.0",
         "xlsxwriter>=3.0.0",
+        "matplotlib>=3.5.0,<3.7.0",
+        "seaborn>=0.12.0",
+        "statsmodels>=0.13.0",
+        "typer>=0.9.0",
     ],
     
     # Optional dependencies

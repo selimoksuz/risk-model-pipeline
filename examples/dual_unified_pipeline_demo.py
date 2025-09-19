@@ -119,11 +119,11 @@ def main():
         enable_calibration=True,
         stage2_method="lower_mean",
         enable_woe=True,
-        # Full selection sequence (Boruta omitted in demo to avoid optional deps)
-        selection_order=["psi", "vif", "correlation", "iv", "stepwise"],
+        # Full selection sequence incl. Boruta (LightGBM-based)
+        selection_order=["psi", "vif", "correlation", "iv", "boruta", "stepwise"],
         iv_threshold=0.0,
         psi_threshold=10.0,
-        use_boruta=False,
+        use_boruta=True,
         forward_selection=True,
         max_features=12,
         use_optuna=False,

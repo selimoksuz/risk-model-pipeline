@@ -50,6 +50,7 @@ setup(
         "seaborn>=0.12.0",
         "statsmodels>=0.13.0",
         "typer>=0.9.0",
+        "lightgbm>=3.3.0",
     ],
     
     # Optional dependencies

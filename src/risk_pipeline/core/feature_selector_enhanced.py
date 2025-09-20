@@ -457,7 +457,7 @@ class AdvancedFeatureSelector:
         """Calculate VIF for a feature."""
         try:
             return variance_inflation_factor(X.values, feature_idx)
-        except:
+        except Exception:
             return 1.0
 
     def _binomial_threshold(self, n_trials: int, alpha: float = 0.05) -> int:

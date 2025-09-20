@@ -11,8 +11,6 @@ import pandas as pd
 from typing import Dict, List, Optional, Any, Union, Tuple
 from datetime import datetime
 import joblib
-import matplotlib.pyplot as plt
-import seaborn as sns
 from scipy import stats
 
 # Internal imports
@@ -118,73 +116,204 @@ class UnifiedRiskPipeline:
             print("\n[Step 2/10] Data Splitting...")
             splits = self._split_data(processed_data)
 
-            # Step 3: WOE Transformation & Univariate Analysis
-            print("\n[Step 3/10] WOE Transformation & Univariate Analysis...")
-            woe_results = self._apply_woe_transformation(splits)
+            def _run_single_flow(use_woe: bool) -> Dict[str, Any]:
+                """Run selection->modeling->calibration->bands for one mode (WOE or RAW)."""
+                original_enable_woe = getattr(self.config, 'enable_woe', True)
+                # Backup state
+                state_backup = {
+                    'models_': self.models_.copy(),
+                    'transformers_': self.transformers_.copy(),
+                    'data_': self.data_.copy(),
+                    'results_': self.results_.copy(),
+                    'selected_features_': getattr(self, 'selected_features_', []),
+                }
 
-            # Step 4: Feature Selection
-            print("\n[Step 4/10] Feature Selection...")
-            selection_results = self._select_features(splits, woe_results)
+                self.config.enable_woe = use_woe
 
-            # Step 5: Model Training
-            print("\n[Step 5/10] Model Training...")
-            model_results = self._train_models(splits, selection_results)
+                # Step 3: WOE Transformation & Univariate Analysis
+                print("\n[Step 3/10] WOE Transformation & Univariate Analysis...")
+                woe_res = self._apply_woe_transformation(splits)
 
-            # Step 6: Stage 1 Calibration
-            if self.config.enable_calibration:
-                print("\n[Step 6/10] Stage 1 Calibration...")
-                stage1_results = self._apply_stage1_calibration(
-                    model_results,
-                    calibration_df if calibration_df is not None else df
-                )
+                # Step 4: Feature Selection
+                print("\n[Step 4/10] Feature Selection...")
+                sel_res = self._select_features(splits, woe_res)
+
+                # Step 5: Model Training
+                print("\n[Step 5/10] Model Training...")
+                mdl_res = self._train_models(splits, sel_res)
+
+                # Step 6: Stage 1 Calibration
+                if self.config.enable_calibration:
+                    print("\n[Step 6/10] Stage 1 Calibration...")
+                    stg1 = self._apply_stage1_calibration(
+                        mdl_res,
+                        calibration_df if calibration_df is not None else df
+                    )
+                else:
+                    print("\n[Step 6/10] Stage 1 Calibration... Skipped")
+                    stg1 = {'calibrated_model': mdl_res.get('best_model')}
+                    mdl_res['calibrated_model'] = mdl_res.get('best_model')
+
+                # Step 7: Stage 2 Calibration (if data provided)
+                if stage2_df is not None:
+                    print("\n[Step 7/10] Stage 2 Calibration...")
+                    stg2 = self._apply_stage2_calibration(stg1, stage2_df)
+                else:
+                    print("\n[Step 7/10] Stage 2 Calibration... Skipped (no data)")
+                    stg2 = stg1
+
+                # Step 8: Risk Band Optimization
+                print("\n[Step 8/10] Risk Band Optimization...")
+                bands = self._optimize_risk_bands(stg2, splits)
+
+                # Step 9: Scoring (if enabled and data provided)
+                if self.config.enable_scoring and score_df is not None:
+                    print("\n[Step 9/10] Scoring...")
+                    score_out = self._score_data(score_df, stg2)
+                else:
+                    print("\n[Step 9/10] Scoring... Skipped")
+                    score_out = None
+
+                # Evaluate best score
+                best_name = mdl_res.get('best_model_name')
+                scores = mdl_res.get('scores', {})
+                def _score_of(name: Optional[str]) -> float:
+                    if not name or name not in scores:
+                        return -1e9
+                    s = scores[name]
+                    return s.get('test_auc') or s.get('train_auc') or 0.0
+
+                best_auc = _score_of(best_name)
+
+                out = {
+                    'use_woe': use_woe,
+                    'woe_results': woe_res,
+                    'selection_results': sel_res,
+                    'model_results': mdl_res,
+                    'stage1': stg1,
+                    'stage2': stg2,
+                    'risk_bands': bands,
+                    'scoring_results': score_out,
+                    'best_auc': best_auc,
+                    'selected_features': getattr(self, 'selected_features_', []),
+                }
+
+                # Restore state for the next flow
+                self.models_ = state_backup['models_']
+                self.transformers_ = state_backup['transformers_']
+                self.data_ = state_backup['data_']
+                self.results_ = state_backup['results_']
+                self.selected_features_ = state_backup['selected_features_']
+                self.config.enable_woe = original_enable_woe
+                return out
+
+            if getattr(self.config, 'enable_dual_pipeline', False):
+                print("\n[DUAL] Running RAW and WOE flows and selecting the best by AUC...")
+                flow_raw = _run_single_flow(False)
+                flow_woe = _run_single_flow(True)
+                best_flow = flow_woe if flow_woe['best_auc'] >= flow_raw['best_auc'] else flow_raw
+                chosen = 'WOE' if best_flow['use_woe'] else 'RAW'
+                print(f"[DUAL] Selected {chosen} flow with AUC={best_flow['best_auc']:.4f}")
+
+                # Step 10: Generate Reports for chosen flow
+                print("\n[Step 10/10] Generating Reports...")
+                # Set current state to chosen flow for reporter
+                self.models_ = best_flow['model_results'].get('models', {})
+                self.selected_features_ = best_flow.get('selected_features', [])
+                self.results_ = {
+                    'woe_results': best_flow['woe_results'],
+                    'risk_bands': best_flow['risk_bands'],
+                }
+                reports = self._generate_reports()
+
+                # Compile final results (chosen flow)
+                self.results_ = {
+                    'processed_data': processed_data,
+                    'splits': splits,
+                    'woe_results': best_flow['woe_results'],
+                    'selection_results': best_flow['selection_results'],
+                    'model_results': best_flow['model_results'],
+                    'calibration_stage1': best_flow['stage1'],
+                    'calibration_stage2': best_flow['stage2'],
+                    'risk_bands': best_flow['risk_bands'],
+                    'scoring_results': best_flow['scoring_results'],
+                    'reports': reports,
+                    'config': self.config.__dict__,
+                    'selected_features': best_flow.get('selected_features', []),
+                    'best_model_name': best_flow['model_results'].get('best_model_name'),
+                    'scores': best_flow['model_results'].get('scores', {}),
+                    'chosen_flow': chosen,
+                    'chosen_auc': best_flow['best_auc'],
+                }
             else:
-                print("\n[Step 6/10] Stage 1 Calibration... Skipped")
-                stage1_results = {'calibrated_model': model_results.get('best_model')}
-                model_results['calibrated_model'] = model_results.get('best_model')
+                # Single-flow path (default behaviour)
+                # Step 3: WOE Transformation & Univariate Analysis
+                print("\n[Step 3/10] WOE Transformation & Univariate Analysis...")
+                woe_results = self._apply_woe_transformation(splits)
 
-            # Step 7: Stage 2 Calibration (if data provided)
-            if stage2_df is not None:
-                print("\n[Step 7/10] Stage 2 Calibration...")
-                stage2_results = self._apply_stage2_calibration(
-                    stage1_results, stage2_df
-                )
-            else:
-                print("\n[Step 7/10] Stage 2 Calibration... Skipped (no data)")
-                stage2_results = stage1_results
+                # Step 4: Feature Selection
+                print("\n[Step 4/10] Feature Selection...")
+                selection_results = self._select_features(splits, woe_results)
 
-            # Step 8: Risk Band Optimization
-            print("\n[Step 8/10] Risk Band Optimization...")
-            risk_bands = self._optimize_risk_bands(stage2_results, splits)
+                # Step 5: Model Training
+                print("\n[Step 5/10] Model Training...")
+                model_results = self._train_models(splits, selection_results)
 
-            # Step 9: Scoring (if enabled and data provided)
-            if self.config.enable_scoring and score_df is not None:
-                print("\n[Step 9/10] Scoring...")
-                scoring_results = self._score_data(score_df, stage2_results)
-            else:
-                print("\n[Step 9/10] Scoring... Skipped")
-                scoring_results = None
+                # Step 6: Stage 1 Calibration
+                if self.config.enable_calibration:
+                    print("\n[Step 6/10] Stage 1 Calibration...")
+                    stage1_results = self._apply_stage1_calibration(
+                        model_results,
+                        calibration_df if calibration_df is not None else df
+                    )
+                else:
+                    print("\n[Step 6/10] Stage 1 Calibration... Skipped")
+                    stage1_results = {'calibrated_model': model_results.get('best_model')}
+                    model_results['calibrated_model'] = model_results.get('best_model')
 
-            # Step 10: Generate Reports
-            print("\n[Step 10/10] Generating Reports...")
-            reports = self._generate_reports()
+                # Step 7: Stage 2 Calibration (if data provided)
+                if stage2_df is not None:
+                    print("\n[Step 7/10] Stage 2 Calibration...")
+                    stage2_results = self._apply_stage2_calibration(
+                        stage1_results, stage2_df
+                    )
+                else:
+                    print("\n[Step 7/10] Stage 2 Calibration... Skipped (no data)")
+                    stage2_results = stage1_results
 
-            # Compile final results
-            self.results_ = {
-                'processed_data': processed_data,
-                'splits': splits,
-                'woe_results': woe_results,
-                'selection_results': selection_results,
-                'model_results': model_results,
-                'calibration_stage1': stage1_results,
-                'calibration_stage2': stage2_results,
-                'risk_bands': risk_bands,
-                'scoring_results': scoring_results,
-                'reports': reports,
-                'config': self.config.__dict__,
-                'selected_features': self.selected_features_,
-                'best_model_name': model_results.get('best_model_name'),
-                'scores': model_results.get('scores', {})
-            }
+                # Step 8: Risk Band Optimization
+                print("\n[Step 8/10] Risk Band Optimization...")
+                risk_bands = self._optimize_risk_bands(stage2_results, splits)
+
+                # Step 9: Scoring (if enabled and data provided)
+                if self.config.enable_scoring and score_df is not None:
+                    print("\n[Step 9/10] Scoring...")
+                    scoring_results = self._score_data(score_df, stage2_results)
+                else:
+                    print("\n[Step 9/10] Scoring... Skipped")
+                    scoring_results = None
+
+                # Step 10: Generate Reports
+                print("\n[Step 10/10] Generating Reports...")
+                reports = self._generate_reports()
+
+                # Compile final results
+                self.results_ = {
+                    'processed_data': processed_data,
+                    'splits': splits,
+                    'woe_results': woe_results,
+                    'selection_results': selection_results,
+                    'model_results': model_results,
+                    'calibration_stage1': stage1_results,
+                    'calibration_stage2': stage2_results,
+                    'risk_bands': risk_bands,
+                    'scoring_results': scoring_results,
+                    'reports': reports,
+                    'config': self.config.__dict__,
+                    'selected_features': self.selected_features_,
+                    'best_model_name': model_results.get('best_model_name'),
+                    'scores': model_results.get('scores', {})
+                }
 
             print("\n" + "="*80)
             print("PIPELINE EXECUTION COMPLETED SUCCESSFULLY")

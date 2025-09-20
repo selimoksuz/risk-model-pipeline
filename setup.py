@@ -1,4 +1,4 @@
-"""
+﻿"""
 Setup configuration for risk-model-pipeline
 Professional PyPI package configuration
 """
@@ -18,7 +18,7 @@ with open("src/risk_pipeline/_version.py") as f:
 setup(
     name="risk-pipeline",
     version=version["__version__"],
-    author="Selim Öksüz",
+    author="Selim Oksuz",
     author_email="your.email@example.com",  # TODO: Update with your email
     description="Production-ready risk modeling pipeline with WOE transformation and advanced ML features",
     long_description=long_description,
@@ -46,6 +46,11 @@ setup(
         "joblib>=1.0.0",
         "openpyxl>=3.0.0",
         "xlsxwriter>=3.0.0",
+        "matplotlib>=3.5.0,<3.7.0",
+        "seaborn>=0.12.0",
+        "statsmodels>=0.13.0",
+        "typer>=0.9.0",
+        "lightgbm>=3.3.0",
     ],
     
     # Optional dependencies
@@ -84,7 +89,6 @@ setup(
     entry_points={
         "console_scripts": [
             "risk-pipeline=risk_pipeline.cli:main",
-            "risk-pipeline-check=risk_pipeline.utils.environment_check:main",
         ],
     },
     

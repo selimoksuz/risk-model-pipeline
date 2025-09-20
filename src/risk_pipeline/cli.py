@@ -221,3 +221,8 @@ def score(
 
 if __name__ == "__main__":
     app()
+
+
+def main():
+    """Console entrypoint for risk-pipeline CLI."""
+    app()

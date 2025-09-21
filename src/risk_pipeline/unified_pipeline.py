@@ -8,6 +8,11 @@ import os
 import warnings
 import numpy as np
 import pandas as pd
+from pandas.api.types import (
+    is_categorical_dtype,
+    is_datetime64_any_dtype,
+    is_object_dtype,
+)
 from typing import Dict, List, Optional, Any, Union, Tuple
 from datetime import datetime
 import joblib
@@ -165,6 +170,7 @@ class UnifiedRiskPipeline:
                 # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
                 bands = self._optimize_risk_bands(stg2, splits)
+                self.results_['risk_bands'] = bands
 
                 # Step 9: Scoring (if enabled and data provided)
                 if self.config.enable_scoring and score_df is not None:
@@ -284,6 +290,7 @@ class UnifiedRiskPipeline:
                 # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
                 risk_bands = self._optimize_risk_bands(stage2_results, splits)
+                self.results_['risk_bands'] = risk_bands
 
                 # Step 9: Scoring (if enabled and data provided)
                 if self.config.enable_scoring and score_df is not None:
@@ -393,6 +400,26 @@ class UnifiedRiskPipeline:
         self.data_['splits'] = splits
         return splits
 
+    def _inject_categorical_woe(self, splits: Dict, categorical_cols: List[str]) -> None:
+        """Replace categorical columns with their WOE-transformed values."""
+
+        if not categorical_cols:
+            return
+
+        for split_name, split_df in list(splits.items()):
+            if split_name.endswith('_woe') or split_df is None:
+                continue
+
+            woe_df = splits.get(f'{split_name}_woe')
+            if woe_df is None:
+                continue
+
+            updated = split_df.copy()
+            for col in categorical_cols:
+                if col in woe_df.columns:
+                    updated[col] = woe_df[col]
+            splits[split_name] = updated
+
     def _apply_woe_transformation(self, splits: Dict) -> Dict:
         """Apply WOE transformation and calculate univariate Gini."""
 
@@ -400,8 +427,12 @@ class UnifiedRiskPipeline:
 
         # Fit WOE on train data
         train_df = splits['train']
-        feature_cols = [c for c in train_df.columns
-                       if c not in [self.config.target_col, self.config.id_col, self.config.time_col]]
+        exclude_cols = {self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'}
+        feature_cols = [
+            c
+            for c in train_df.columns
+            if c not in exclude_cols and not is_datetime64_any_dtype(train_df[c])
+        ]
 
         # Calculate WOE for each variable
         woe_values = {}
@@ -440,15 +471,14 @@ class UnifiedRiskPipeline:
         results['woe_values'] = woe_values
         results['univariate_gini'] = univariate_gini
 
-        # Transform all splits
-        if self.config.enable_woe:
-            # Create a list of splits to transform (avoid modifying dict during iteration)
-            splits_to_transform = list(splits.items())
-            for split_name, split_df in splits_to_transform:
-                if split_df is not None:
-                    splits[f'{split_name}_woe'] = self.woe_transformer.transform(
-                        split_df, woe_values
-                    )
+        # Transform all splits so WOE-ready versions are always available
+        splits_to_transform = list(splits.items())
+        for split_name, split_df in splits_to_transform:
+            if split_name.endswith('_woe') or split_df is None:
+                continue
+            splits[f'{split_name}_woe'] = self.woe_transformer.transform(
+                split_df, woe_values
+            )
 
         self.transformers_['woe'] = self.woe_transformer
         return results
@@ -459,9 +489,25 @@ class UnifiedRiskPipeline:
         PSI -> VIF -> Correlation -> IV -> Boruta -> Stepwise
         """
 
-        train_df = splits['train_woe'] if self.config.enable_woe else splits['train']
-        feature_cols = [c for c in train_df.columns
-                       if c not in [self.config.target_col, self.config.id_col, self.config.time_col]]
+        raw_train = splits['train']
+        exclude_cols = {self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'}
+        feature_cols = [
+            col
+            for col in raw_train.columns
+            if col not in exclude_cols and not is_datetime64_any_dtype(raw_train[col])
+        ]
+
+        categorical_cols = [
+            col
+            for col in feature_cols
+            if is_object_dtype(raw_train[col]) or is_categorical_dtype(raw_train[col])
+        ]
+
+        if not self.config.enable_woe:
+            self._inject_categorical_woe(splits, categorical_cols)
+            train_df = splits['train']
+        else:
+            train_df = splits['train_woe']
 
         selected_features = feature_cols.copy()
         selection_history = []
@@ -644,26 +690,30 @@ class UnifiedRiskPipeline:
             return {}
 
         # Process Stage 2 data
+        stage2_processed = self._process_data(stage2_df.copy())
+
         if self.config.enable_woe:
-            # WOE transformer handles raw data directly
-            stage2_woe = self.woe_transformer.transform(stage2_df)
-
-            # Same fix as Stage 1 - ensure features are properly WOE transformed
+            stage2_woe = self.woe_transformer.transform(stage2_processed)
             available_features = [f for f in selected_features if f in stage2_woe.columns]
-            for feat in available_features:
-                if stage2_woe[feat].dtype == 'object':
-                    if feat in self.woe_transformer.woe_maps_:
-                        woe_info = self.woe_transformer.woe_maps_[feat]
-                        if woe_info['type'] == 'categorical':
-                            stage2_woe[feat] = stage2_woe[feat].map(woe_info['woe_map']).fillna(0)
-
             X_stage2 = stage2_woe[available_features]
         else:
-            # Only for non-WOE case, process data
-            stage2_processed = self._process_data(stage2_df)
+            stage2_woe = self.woe_transformer.transform(stage2_processed)
+            categorical_cols = [
+                col
+                for col in selected_features
+                if col in stage2_processed.columns
+                and (is_object_dtype(stage2_processed[col]) or is_categorical_dtype(stage2_processed[col]))
+            ]
+            for col in categorical_cols:
+                if col in stage2_woe.columns:
+                    stage2_processed[col] = stage2_woe[col]
             X_stage2 = stage2_processed[selected_features]
 
-        y_stage2 = stage2_df[self.config.target_col]
+        for col in X_stage2.columns:
+            if is_object_dtype(X_stage2[col]) or is_datetime64_any_dtype(X_stage2[col]):
+                X_stage2[col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
+
+        y_stage2 = stage2_processed[self.config.target_col]
 
         # Apply Stage 2 calibration
         stage2_model = self.calibrator.calibrate_stage2(
@@ -725,6 +775,7 @@ class UnifiedRiskPipeline:
 
         return {
             'bands': risk_bands,
+            'band_edges': self.risk_band_optimizer.bands_,
             'metrics': metrics
         }
 
@@ -750,6 +801,7 @@ class UnifiedRiskPipeline:
             X_score = self.woe_transformer.transform(score_processed)[selected_features]
         else:
             X_score = score_processed[selected_features]
+        X_score = X_score.apply(pd.to_numeric, errors="coerce").fillna(0)
 
         # Get predictions
         model = model_results['calibrated_model']
@@ -758,8 +810,13 @@ class UnifiedRiskPipeline:
         # Create output
         result_df = score_df.copy()
         result_df['risk_score'] = scores
+        band_edges = None
+        if 'risk_bands' in self.results_ and self.results_['risk_bands']:
+            band_edges = self.results_['risk_bands'].get('band_edges')
+        if band_edges is None:
+            band_edges = self.risk_band_optimizer.bands_
         result_df['risk_band'] = self.risk_band_optimizer.assign_bands(
-            scores, self.results_['risk_bands']['bands']
+            scores, band_edges
         )
 
         return result_df

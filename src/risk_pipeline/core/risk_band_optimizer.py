@@ -377,32 +377,38 @@ class OptimalRiskBandAnalyzer:
         # Calculate observed and expected for each group
         observed = []
         expected = []
+        counts = []
 
         for g in range(n_groups):
             mask = groups == g
-            if mask.sum() > 0:
+            count = mask.sum()
+            if count > 0:
                 obs_events = actuals[mask].sum()
                 exp_events = predictions[mask].sum()
 
                 observed.append(obs_events)
                 expected.append(exp_events)
+                counts.append(count)
 
-        observed = np.array(observed)
-        expected = np.array(expected)
+        observed = np.array(observed, dtype=float)
+        expected = np.array(expected, dtype=float)
+        counts = np.array(counts, dtype=float)
+
+        if len(observed) == 0:
+            return 0.0, 1.0
 
         # Calculate test statistic
         # Avoid division by zero
         expected = np.maximum(expected, 0.5)
-        n_per_group = np.array([np.sum(groups == g) for g in range(n_groups)])
-        expected_non_events = n_per_group - expected
+        expected_non_events = np.maximum(counts - expected, 0.5)
 
         chi_square = np.sum(
             (observed - expected) ** 2 / expected +
-            ((n_per_group - observed) - expected_non_events) ** 2 / expected_non_events
+            ((counts - observed) - expected_non_events) ** 2 / expected_non_events
         )
 
-        # Degrees of freedom = n_groups - 2
-        df = n_groups - 2
+        # Degrees of freedom = max(unique groups - 2, 1)
+        df = max(len(counts) - 2, 1)
 
         # Calculate p-value
         p_value = 1 - stats.chi2.cdf(chi_square, df)

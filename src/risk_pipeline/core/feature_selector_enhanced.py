@@ -5,6 +5,7 @@ PSI -> VIF -> Correlation -> IV -> Boruta -> Forward/Backward/Stepwise
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype, is_categorical_dtype, is_object_dtype
 from typing import List, Dict, Optional, Tuple
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -28,6 +29,29 @@ class AdvancedFeatureSelector:
     def __init__(self, config):
         self.config = config
         self.selection_history_ = []
+
+    def _prepare_features_for_boruta(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Convert categorical/datetime columns into numeric form for Boruta."""
+
+        X_prepared = pd.DataFrame(index=X.index)
+
+        for col in X.columns:
+            series = X[col]
+
+            if is_datetime64_any_dtype(series):
+                X_prepared[col] = pd.to_datetime(series).view("int64")
+            elif is_object_dtype(series) or is_categorical_dtype(series):
+                cat = pd.Categorical(series)
+                codes = cat.codes.astype(float)
+                codes[codes == -1] = float("nan")
+                X_prepared[col] = codes
+            else:
+                if hasattr(series, "dtype") and series.dtype.kind in "biu":
+                    X_prepared[col] = series.astype(float)
+                else:
+                    X_prepared[col] = series
+
+        return X_prepared
 
     def select_by_psi(self, X_train: pd.DataFrame, X_test: pd.DataFrame,
                       threshold: float = 0.25) -> List[str]:
@@ -146,12 +170,15 @@ class AdvancedFeatureSelector:
             print("    LightGBM not available, using RandomForest for Boruta")
             return self.select_by_boruta_rf(X, y, n_iterations)
 
+        # Ensure data types are LightGBM-friendly
+        X_prepared = self._prepare_features_for_boruta(X)
+
         # Create shadow features
-        X_shadow = X.apply(np.random.permutation)
-        X_shadow.columns = ['shadow_' + col for col in X.columns]
+        X_shadow = X_prepared.apply(np.random.permutation)
+        X_shadow.columns = ['shadow_' + col for col in X_prepared.columns]
 
         # Combine original and shadow
-        X_combined = pd.concat([X, X_shadow], axis=1)
+        X_combined = pd.concat([X_prepared, X_shadow], axis=1)
 
         # Track hits
         hits = {col: 0 for col in X.columns}
@@ -170,8 +197,9 @@ class AdvancedFeatureSelector:
 
             # Get importances
             importances = lgb.feature_importances_
-            original_imp = importances[:len(X.columns)]
-            shadow_imp = importances[len(X.columns):]
+            original_length = len(X_prepared.columns)
+            original_imp = importances[:original_length]
+            shadow_imp = importances[original_length:]
 
             # Max shadow importance
             max_shadow = shadow_imp.max()
@@ -183,8 +211,8 @@ class AdvancedFeatureSelector:
                     hits[col] += 1
 
             # Reshuffle shadow features
-            X_shadow = X.apply(np.random.permutation)
-            X_combined.iloc[:, len(X.columns):] = X_shadow.values
+            X_shadow = X_prepared.apply(np.random.permutation)
+            X_combined.iloc[:, len(X_prepared.columns):] = X_shadow.values
 
         # Select features with significant hits
         # Using binomial test logic
@@ -192,7 +220,7 @@ class AdvancedFeatureSelector:
         selected = [col for col, hit_count in hits.items()
                    if hit_count >= threshold]
 
-        print(f"    Boruta selected {len(selected)} features from {len(X.columns)}")
+        print(f"    Boruta selected {len(selected)} features from {len(X_prepared.columns)}")
 
         return selected
 
@@ -207,10 +235,13 @@ class AdvancedFeatureSelector:
 
         from sklearn.ensemble import RandomForestClassifier
 
+        # Apply the same preparation for RandomForest fallback
+        X_prepared = self._prepare_features_for_boruta(X)
+
         # Similar logic as LGBM but with RF
-        X_shadow = X.apply(np.random.permutation)
-        X_shadow.columns = ['shadow_' + col for col in X.columns]
-        X_combined = pd.concat([X, X_shadow], axis=1)
+        X_shadow = X_prepared.apply(np.random.permutation)
+        X_shadow.columns = ['shadow_' + col for col in X_prepared.columns]
+        X_combined = pd.concat([X_prepared, X_shadow], axis=1)
 
         hits = {col: 0 for col in X.columns}
 
@@ -223,8 +254,9 @@ class AdvancedFeatureSelector:
             rf.fit(X_combined, y)
 
             importances = rf.feature_importances_
-            original_imp = importances[:len(X.columns)]
-            shadow_imp = importances[len(X.columns):]
+            original_length = len(X_prepared.columns)
+            original_imp = importances[:original_length]
+            shadow_imp = importances[original_length:]
             max_shadow = shadow_imp.max()
 
             for j, col in enumerate(X.columns):

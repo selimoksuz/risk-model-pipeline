@@ -115,7 +115,7 @@ def main():
         target_col="target",
         id_col="app_id",
         time_col="app_dt",
-        enable_scoring=False,
+        enable_scoring=True,
         enable_calibration=True,
         stage2_method="lower_mean",
         enable_woe=True,
@@ -152,7 +152,16 @@ def main():
     print("Selected features (n=", len(selected), "):", selected)
     print("Best model:", best_name)
 
-    # If scoring is needed, set cfg.enable_scoring=True and pass score_df to fit.
+    scored_df = results.get("scoring_results")
+    if scored_df is not None and not scored_df.empty:
+        preview_cols = [cfg.id_col, "risk_score", cfg.target_col] if cfg.target_col in scored_df.columns else [cfg.id_col, "risk_score"]
+        print("\nScoring sample preview:")
+        print(scored_df[preview_cols].head())
+        band_counts = scored_df["risk_band"].value_counts().sort_index()
+        print("\nRisk band distribution:")
+        print(band_counts)
+    else:
+        print("No scoring results were generated.")
 
 
 if __name__ == "__main__":

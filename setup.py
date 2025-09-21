@@ -50,7 +50,14 @@ setup(
         "seaborn>=0.12.0",
         "statsmodels>=0.13.0",
         "typer>=0.9.0",
-        "lightgbm>=3.3.0",
+        "lightgbm>=3.3.0,<4.0.0",
+        "catboost>=1.0.0,<2.0.0",
+        "xgboost>=1.6.0,<1.8.0",
+        "pygam>=0.8.0,<0.9.0",
+        "optuna>=3.0.0,<4.0.0",
+        "shap>=0.41.0,<0.43.0",
+        "imbalanced-learn>=0.9.0,<0.11.0",
+        "scikit-learn-extra>=0.2.0,<0.3.0",
     ],
     
     # Optional dependencies

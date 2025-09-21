@@ -1,93 +1,23 @@
-#!/usr/bin/env python3
-"""
-Test full pipeline with all features enabled
-"""
-
 import sys
+from pathlib import Path
 
-import pandas as pd
+SRC_PATH = Path(__file__).resolve().parents[2] / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
 
-from risk_pipeline.utils.pipeline_runner import get_full_config, run_pipeline_from_dataframe
-
-sys.path.append('src')
-
-
-def main():
-    print("=== FULL PIPELINE TEST ===")
-
-    # Load data
-    print("Loading data...")
-    df = pd.read_csv('data/input.csv')
-    print(f"Dataset: {df.shape[0]:, } rows x {df.shape[1]} columns")
-
-    # Get full configuration with all stages enabled (disable calibration for now)
-    config = get_full_config(
-        # Enable advanced features
-        try_mlp=True,
-        ensemble=True,
-
-        # Disable calibration temporarily
-        # calibration_data_path="data/calibration.csv",
-
-        # Moderate HPO for faster testing
-        hpo_trials=20,
-        hpo_timeout_sec=120,
-
-        # Output settings
-        output_folder="outputs_full",
-        output_excel_path="full_pipeline_report.xlsx",
-    )
-
-    print("\nRunning FULL pipeline with ALL stages enabled...")
-    print(f"- MLP: {config.try_mlp}")
-    print(f"- Ensemble: {config.ensemble}")
-    print(f"- Calibration: Disabled (data compatibility issue)")
-    print(f"- Dictionary: {config.orchestrator.enable_dictionary}")
-    print()
-
-    # Run pipeline
-    results = run_pipeline_from_dataframe(
-        df = df,
-        id_col = "app_id",
-        time_col = "app_dt",
-        target_col = "target",
-        output_folder = "outputs_full",
-        output_excel = "full_pipeline_report.xlsx",
-        use_test_split = True,
-        oot_months = 3,
-        # Pass config overrides
-        **{
-            'try_mlp': config.try_mlp,
-            'ensemble': config.ensemble,
-            # 'calibration_data_path': config.calibration_data_path,
-            'hpo_trials': config.hpo_trials,
-            'hpo_timeout_sec': config.hpo_timeout_sec,
-            'orchestrator': config.orchestrator
-        }
-    )
-
-    print("\n=== PIPELINE COMPLETED ===")
-    print(f"✅ Best Model: {results['best_model']}")
-    print(f"✅ Final Features: {len(results['final_features'])} features")
-    print(f"✅ Run ID: {results['run_id']}")
-    print(f"✅ Output Folder: {results['output_folder']}")
-
-    if results['final_features']:
-        print("\n📊 Final Features:")
-        for i, feature in enumerate(results['final_features'], 1):
-            print(f"  {i}. {feature}")
-
-    # Load and display results
-    try:
-        models_df=pd.read_excel(f"{results['output_folder']}/full_pipeline_report.xlsx", sheet_name = 'models_summary')
-        print(f"\n🏆 Model Performance (AUC OOT):")
-        for _, row in models_df.iterrows():
-            print(f"  {row['model_name']}: {row['AUC_OOT']:.4f}")
-    except Exception as e:
-        print(f"Could not load results: {e}")
-
-    print(f"\n📁 Check detailed results in: {results['output_folder']}/")
+from risk_pipeline.pipeline import RiskModelPipeline
 
 
-if __name__ == "__main__":
-    main()
+def test_pipeline_persistence(tmp_path, sample_training_data, minimal_config):
+    pipeline = RiskModelPipeline(minimal_config)
+    pipeline.fit(sample_training_data)
+
+    save_path = tmp_path / "trained_pipeline.pkl"
+    pipeline.save_pipeline(str(save_path))
+
+    assert save_path.exists()
+
+    loaded_pipeline = RiskModelPipeline.load_pipeline(str(save_path))
+    assert loaded_pipeline.is_fitted is True
+    assert loaded_pipeline.best_model == pipeline.best_model
+    assert loaded_pipeline.selected_features[loaded_pipeline.best_model] == pipeline.selected_features[pipeline.best_model]

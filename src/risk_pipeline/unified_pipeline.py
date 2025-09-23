@@ -5,6 +5,7 @@ Date: 2024
 """
 
 import os
+import json
 import warnings
 import numpy as np
 import pandas as pd
@@ -17,6 +18,7 @@ from typing import Dict, List, Optional, Any, Union, Tuple
 from datetime import datetime
 import joblib
 from scipy import stats
+from .utils.scoring import calculate_psi, calculate_ks_statistic, calculate_gini as scoring_gini, create_scoring_report
 
 # Internal imports
 from .core.config import Config
@@ -109,6 +111,11 @@ class UnifiedRiskPipeline:
         print("UNIFIED RISK PIPELINE EXECUTION")
         print("="*80)
 
+        if df is None:
+            raise ValueError("Model dataset 'df' is required.")
+        if getattr(df, 'empty', False):
+            raise ValueError("Model dataset 'df' cannot be empty.")
+
         # Store data dictionary
         self.data_dictionary = data_dictionary
 
@@ -175,10 +182,10 @@ class UnifiedRiskPipeline:
                 # Step 9: Scoring (if enabled and data provided)
                 if self.config.enable_scoring and score_df is not None:
                     print("\n[Step 9/10] Scoring...")
-                    score_out = self._score_data(score_df, stg2)
+                    score_out = self._score_data(score_df, stg2, sel_res, woe_res, mdl_res, splits)
                 else:
                     print("\n[Step 9/10] Scoring... Skipped")
-                    score_out = None
+                    score_out = {'dataframe': None, 'metrics': None, 'reports': {}}
 
                 # Evaluate best score
                 best_name = mdl_res.get('best_model_name')
@@ -199,7 +206,8 @@ class UnifiedRiskPipeline:
                     'stage1': stg1,
                     'stage2': stg2,
                     'risk_bands': bands,
-                    'scoring_results': score_out,
+                    'scoring_output': score_out,
+                    'scoring_results': score_out.get('dataframe'),
                     'best_auc': best_auc,
                     'selected_features': getattr(self, 'selected_features_', []),
                 }
@@ -229,6 +237,7 @@ class UnifiedRiskPipeline:
                 self.results_ = {
                     'woe_results': best_flow['woe_results'],
                     'risk_bands': best_flow['risk_bands'],
+                    'scoring_output': best_flow.get('scoring_output'),
                 }
                 reports = self._generate_reports()
 
@@ -242,7 +251,11 @@ class UnifiedRiskPipeline:
                     'calibration_stage1': best_flow['stage1'],
                     'calibration_stage2': best_flow['stage2'],
                     'risk_bands': best_flow['risk_bands'],
-                    'scoring_results': best_flow['scoring_results'],
+                    'stage2_details': best_flow['stage2'].get('stage2_details') if isinstance(best_flow['stage2'], dict) else None,
+                    'scoring_output': best_flow.get('scoring_output'),
+                    'scoring_results': best_flow.get('scoring_output', {}).get('dataframe') if best_flow.get('scoring_output') else None,
+                    'scoring_metrics': best_flow.get('scoring_output', {}).get('metrics') if best_flow.get('scoring_output') else None,
+                    'scoring_reports': best_flow.get('scoring_output', {}).get('reports') if best_flow.get('scoring_output') else None,
                     'reports': reports,
                     'config': self.config.__dict__,
                     'selected_features': best_flow.get('selected_features', []),
@@ -251,6 +264,8 @@ class UnifiedRiskPipeline:
                     'chosen_flow': chosen,
                     'chosen_auc': best_flow['best_auc'],
                 }
+
+                self._persist_model_artifacts()
             else:
                 # Single-flow path (default behaviour)
                 # Step 3: WOE Transformation & Univariate Analysis
@@ -287,18 +302,29 @@ class UnifiedRiskPipeline:
                     print("\n[Step 7/10] Stage 2 Calibration... Skipped (no data)")
                     stage2_results = stage1_results
 
+                self.results_.update({
+                    'processed_data': processed_data,
+                    'splits': splits,
+                    'woe_results': woe_results,
+                    'selection_results': selection_results,
+                    'model_results': model_results,
+                    'calibration_stage1': stage1_results,
+                    'calibration_stage2': stage2_results,
+                    'stage2_details': stage2_results.get('stage2_details') if isinstance(stage2_results, dict) else None,
+                })
+
                 # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
                 risk_bands = self._optimize_risk_bands(stage2_results, splits)
                 self.results_['risk_bands'] = risk_bands
+                scoring_output = {'dataframe': None, 'metrics': None, 'reports': {}}
 
                 # Step 9: Scoring (if enabled and data provided)
                 if self.config.enable_scoring and score_df is not None:
                     print("\n[Step 9/10] Scoring...")
-                    scoring_results = self._score_data(score_df, stage2_results)
+                    scoring_output = self._score_data(score_df, stage2_results, selection_results, woe_results, model_results, splits)
                 else:
                     print("\n[Step 9/10] Scoring... Skipped")
-                    scoring_results = None
 
                 # Step 10: Generate Reports
                 print("\n[Step 10/10] Generating Reports...")
@@ -314,13 +340,19 @@ class UnifiedRiskPipeline:
                     'calibration_stage1': stage1_results,
                     'calibration_stage2': stage2_results,
                     'risk_bands': risk_bands,
-                    'scoring_results': scoring_results,
+                    'stage2_details': stage2_results.get('stage2_details') if isinstance(stage2_results, dict) else None,
+                    'scoring_output': scoring_output,
+                    'scoring_results': scoring_output.get('dataframe'),
+                    'scoring_metrics': scoring_output.get('metrics'),
+                    'scoring_reports': scoring_output.get('reports'),
                     'reports': reports,
                     'config': self.config.__dict__,
                     'selected_features': self.selected_features_,
                     'best_model_name': model_results.get('best_model_name'),
                     'scores': model_results.get('scores', {})
                 }
+
+                self._persist_model_artifacts()
 
             print("\n" + "="*80)
             print("PIPELINE EXECUTION COMPLETED SUCCESSFULLY")
@@ -335,14 +367,26 @@ class UnifiedRiskPipeline:
     def _process_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Process raw data with separate handling for numeric/categorical."""
 
-        df_processed = df.copy()
+        df_processed = self.data_processor.validate_and_freeze(df.copy())
 
-        # Validate and freeze data
-        df_processed = self.data_processor.validate_and_freeze(df_processed)
+        tsfresh_features = self.data_processor.generate_tsfresh_features(df_processed)
+        if not tsfresh_features.empty:
+            tsfresh_features = tsfresh_features.copy()
+            tsfresh_features.index.name = '__tsfresh_id__'
+            df_processed = df_processed.copy()
+            df_processed['__tsfresh_id__'] = df_processed[self.config.id_col].astype(str)
+            df_processed = df_processed.merge(
+                tsfresh_features,
+                how='left',
+                left_on='__tsfresh_id__',
+                right_index=True,
+            )
+            df_processed.drop(columns='__tsfresh_id__', inplace=True)
+            print(f"  Added {tsfresh_features.shape[1]} tsfresh özelliği")
 
         # Identify variable types
-        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        categorical_cols = df_processed.select_dtypes(include=['object', 'category']).columns.tolist()
 
         # Remove target and special columns
         special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month']
@@ -485,8 +529,7 @@ class UnifiedRiskPipeline:
 
     def _select_features(self, splits: Dict, woe_results: Dict) -> Dict:
         """
-        Apply feature selection in specified order:
-        PSI -> VIF -> Correlation -> IV -> Boruta -> Stepwise
+        Apply feature selection in specified order and capture diagnostics.
         """
 
         raw_train = splits['train']
@@ -509,44 +552,144 @@ class UnifiedRiskPipeline:
         else:
             train_df = splits['train_woe']
 
+        train_woe_df = splits.get('train_woe', train_df)
+        psi_monthly_frames = self._prepare_monthly_frames(splits)
+
         selected_features = feature_cols.copy()
         selection_history = []
 
-        # Selection order from config
         for method in self.config.selection_order:
             print(f"  Applying {method} selection...")
+            if not selected_features:
+                print(f"    Skipping {method}: no features remaining.")
+                selection_history.append({
+                    'method': method,
+                    'before': 0,
+                    'after': 0,
+                    'removed': set(),
+                    'details': {'info': 'no_features'}
+                })
+                continue
+
+            step_details: Optional[Dict[str, Any]] = None
 
             if method == 'psi':
-                selected = self.feature_selector.select_by_psi(
-                    train_df[selected_features],
-                    splits.get('test', train_df)[selected_features],
-                    threshold=self.config.psi_threshold
+                train_for_psi = train_woe_df[selected_features]
+
+                test_candidate = splits.get('test_woe')
+                if test_candidate is None:
+                    test_candidate = splits.get('test')
+                test_for_psi = (
+                    test_candidate[selected_features]
+                    if test_candidate is not None and not test_candidate.empty
+                    else None
                 )
+
+                oot_candidate = splits.get('oot_woe')
+                if oot_candidate is None:
+                    oot_candidate = splits.get('oot')
+                oot_for_psi = (
+                    oot_candidate[selected_features]
+                    if oot_candidate is not None and not oot_candidate.empty
+                    else None
+                )
+
+                monthly_subset = {
+                    label: frame[selected_features]
+                    for label, frame in psi_monthly_frames.items()
+                }
+
+                selected, step_details = self.feature_selector.select_by_psi(
+                    train_for_psi,
+                    test_for_psi,
+                    threshold=self.config.psi_threshold,
+                    oot_df=oot_for_psi,
+                    monthly_frames=monthly_subset,
+                    monthly_threshold=self.config.monthly_psi_threshold,
+                    oot_threshold=self.config.oot_psi_threshold,
+                )
+
+            elif method == 'univariate':
+                gini_map = woe_results.get('univariate_gini', {})
+                selected = []
+                uni_details: Dict[str, Any] = {}
+                for col in selected_features:
+                    info = gini_map.get(col, {}) or {}
+                    gini_woe = info.get('gini_woe')
+                    gini_raw = info.get('gini_raw')
+                    gini_val = gini_woe if gini_woe is not None else gini_raw
+                    detail = {
+                        'gini_woe': gini_woe,
+                        'gini_raw': gini_raw,
+                        'threshold': self.config.min_univariate_gini,
+                        'status': 'kept'
+                    }
+                    if gini_val is None:
+                        gini_val = 0.0
+                    if gini_val < self.config.min_univariate_gini:
+                        detail['status'] = 'dropped'
+                        detail['drop_reason'] = (
+                            f"univariate gini {gini_val:.3f} < {self.config.min_univariate_gini:.3f}"
+                        )
+                        print(
+                            f"    Removing {col}: univariate gini {gini_val:.3f} < {self.config.min_univariate_gini:.3f}"
+                        )
+                    else:
+                        selected.append(col)
+                    uni_details[col] = detail
+                step_details = uni_details
+
             elif method == 'vif':
                 selected = self.feature_selector.select_by_vif(
                     train_df[selected_features],
                     threshold=self.config.vif_threshold
                 )
+                step_details = {'threshold': self.config.vif_threshold}
+
             elif method == 'correlation':
                 selected = self.feature_selector.select_by_correlation(
                     train_df[selected_features],
                     train_df[self.config.target_col],
-                    threshold=self.config.correlation_threshold
+                    threshold=self.config.correlation_threshold,
+                    max_per_cluster=self.config.max_features_per_cluster
                 )
+                step_details = {
+                    'threshold': self.config.correlation_threshold,
+                    'max_per_cluster': self.config.max_features_per_cluster
+                }
+
             elif method == 'iv':
-                selected = self.feature_selector.select_by_iv(
-                    woe_results['woe_values'],
-                    selected_features,
-                    threshold=self.config.iv_threshold
-                )
+                iv_details: Dict[str, Any] = {}
+                selected = []
+                woe_values = woe_results.get('woe_values', {})
+                for col in selected_features:
+                    iv_value = None
+                    if col in woe_values:
+                        iv_value = woe_values[col].get('iv')
+                    detail = {
+                        'iv': iv_value,
+                        'threshold': self.config.iv_threshold,
+                        'status': 'kept'
+                    }
+                    if iv_value is not None and iv_value < self.config.iv_threshold:
+                        detail['status'] = 'dropped'
+                        detail['drop_reason'] = (
+                            f"IV {iv_value:.3f} < {self.config.iv_threshold:.3f}"
+                        )
+                        print(f"    Removing {col}: IV {iv_value:.3f} < {self.config.iv_threshold:.3f}")
+                    else:
+                        selected.append(col)
+                    iv_details[col] = detail
+                step_details = iv_details
+
             elif method == 'boruta':
                 selected = self.feature_selector.select_by_boruta_lgbm(
                     train_df[selected_features],
                     train_df[self.config.target_col]
                 )
+
             elif method == 'stepwise':
                 if self.config.selection_method == 'forward':
-                    # Pass test data for validation to avoid overfitting
                     test_df = splits.get('test_woe' if self.config.enable_woe else 'test', train_df)
                     selected = self.feature_selector.forward_selection(
                         train_df[selected_features],
@@ -566,12 +709,20 @@ class UnifiedRiskPipeline:
                         train_df[self.config.target_col],
                         max_features=self.config.max_features
                     )
+                step_details = {'selection_method': self.config.selection_method}
 
+            else:
+                print(f"    WARNING: Unknown selection method '{method}' - skipping")
+                selected = selected_features.copy()
+                step_details = {'warning': 'unknown_method'}
+
+            removed = set(selected_features) - set(selected)
             selection_history.append({
                 'method': method,
                 'before': len(selected_features),
                 'after': len(selected),
-                'removed': set(selected_features) - set(selected)
+                'removed': removed,
+                'details': step_details
             })
 
             selected_features = selected
@@ -581,6 +732,28 @@ class UnifiedRiskPipeline:
             'selected_features': selected_features,
             'selection_history': selection_history
         }
+
+    def _prepare_monthly_frames(self, splits: Dict) -> Dict[str, pd.DataFrame]:
+        """Build monthly slices for PSI stability checks."""
+
+        frames: Dict[str, pd.DataFrame] = {}
+        time_col = self.config.time_col or 'snapshot_month'
+
+        if 'train' not in splits:
+            return frames
+
+        train_df = splits['train']
+        if not time_col or time_col not in train_df.columns:
+            return frames
+
+        woe_df = splits.get('train_woe', train_df)
+        time_series = train_df[time_col]
+
+        for label in time_series.dropna().unique():
+            mask = time_series == label
+            frames[str(label)] = woe_df.loc[mask].reset_index(drop=True)
+
+        return frames
 
     def _train_models(self, splits: Dict, selection_results: Dict) -> Dict:
         """Train all configured models."""
@@ -722,13 +895,24 @@ class UnifiedRiskPipeline:
             method=self.config.stage2_method
         )
 
-        return {
-            'calibrated_model': stage2_model,
-            'stage1_metrics': stage1_results['calibration_metrics'],
-            'stage2_metrics': self.calibrator.evaluate_calibration(
+        stage2_metrics = self.calibrator.evaluate_calibration(
                 stage2_model, X_stage2, y_stage2
             )
+        stage2_details = getattr(self.calibrator, 'stage2_metadata_', {}) or {}
+
+        response = {
+            'calibrated_model': stage2_model,
+            'stage1_metrics': stage1_results['calibration_metrics'],
+            'stage2_metrics': stage2_metrics,
+            'stage2_details': stage2_details
         }
+
+        for key in ['target_rate', 'recent_rate', 'stage1_rate', 'adjustment_factor', 'lower_ci', 'upper_ci', 'confidence_level', 'achieved_rate']:
+            if key in stage2_details:
+                response[key] = stage2_details[key]
+
+        return response
+
 
     def _optimize_risk_bands(self, model_results: Dict, splits: Dict) -> Dict:
         """Optimize risk bands with multiple metrics."""
@@ -779,35 +963,100 @@ class UnifiedRiskPipeline:
             'metrics': metrics
         }
 
-    def _score_data(self, score_df: pd.DataFrame, model_results: Dict) -> pd.DataFrame:
-        """Score new data using calibrated model."""
+    def _build_woe_mapping(self, woe_results: Optional[Dict]) -> Dict[str, Any]:
+        """Convert internal WOE representation to exportable mapping."""
 
-        # Check if we have a model
-        if 'calibrated_model' not in model_results or model_results['calibrated_model'] is None:
-            print("  Skipping scoring: No model available")
-            return score_df
+        mapping: Dict[str, Any] = {'variables': {}}
+        if not woe_results:
+            return mapping
 
-        # Process scoring data
+        if isinstance(woe_results, dict) and 'woe_values' in woe_results:
+            woe_values = woe_results['woe_values']
+        else:
+            woe_values = woe_results
+
+        for feature, info in (woe_values or {}).items():
+            if not isinstance(info, dict):
+                continue
+            feature_type = info.get('type', 'numeric')
+            if feature_type == 'categorical':
+                groups: List[Dict[str, Any]] = []
+                for stat in info.get('stats', []) or []:
+                    if not isinstance(stat, dict):
+                        continue
+                    members = stat.get('members')
+                    if members is None:
+                        members = [stat.get('label', stat.get('category', 'group'))]
+                    elif isinstance(members, (str, bytes)):
+                        members = [members]
+                    else:
+                        members = list(members)
+                    groups.append({
+                        'label': str(stat.get('label', stat.get('category', 'group'))),
+                        'members': members,
+                        'woe': float(stat.get('woe', 0) or 0.0),
+                    })
+                mapping['variables'][feature] = {'type': 'categorical', 'groups': groups}
+            else:
+                bins: List[Dict[str, Any]] = []
+                stats = info.get('stats') or []
+                if stats:
+                    for stat in stats:
+                        if not isinstance(stat, dict):
+                            continue
+                        left = stat.get('bin_left', stat.get('score_min'))
+                        right = stat.get('bin_right', stat.get('score_max'))
+                        left = None if left is None or (isinstance(left, float) and not np.isfinite(left)) else float(left)
+                        right = None if right is None or (isinstance(right, float) and not np.isfinite(right)) else float(right)
+                        bins.append({'left': left, 'right': right, 'woe': float(stat.get('woe', 0) or 0.0)})
+                else:
+                    woe_map = info.get('woe_map', {}) or {}
+                    for value in woe_map.values():
+                        bins.append({'left': None, 'right': None, 'woe': float(value or 0.0)})
+                mapping['variables'][feature] = {'type': 'numeric', 'bins': bins}
+
+        return mapping
+
+
+    def _score_data(
+            self,
+            score_df: pd.DataFrame,
+            stage_results: Dict,
+            selection_results: Dict,
+            woe_results: Dict,
+            model_results: Dict,
+            splits: Dict,
+        ) -> Dict[str, Any]:
+        """Score new data using the calibrated model and compute monitoring metrics."""
+
+        if not stage_results or stage_results.get('calibrated_model') is None:
+            print("  Skipping scoring: No calibrated model available")
+            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}}
+
+        final_model = stage_results.get('calibrated_model')
+        final_features = selection_results.get('selected_features') or getattr(self, 'selected_features_', [])
+
+        if not final_features:
+            print("  Skipping scoring: No features selected")
+            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}}
+
         score_processed = self._process_data(score_df)
 
-        # Transform if WOE enabled
-        selected_features = self.selected_features_
-
-        if not selected_features:
-            print("  Skipping scoring: No features selected")
-            return score_df
-
         if self.config.enable_woe:
-            X_score = self.woe_transformer.transform(score_processed)[selected_features]
+            score_matrix = self.woe_transformer.transform(score_processed)[final_features]
         else:
-            X_score = score_processed[selected_features]
-        X_score = X_score.apply(pd.to_numeric, errors="coerce").fillna(0)
+            score_matrix = score_processed[final_features]
+        score_matrix = score_matrix.apply(pd.to_numeric, errors='coerce').fillna(0)
 
-        # Get predictions
-        model = model_results['calibrated_model']
-        scores = model.predict_proba(X_score)[:, 1]
+        try:
+            proba = final_model.predict_proba(score_matrix)
+            raw_scores = proba[:, 1] if proba.ndim == 2 else proba.ravel()
+        except AttributeError:
+            predictions = final_model.predict(score_matrix)
+            raw_scores = predictions.ravel() if hasattr(predictions, 'ravel') else np.asarray(predictions)
 
-        # Create output
+        scores = raw_scores
+
         result_df = score_df.copy()
         result_df['risk_score'] = scores
         band_edges = None
@@ -815,34 +1064,121 @@ class UnifiedRiskPipeline:
             band_edges = self.results_['risk_bands'].get('band_edges')
         if band_edges is None:
             band_edges = self.risk_band_optimizer.bands_
-        result_df['risk_band'] = self.risk_band_optimizer.assign_bands(
-            scores, band_edges
+        result_df['risk_band'] = self.risk_band_optimizer.assign_bands(scores, band_edges)
+
+        training_scores = None
+        if isinstance(splits, dict) and 'train' in splits:
+            if self.config.enable_woe and 'train_woe' in splits:
+                train_matrix = splits['train_woe'][final_features]
+            else:
+                train_matrix = splits['train'][final_features]
+            train_matrix = train_matrix.apply(pd.to_numeric, errors='coerce').fillna(0)
+            try:
+                train_proba = final_model.predict_proba(train_matrix)
+                training_scores = train_proba[:, 1] if train_proba.ndim == 2 else train_proba.ravel()
+            except AttributeError:
+                train_pred = final_model.predict(train_matrix)
+                training_scores = train_pred.ravel() if hasattr(train_pred, 'ravel') else np.asarray(train_pred)
+
+        target_col = self.config.target_col
+        has_target = (
+            score_df[target_col].notna()
+            if target_col in score_df.columns
+            else pd.Series([False] * len(score_df), index=score_df.index)
         )
 
-        return result_df
+        metrics: Dict[str, Any] = {
+            'scores': scores,
+            'raw_scores': raw_scores,
+            'has_target_mask': has_target.to_numpy(dtype=bool),
+            'n_total': int(len(score_df)),
+            'n_with_target': int(has_target.sum()),
+            'n_without_target': int((~has_target).sum()),
+            'psi_score': None,
+            'calibration_applied': bool(stage_results.get('method') or stage_results is not model_results),
+        }
+
+        if training_scores is not None and training_scores.size > 0:
+            try:
+                metrics['psi_score'] = float(calculate_psi(training_scores, scores))
+            except Exception as exc:
+                print(f"  WARNING: PSI calculation failed: {exc}")
+                metrics['psi_score'] = None
+
+        if metrics['n_with_target'] > 0:
+            target_mask = has_target.to_numpy(dtype=bool)
+            y_true = score_df.loc[has_target, target_col].astype(float).to_numpy()
+            y_scores = scores[target_mask]
+            try:
+                from sklearn.metrics import roc_auc_score
+
+                auc = float(roc_auc_score(y_true, y_scores))
+            except Exception:
+                auc = float('nan')
+            gini = float(scoring_gini(y_true, y_scores))
+            ks = float(calculate_ks_statistic(y_true, y_scores))
+            default_rate = float(y_true.mean())
+
+            metrics['with_target'] = {
+                'n_records': int(metrics['n_with_target']),
+                'default_rate': default_rate,
+                'auc': auc,
+                'gini': gini,
+                'ks': ks,
+                'score_stats': self._describe_scores(y_scores),
+            }
+        if metrics['n_without_target'] > 0:
+            mask = ~has_target.to_numpy(dtype=bool)
+            metrics['without_target'] = {
+                'n_records': int(metrics['n_without_target']),
+                'score_stats': self._describe_scores(scores[mask]),
+            }
+
+        reports = create_scoring_report(metrics)
+
+        return {
+            'dataframe': result_df,
+            'metrics': metrics,
+            'reports': reports,
+        }
 
     def _generate_reports(self) -> Dict:
         """Generate comprehensive reports."""
 
         reports = {}
 
+        model_results = self.results_.get('model_results')
+        woe_results = self.results_.get('woe_results')
+
+        if getattr(self, 'data_dictionary', None) is not None:
+            self.reporter.register_data_dictionary(self.data_dictionary)
+
         # Model performance report
-        if self.models_:
+        if model_results:
             reports['model_performance'] = self.reporter.generate_model_report(
-                self.models_, self.data_dictionary
+                model_results, self.data_dictionary
             )
 
-        # Feature importance report
-        if self.models_ and 'woe_results' in self.results_:
-            reports['feature_importance'] = self.reporter.generate_feature_report(
-                self.models_, self.results_['woe_results'], self.data_dictionary
+        # Feature importance & best model reports
+        if model_results and woe_results:
+            feature_df = self.reporter.generate_feature_report(
+                model_results, woe_results, self.data_dictionary
             )
+            reports['feature_importance'] = feature_df
+
+            best_reports = self.reporter.generate_best_model_reports(
+                model_results, woe_results, self.data_dictionary
+            )
+            reports.update(best_reports)
 
         # Risk band report
         if 'risk_bands' in self.results_ and self.results_['risk_bands']:
             reports['risk_bands'] = self.reporter.generate_risk_band_report(
                 self.results_['risk_bands']
             )
+            summary_table = self.reporter.reports_.get('risk_bands_summary_table')
+            if summary_table is not None:
+                reports['risk_bands_summary'] = summary_table
 
         # Calibration report
         if self.results_.get('calibration_stage1') or self.results_.get('calibration_stage2'):
@@ -851,7 +1187,118 @@ class UnifiedRiskPipeline:
                 self.results_.get('calibration_stage2')
             )
 
+        scoring_output = self.results_.get('scoring_output')
+        if scoring_output:
+            scoring_reports = self.reporter.generate_scoring_report(scoring_output)
+            if scoring_reports:
+                reports['scoring'] = scoring_reports
+
+        if 'data_dictionary' in self.reporter.reports_:
+            reports['data_dictionary'] = self.reporter.reports_['data_dictionary']
+
+        if reports:
+            output_dir = getattr(self.config, 'output_folder', None) or '.'
+            os.makedirs(output_dir, exist_ok=True)
+            run_id = getattr(self.config, 'run_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
+            excel_path = getattr(self.config, 'output_excel_path', None) or os.path.join(output_dir, f"risk_report_{run_id}.xlsx")
+            try:
+                self.reporter.export_to_excel(excel_path)
+                reports['excel_path'] = excel_path
+            except Exception as exc:
+                print(f"Failed to export report to Excel: {exc}")
+
         return reports
+
+    def _persist_model_artifacts(self) -> None:
+        """Persist final model artifacts when configuration allows."""
+
+        if not getattr(self.config, 'save_model', True):
+            return
+
+        final_model = None
+        stage2 = self.results_.get('calibration_stage2') or {}
+        stage1 = self.results_.get('calibration_stage1') or {}
+        model_results = self.results_.get('model_results') or {}
+        final_model = stage2.get('calibrated_model') or stage1.get('calibrated_model') or model_results.get('best_model')
+
+        if final_model is None:
+            return
+
+        output_dir = getattr(self.config, 'output_folder', 'output') or 'output'
+        os.makedirs(output_dir, exist_ok=True)
+        run_id = getattr(self.config, 'run_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
+
+        final_model_path = os.path.join(output_dir, f"final_model_{run_id}.joblib")
+        try:
+            joblib.dump(final_model, final_model_path)
+        except Exception as exc:
+            print(f"  WARNING: Failed to persist final model: {exc}")
+
+        best_model = model_results.get('best_model')
+        if best_model is not None:
+            raw_model_path = os.path.join(output_dir, f"best_model_raw_{run_id}.joblib")
+            try:
+                joblib.dump(best_model, raw_model_path)
+            except Exception as exc:
+                print(f"  WARNING: Failed to persist raw best model: {exc}")
+
+        selected_features = (
+            self.results_.get('selection_results', {}).get('selected_features')
+            or self.results_.get('selected_features')
+            or []
+        )
+        try:
+            with open(os.path.join(output_dir, f"final_features_{run_id}.json"), 'w', encoding='utf-8') as handle:
+                json.dump({'features': selected_features}, handle, default=self._json_default, indent=2)
+        except Exception as exc:
+            print(f"  WARNING: Failed to persist feature list: {exc}")
+
+        woe_values = self.results_.get('woe_results', {})
+        if woe_values:
+            try:
+                mapping = self._build_woe_mapping(woe_values)
+                with open(os.path.join(output_dir, f"woe_mapping_{run_id}.json"), 'w', encoding='utf-8') as handle:
+                    json.dump(mapping, handle, default=self._json_default, indent=2)
+            except Exception as exc:
+                print(f"  WARNING: Failed to persist WOE mapping: {exc}")
+
+        stage2_details = stage2.get('stage2_details') or {}
+        if stage2_details:
+            try:
+                with open(os.path.join(output_dir, f"stage2_details_{run_id}.json"), 'w', encoding='utf-8') as handle:
+                    json.dump(stage2_details, handle, default=self._json_default, indent=2)
+            except Exception as exc:
+                print(f"  WARNING: Failed to persist stage 2 metadata: {exc}")
+
+    @staticmethod
+    def _json_default(value):
+        if isinstance(value, (np.integer,)):
+            return int(value)
+        if isinstance(value, (np.floating,)):
+            return float(value)
+        if isinstance(value, (np.ndarray, list, tuple)):
+            return [UnifiedRiskPipeline._json_default(v) for v in value]
+        if hasattr(value, 'isoformat'):
+            try:
+                return value.isoformat()
+            except Exception:
+                return str(value)
+        return str(value)
+
+    @staticmethod
+    def _describe_scores(scores: np.ndarray) -> Dict[str, float]:
+        if scores is None or len(scores) == 0:
+            return {}
+        scores = np.asarray(scores, dtype=float)
+        return {
+            'mean': float(np.mean(scores)),
+            'std': float(np.std(scores)),
+            'min': float(np.min(scores)),
+            'q25': float(np.percentile(scores, 25)),
+            'q50': float(np.percentile(scores, 50)),
+            'q75': float(np.percentile(scores, 75)),
+            'max': float(np.max(scores)),
+        }
 
     def _calculate_gini(self, predictions: np.ndarray, actuals: np.ndarray) -> float:
         """Calculate Gini coefficient."""

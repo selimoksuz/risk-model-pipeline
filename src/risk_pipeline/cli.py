@@ -1,60 +1,198 @@
 """Command Line Interface for Risk Model Pipeline"""
-import os as _os_utf8
-import sys as _sys_utf8
 
-_os_utf8.environ.setdefault("PYTHONUTF8", "1")
+import json
+import os
+import pickle
+import sys
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+from typer.models import OptionInfo
+
+import joblib
+import pandas as pd
+import typer
+from openpyxl import load_workbook
+
+from .core.config import Config
+from .reporting.report import save_metrics
+from .stages.scoring import build_scored_frame
+from .unified_pipeline import UnifiedRiskPipeline
+
+CONFIG_FIELD_NAMES = set(Config.__dataclass_fields__.keys())
+LEGACY_KEY_MAP = {
+    "target_col": "target_column",
+    "id_col": "id_column",
+    "time_col": "time_column",
+    "weight_col": "weight_column",
+    "test_ratio": "test_size",
+    "stratify_test_split": "stratify_test",
+    "dual_pipeline": "enable_dual",
+    "enable_dual_pipeline": "enable_dual",
+    "iv_min": "min_iv",
+    "iv_threshold": "min_iv",
+    "psi_threshold": "max_psi",
+}
+
+def _split_config_payload(data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    normalized: Dict[str, Any] = {}
+    extras: Dict[str, Any] = {}
+    if not data:
+        return normalized, extras
+    for key, value in data.items():
+        mapped_key = LEGACY_KEY_MAP.get(key, key)
+        if mapped_key in CONFIG_FIELD_NAMES:
+            normalized[mapped_key] = value
+        elif value is not None:
+            extras[mapped_key] = value
+    return normalized, extras
+
+
+
+def _apply_legacy_aliases(cfg: Config) -> None:
+    alias_sources = {
+        "numeric_imputation": ("numeric_imputation_strategy", "median"),
+        "outlier_method": ("numeric_outlier_method", "clip"),
+        "min_category_freq": ("rare_category_threshold", 0.01),
+        "band_method": ("risk_band_method", "quantile"),
+        "selection_method": ("stepwise_method", "forward"),
+        "stage2_method": (None, "lower_mean"),
+    }
+    for attr, (source, default) in alias_sources.items():
+        if not hasattr(cfg, attr):
+            if source and hasattr(cfg, source):
+                setattr(cfg, attr, getattr(cfg, source))
+            else:
+                setattr(cfg, attr, default)
+    if not hasattr(cfg, "enable_calibration"):
+        setattr(cfg, "enable_calibration", getattr(cfg, "enable_stage2_calibration", False))
+
+
+def _resolve_option(value, default=None):
+    if isinstance(value, OptionInfo):
+        return value.default if value.default is not ... else default
+    return value
+
+
+os.environ.setdefault("PYTHONUTF8", "1")
 try:
-    if hasattr(_sys_utf8.stdout, "reconfigure"):
-        _sys_utf8.stdout.reconfigure(encoding="utf-8")
-        _sys_utf8.stderr.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
 except Exception:
     pass
-
-import json  # noqa: E402
-import os  # noqa: E402
-import pickle  # noqa: E402
-
-import joblib  # noqa: E402
-import pandas as pd  # noqa: E402
-import typer  # noqa: E402
-from openpyxl import load_workbook  # noqa: E402
-
-from .core.config import Config  # noqa: E402
-from .unified_pipeline import UnifiedRiskPipeline  # noqa: E402
-from .stages.scoring import build_scored_frame  # noqa: E402
 
 app = typer.Typer(help="Risk Model Pipeline CLI")
 
 
 @app.command()
 def run(
+    config_json: Optional[str] = typer.Option(None, help="Path to a JSON config file or inline JSON string"),
     input_csv: str = typer.Option(..., help="Path to input CSV with features + target"),
     target_col: str = typer.Option("target", help="Target column name"),
     id_col: str = typer.Option("app_id", help="ID column"),
     time_col: str = typer.Option("app_dt", help="Time column for splitting"),
-    output_folder: str = typer.Option("output", help="Output folder for reports"),
-    dual_pipeline: bool = typer.Option(True, help="Run dual pipeline (WOE + RAW)"),
+    artifacts_dir: str = typer.Option("output", help="Directory for pipeline artifacts"),
+    dual_pipeline: bool = typer.Option(True, "--dual-pipeline/--single-pipeline", help="Run both WOE and RAW flows"),
     iv_min: float = typer.Option(0.02, help="Minimum IV threshold"),
     psi_threshold: float = typer.Option(0.25, help="PSI threshold"),
     model_type: str = typer.Option("lightgbm", help="Model type: lightgbm, xgboost, catboost"),
 ):
-    """Run the main risk model pipeline"""
+    """Run the main risk model pipeline."""
     df = pd.read_csv(input_csv)
 
-    cfg = Config(
-        target_col=target_col,
-        id_col=id_col,
-        time_col=time_col,
-        output_folder=output_folder,
-        enable_dual_pipeline=dual_pipeline,
-        iv_min=iv_min,
-        psi_threshold=psi_threshold,
-        model_type=model_type,
-    )
+    config_json = _resolve_option(config_json)
+    target_col = _resolve_option(target_col, "target")
+    id_col = _resolve_option(id_col, "app_id")
+    time_col = _resolve_option(time_col, "app_dt")
+    artifacts_dir = _resolve_option(artifacts_dir, "output")
+    dual_pipeline = bool(_resolve_option(dual_pipeline, True))
+    iv_min = float(_resolve_option(iv_min, 0.02))
+    psi_threshold = float(_resolve_option(psi_threshold, 0.25))
+    model_type = _resolve_option(model_type, "lightgbm")
+
+    base_payload = {
+        "target_column": target_col,
+        "id_column": id_col,
+        "time_column": time_col,
+        "output_folder": artifacts_dir,
+        "enable_dual": dual_pipeline,
+        "min_iv": iv_min,
+        "max_psi": psi_threshold,
+        "model_type": model_type,
+    }
+
+    normalized, extras = _split_config_payload(base_payload)
+
+    if config_json:
+        try:
+            if os.path.exists(config_json):
+                with open(config_json, "r", encoding="utf-8") as f:
+                    external_cfg = json.load(f)
+            else:
+                external_cfg = json.loads(config_json)
+        except json.JSONDecodeError as exc:
+            raise typer.BadParameter(f"config_json gecersiz: {exc}") from exc
+        if not isinstance(external_cfg, dict):
+            raise typer.BadParameter("config_json must resolve to a JSON object.")
+        ext_normalized, ext_extras = _split_config_payload(external_cfg)
+        normalized.update(ext_normalized)
+        extras.update(ext_extras)
+
+    cfg = Config(**normalized)
+    if extras:
+        for key, value in extras.items():
+            setattr(cfg, key, value)
+    _apply_legacy_aliases(cfg)
+
+    artifacts_path = Path(cfg.output_folder or artifacts_dir)
+    artifacts_path.mkdir(parents=True, exist_ok=True)
 
     pipe = UnifiedRiskPipeline(cfg)
-    pipe.fit(df)
-    typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
+    run_error: Optional[str] = None
+    try:
+        results = pipe.fit(df)
+    except Exception as exc:
+        run_error = str(exc)
+        typer.echo(f"Pipeline execution failed: {run_error}", err=True)
+        results = {}
+
+    model_results = results.get("model_results", {}) if isinstance(results, dict) else {}
+    scores = model_results.get("model_scores") if isinstance(model_results.get("model_scores"), dict) else None
+    metrics_payload = {
+        "best_model": getattr(pipe, "best_model_name_", None),
+        "model_scores": scores,
+        "selected_features": model_results.get("selected_features")
+        if isinstance(model_results.get("selected_features"), list)
+        else None,
+        "config": {
+            "target_col": getattr(cfg, "target_col", target_col),
+            "id_col": getattr(cfg, "id_col", id_col),
+            "time_col": getattr(cfg, "time_col", time_col),
+            "enable_dual_pipeline": getattr(
+                cfg,
+                "enable_dual_pipeline",
+                getattr(cfg, "enable_dual", dual_pipeline),
+            ),
+            "model_type": getattr(cfg, "model_type", model_type),
+        },
+        "status": "failed" if run_error else "success",
+        "error": run_error,
+    }
+
+    save_metrics(metrics_payload, str(artifacts_path))
+    best_model_name = getattr(pipe, 'best_model_name_', None)
+    if run_error:
+        typer.echo(
+            f"Pipeline failed; saved metrics stub to {artifacts_path}: {run_error}",
+            err=True,
+        )
+    else:
+        typer.echo(
+            f"Done. Best model: {best_model_name or 'unknown'} | Reports -> {artifacts_path}"
+        )
+
 
 
 @app.command()
@@ -90,29 +228,93 @@ def run_advanced(
     """Run the risk model pipeline with advanced configuration"""
     df = pd.read_csv(input_csv)
 
-    cfg = Config(
-        id_col=id_col,
-        time_col=time_col,
-        target_col=target_col,
-        oot_months=oot_months,
-        output_excel_path=output_excel,
-        output_folder=output_folder,
-        cluster_top_k=cluster_top_k,
-        rho_threshold=rho_threshold,
-        vif_threshold=vif_threshold,
-        iv_min=iv_min,
-        iv_high_threshold=iv_high_flag,
-        psi_threshold=psi_threshold_feature,
-        use_optuna=(hpo_method != "none"),
-        n_trials=hpo_trials,
-        optuna_timeout=hpo_timeout_sec,
-        enable_dual_pipeline=ensemble,
-    )
+    id_col = _resolve_option(id_col, "app_id")
+    time_col = _resolve_option(time_col, "app_dt")
+    target_col = _resolve_option(target_col, "target")
+    output_folder = _resolve_option(output_folder, "outputs")
+    output_excel = _resolve_option(output_excel, "model_report.xlsx")
+    dictionary_path = _resolve_option(dictionary_path)
+    psi_verbose = bool(_resolve_option(psi_verbose, True))
+    calibration_data = _resolve_option(calibration_data)
+    calibration_method = _resolve_option(calibration_method, "isotonic")
+    cluster_top_k = int(_resolve_option(cluster_top_k, 2))
+    rho_threshold = float(_resolve_option(rho_threshold, 0.8))
+    vif_threshold = float(_resolve_option(vif_threshold, 5.0))
+    iv_min = float(_resolve_option(iv_min, 0.02))
+    iv_high_flag = float(_resolve_option(iv_high_flag, 0.50))
+    psi_threshold_feature = float(_resolve_option(psi_threshold_feature, 0.25))
+    psi_threshold_score = float(_resolve_option(psi_threshold_score, 0.10))
+    shap_sample = int(_resolve_option(shap_sample, 25000))
+    ensemble = bool(_resolve_option(ensemble, False))
+    ensemble_top_k = int(_resolve_option(ensemble_top_k, 3))
+    try_mlp = bool(_resolve_option(try_mlp, False))
+    hpo_method = _resolve_option(hpo_method, "random")
+    hpo_timeout_sec = int(_resolve_option(hpo_timeout_sec, 1200))
+    hpo_trials = int(_resolve_option(hpo_trials, 60))
+    log_file = _resolve_option(log_file)
+    use_test_split = bool(_resolve_option(use_test_split, False))
+    oot_months = int(_resolve_option(oot_months, 3))
+
+    config_payload = {
+        "target_column": target_col,
+        "id_column": id_col,
+        "time_column": time_col,
+        "oot_months": oot_months,
+        "output_folder": output_folder,
+        "create_test_split": use_test_split,
+        "min_iv": iv_min,
+        "max_psi": psi_threshold_feature,
+        "max_correlation": rho_threshold,
+        "max_vif": vif_threshold,
+        "use_optuna": hpo_method != "none",
+        "n_trials": hpo_trials,
+        "optuna_timeout": hpo_timeout_sec,
+        "enable_dual": ensemble,
+        "calculate_shap": bool(shap_sample),
+        "shap_sample_size": shap_sample,
+        "psi_threshold_feature": psi_threshold_feature,
+        "psi_threshold_score": psi_threshold_score,
+        "dictionary_path": dictionary_path,
+        "psi_verbose": psi_verbose,
+        "calibration_data": calibration_data,
+        "calibration_method": calibration_method,
+        "cluster_top_k": cluster_top_k,
+        "rho_threshold": rho_threshold,
+        "vif_threshold": vif_threshold,
+        "iv_high_threshold": iv_high_flag,
+        "use_test_split": use_test_split,
+        "ensemble_top_k": ensemble_top_k,
+        "try_mlp": try_mlp,
+        "hpo_method": hpo_method,
+        "log_file": log_file,
+        "output_excel_path": output_excel,
+    }
+
+    normalized, extras = _split_config_payload(config_payload)
+    cfg = Config(**normalized)
+    if extras:
+        for key, value in extras.items():
+            setattr(cfg, key, value)
+    _apply_legacy_aliases(cfg)
+
+    output_path = Path(getattr(cfg, "output_folder", output_folder))
+    output_path.mkdir(parents=True, exist_ok=True)
 
     pipe = UnifiedRiskPipeline(cfg)
 
-    pipe.run(df)
-    typer.echo(f"Done. Best model: {pipe.best_model_name_} | Reports -> {output_folder}")
+    try:
+        pipe.run(df)
+        best_model_name = getattr(pipe, 'best_model_name_', None)
+        typer.echo(
+            f"Done. Best model: {best_model_name or 'unknown'} | Reports -> {output_path}"
+        )
+    except Exception as exc:
+        typer.echo(
+            f"Pipeline failed: {exc}",
+            err=True,
+        )
+    
+
 
 
 @app.command()
@@ -129,6 +331,12 @@ def score(
 ):
     """Score new data using a trained model"""
     df = pd.read_csv(input_csv)
+
+    id_col = _resolve_option(id_col, "app_id")
+    output_csv = _resolve_option(output_csv)
+    output_xlsx = _resolve_option(output_xlsx)
+    calibrator_path = _resolve_option(calibrator_path)
+    report_xlsx = _resolve_option(report_xlsx)
     with open(woe_mapping, "r", encoding="utf-8") as f:
         mapping = json.load(f)
     with open(final_vars_json, "r", encoding="utf-8") as f:
@@ -226,3 +434,7 @@ if __name__ == "__main__":
 def main():
     """Console entrypoint for risk-pipeline CLI."""
     app()
+
+
+
+

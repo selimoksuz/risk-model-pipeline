@@ -43,6 +43,26 @@ class DataProcessor:
         
         return df
 
+    def generate_tsfresh_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        '''Derive simple time-based features; falls back to empty frame if disabled.'''
+        if not getattr(self.cfg, 'enable_tsfresh_features', False):
+            return pd.DataFrame()
+        id_col = getattr(self.cfg, 'id_col', None)
+        if not id_col or id_col not in df.columns:
+            return pd.DataFrame()
+        numeric_cols = [
+            c for c in df.select_dtypes(include=['number']).columns
+            if c not in {self.cfg.target_col, id_col}
+        ]
+        if not numeric_cols:
+            return pd.DataFrame()
+        grouped = df.groupby(id_col, dropna=False)[numeric_cols].agg(['mean', 'std', 'min', 'max'])
+        grouped.columns = [f"{col}_{stat}_tsfresh" for col, stat in grouped.columns]
+        grouped = grouped.fillna(0.0)
+        grouped.index = grouped.index.astype(str)
+        grouped.index.name = id_col
+        return grouped
+
     def downcast_inplace(self, df: pd.DataFrame):
         """Downcast numeric types to save memory"""
         for c in df.columns:

@@ -1,4 +1,4 @@
-"""
+﻿"""
 
 Unified Configuration System for Risk Model Pipeline
 
@@ -93,6 +93,8 @@ class Config:
     rare_category_threshold: float = 0.01
 
     max_categories: int = 20
+    enable_tsfresh_features: bool = False
+    tsfresh_window: Optional[int] = None
 
     
 
@@ -265,6 +267,9 @@ class Config:
     stage2_lower_bound: float = 0.8
 
     stage2_upper_bound: float = 1.2
+
+    stage2_confidence_level: float = 0.95
+    stage2_method: str = 'lower_mean'
 
     
 
@@ -554,6 +559,13 @@ class Config:
         if not hasattr(self, 'stratify_test_split'):
             self.stratify_test_split = getattr(self, 'stratify_test', True)
 
+        if not hasattr(self, 'numeric_imputation'):
+            self.numeric_imputation = getattr(self, 'numeric_imputation_strategy', 'median')
+        if not hasattr(self, 'outlier_method'):
+            self.outlier_method = getattr(self, 'numeric_outlier_method', 'clip')
+        if not hasattr(self, 'min_category_freq'):
+            self.min_category_freq = getattr(self, 'rare_category_threshold', 0.01)
+
         # WOE/binning aliases
         self.binning_method = getattr(self, 'binning_method', getattr(self, 'woe_binning_method', 'optimized'))
         self.max_bins = getattr(self, 'max_bins', getattr(self, 'woe_max_bins', 10))
@@ -581,6 +593,11 @@ class Config:
         self.max_features = getattr(self, 'max_features', getattr(self, 'stepwise_max_features', 30))
         self.max_features_per_cluster = getattr(self, 'max_features_per_cluster', 1)
 
+        if not hasattr(self, 'band_method'):
+            self.band_method = getattr(self, 'risk_band_method', 'quantile')
+        if not hasattr(self, 'selection_method'):
+            self.selection_method = getattr(self, 'stepwise_method', 'forward')
+
         # Noise sentinel defaults
         if not hasattr(self, 'enable_noise_sentinel'):
             self.enable_noise_sentinel = getattr(self, 'use_noise_sentinel', False)
@@ -591,9 +608,16 @@ class Config:
         if not hasattr(self, 'enable_woe'):
             self.enable_woe = getattr(self, 'use_woe', True)
 
+        if not hasattr(self, 'enable_calibration'):
+            self.enable_calibration = getattr(self, 'enable_stage2_calibration', False)
+        if not hasattr(self, 'stage2_method'):
+            self.stage2_method = 'lower_mean'
+
         # Calendar defaults
         self.snapshot_column = getattr(self, 'snapshot_column', getattr(self, 'snapshot_month_column', 'snapshot_month'))
         self.oot_months = getattr(self, 'oot_months', getattr(self, 'n_oot_months', 3))
+
+
 
 
 

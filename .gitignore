@@ -140,3 +140,11 @@ docs/errors/
 .DS_Store
 Thumbs.db
 desktop.ini
+!tests/test_reporter.py
+
+# Generated artifacts
+output/
+output_reports/
+catboost_info/
+notebooks/output/
+notebooks/catboost_info/

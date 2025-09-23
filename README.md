@@ -26,51 +26,79 @@ pip install risk-model-pipeline
 
 ### From GitHub (Latest Development Version)
 ```bash
-pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@main
+pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@development
 ```
 
 ### With Optional Dependencies
 ```bash
 # Full installation with all features
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@main#egg=risk-model-pipeline[all]"
+pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[all]"
 
 # Only visualization tools
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@main#egg=risk-model-pipeline[viz]"
+pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[viz]"
 
 # Only advanced ML models
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@main#egg=risk-model-pipeline[ml]"
+pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[ml]"
 ```
 
 ## Quick Start
 
 ```python
-from risk_pipeline import Config, RiskModelPipeline
 import pandas as pd
+from risk_pipeline.core.config import Config
+from risk_pipeline.unified_pipeline import UnifiedRiskPipeline
 
 # Load your data
 df = pd.read_csv("your_data.csv")
 
-# Configure pipeline
+# Configure the unified pipeline
 config = Config(
-    target_col='target',
+    target_col="target",
+    id_col="app_id",
+    time_col="app_dt",
     enable_dual_pipeline=True,
-    use_optuna=True,
-    n_trials=50
+    selection_order=["psi", "vif", "correlation", "iv", "boruta", "stepwise"],
+    n_risk_bands=10,
+    enable_scoring=True,
 )
 
-# Run pipeline
-pipeline = RiskModelPipeline(config)
-pipeline.run(df)
+# Train and optionally score
+demo = UnifiedRiskPipeline(config)
+results = demo.fit(df=df, score_df=df)
 
-# Get predictions
-predictions = pipeline.predict(df)
-
-# Access results
-print(f"Best model: {pipeline.best_model_name_}")
-print(f"Best score: {pipeline.best_score_}")
+print("Best model:", results.get("best_model_name"))
+print("Selected features:", results.get("selected_features"))
 ```
 
 ## Advanced Configuration
+
+```python
+config = Config(
+    # Data columns
+    id_col="app_id",
+    time_col="app_dt",
+    target_col="target",
+
+    # Feature engineering & stability guards
+    rare_threshold=0.01,
+    psi_threshold=0.25,
+    iv_threshold=0.02,
+    rho_threshold=0.90,
+
+    # Model training
+    cv_folds=5,
+    use_optuna=True,
+    n_trials=100,
+
+    # Model selection
+    model_selection_method="balanced",
+    model_stability_weight=0.3,
+
+    # Output
+    output_dir="output_reports",
+    random_state=42,
+)
+```
 
 ```python
 config = Config(
@@ -95,7 +123,7 @@ config = Config(
     model_stability_weight=0.3,
     
     # Output
-    output_folder='outputs',
+    output_folder='output_reports',
     random_state=42
 )
 ```
@@ -128,6 +156,7 @@ config = Config(
 - [Installation Guide](INSTALL_GUIDE.md)
 - [Publishing to PyPI](PUBLISH_TO_PYPI.md)
 - [Example Notebooks](notebooks/)
+- [End-to-End Demo Notebook](notebooks/Risk_Model_Pipeline_End_to_End.ipynb)
 
 ## Development
 
@@ -173,7 +202,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Author
 
-**Selim Öksüz**
+**Selim Oksuz
 - GitHub: [@selimoksuz](https://github.com/selimoksuz)
 
 ## Support
@@ -185,3 +214,4 @@ For bugs and feature requests, please use the [GitHub Issues](https://github.com
 - Built with scikit-learn, XGBoost, LightGBM, and CatBoost
 - SHAP for model interpretability
 - Optuna for hyperparameter optimization
+

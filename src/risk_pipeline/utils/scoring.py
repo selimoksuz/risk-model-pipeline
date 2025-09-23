@@ -315,9 +315,9 @@ def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
             "Calibration Applied",
         ],
         "Value": [
-            f"{results['n_total']:, }",
-            f"{results['n_with_target']:, }",
-            f"{results['n_without_target']:, }",
+            f"{results['n_total']:,}",
+            f"{results['n_with_target']:,}",
+            f"{results['n_without_target']:,}",
             f"{results['n_with_target'] / results['n_total'] * 100:.1f}%",
             "Yes" if results.get("calibration_applied", False) else "No",
         ],
@@ -349,7 +349,7 @@ def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
                 "Score Max",
             ],
             "Value": [
-                f"{wt['n_records']:, }",
+                f"{wt['n_records']:,}",
                 f"{wt['default_rate']:.3f}",
                 f"{wt['auc']:.4f}",
                 f"{wt['gini']:.4f}",

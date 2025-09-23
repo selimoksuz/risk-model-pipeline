@@ -46,6 +46,7 @@ class SmartDataSplitter:
 
         print("    Performing equal default rate split...")
 
+        test_ratio = getattr(self.config, 'test_ratio', getattr(self.config, 'test_size', 0.2))
         result = {}
 
         # First handle OOT if time-based
@@ -80,22 +81,32 @@ class SmartDataSplitter:
             in_time_df = df
 
         # Split in-time into train/test with equal default rates
-        if hasattr(self.config, 'test_ratio') and self.config.test_ratio > 0:
-            # Use stratified split to maintain target distribution
-            stratified_split = StratifiedShuffleSplit(
-                n_splits=1,
-                test_size=self.config.test_ratio,
-                random_state=self.config.random_state
-            )
+        stratify_flag = getattr(self.config, 'stratify_test_split', getattr(self.config, 'stratify_test', True))
+        if test_ratio > 0 and len(in_time_df) > 0:
+            if stratify_flag and self.config.target_col in in_time_df.columns:
+                stratified_split = StratifiedShuffleSplit(
+                    n_splits=1,
+                    test_size=test_ratio,
+                    random_state=self.config.random_state
+                )
+                train_idx, test_idx = next(stratified_split.split(
+                    in_time_df,
+                    in_time_df[self.config.target_col]
+                ))
+                train_df = in_time_df.iloc[train_idx]
+                test_df = in_time_df.iloc[test_idx]
+            else:
+                n_test = max(1, int(len(in_time_df) * test_ratio))
+                train_df = in_time_df.iloc[:-n_test] if n_test < len(in_time_df) else in_time_df
+                test_df = in_time_df.iloc[-n_test:] if n_test < len(in_time_df) else in_time_df.iloc[:0]
 
-            # Get indices
-            train_idx, test_idx = next(stratified_split.split(
-                in_time_df,
-                in_time_df[self.config.target_col]
-            ))
+            if self.config.time_col and self.config.time_col in train_df.columns:
+                train_df = train_df.sort_values(self.config.time_col)
+                test_df = test_df.sort_values(self.config.time_col)
 
-            result['train'] = in_time_df.iloc[train_idx].reset_index(drop=True)
-            result['test'] = in_time_df.iloc[test_idx].reset_index(drop=True)
+            result['train'] = train_df.reset_index(drop=True)
+            if not test_df.empty:
+                result['test'] = test_df.reset_index(drop=True)
         else:
             result['train'] = in_time_df.reset_index(drop=True)
 
@@ -110,6 +121,8 @@ class SmartDataSplitter:
 
         df_sorted = df.sort_values(self.config.time_col)
         result = {}
+        test_ratio = getattr(self.config, 'test_ratio', getattr(self.config, 'test_size', 0.2))
+        stratify_flag = getattr(self.config, 'stratify_test_split', getattr(self.config, 'stratify_test', True))
 
         # Calculate OOT cutoff
         if hasattr(self.config, 'oot_months') and self.config.oot_months > 0:
@@ -126,12 +139,20 @@ class SmartDataSplitter:
             in_time = df_sorted
 
         # Split in-time into train/test
-        if hasattr(self.config, 'test_ratio') and self.config.test_ratio > 0:
-            n_test = int(len(in_time) * self.config.test_ratio)
-
-            # Time-based train/test split
-            train = in_time.iloc[:-n_test] if n_test > 0 else in_time
-            test = in_time.iloc[-n_test:] if n_test > 0 else pd.DataFrame()
+        if test_ratio > 0:
+            if getattr(self.config, 'stratify_test_split', getattr(self.config, 'stratify_test', True)) and self.config.target_col in in_time.columns and len(in_time) > 0:
+                splitter = StratifiedShuffleSplit(
+                    n_splits=1,
+                    test_size=test_ratio,
+                    random_state=self.config.random_state
+                )
+                train_idx, test_idx = next(splitter.split(in_time, in_time[self.config.target_col]))
+                train = in_time.iloc[train_idx].sort_values(self.config.time_col)
+                test = in_time.iloc[test_idx].sort_values(self.config.time_col)
+            else:
+                n_test = int(len(in_time) * test_ratio)
+                train = in_time.iloc[:-n_test] if n_test > 0 else in_time
+                test = in_time.iloc[-n_test:] if n_test > 0 else pd.DataFrame()
 
             result['train'] = train.reset_index(drop=True)
             if len(test) > 0:
@@ -146,11 +167,13 @@ class SmartDataSplitter:
 
         result = {}
 
-        if hasattr(self.config, 'test_ratio') and self.config.test_ratio > 0:
+        test_ratio = getattr(self.config, 'test_ratio', getattr(self.config, 'test_size', 0.2))
+
+        if test_ratio > 0:
             # Stratified split
             train, test = train_test_split(
                 df,
-                test_size=self.config.test_ratio,
+                test_size=test_ratio,
                 random_state=self.config.random_state,
                 stratify=df[self.config.target_col] if self.config.target_col in df.columns else None
             )

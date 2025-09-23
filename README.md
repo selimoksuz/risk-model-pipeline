@@ -94,6 +94,11 @@ config = Config(
     model_selection_method="balanced",
     model_stability_weight=0.3,
 
+    # Splitting & multicollinearity
+    equal_default_splits=True,
+    stratify_test_split=True,
+    vif_sample_size=8000,
+
     # Output
     output_dir="output_reports",
     random_state=42,

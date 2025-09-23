@@ -75,20 +75,24 @@ class AdvancedFeatureSelector:
         features = list(X.columns)
         removed = set()
 
-        while True:
-            # Calculate VIF for remaining features
-            vif_data = pd.DataFrame()
-            vif_data["Feature"] = features
-            vif_data["VIF"] = [self._calculate_vif(X[features], i)
-                              for i in range(len(features))]
+        sample_size = getattr(self.config, 'vif_sample_size', None)
+        X_work = X.copy()
+        if sample_size and len(X_work) > sample_size:
+            X_work = X_work.sample(sample_size, random_state=getattr(self.config, 'random_state', None))
+            print(f"    VIF subsample: using {len(X_work)} of {len(X)} rows")
+        X_work = X_work.reset_index(drop=True).apply(pd.to_numeric, errors='coerce').fillna(0.0)
 
-            # Find max VIF
+        while len(features) > 1:
+            subset = X_work[features]
+            values = subset.values
+            vif_scores = [variance_inflation_factor(values, i) for i in range(values.shape[1])]
+
+            vif_data = pd.DataFrame({'Feature': features, 'VIF': vif_scores})
             max_vif = vif_data["VIF"].max()
 
-            if max_vif < threshold:
+            if np.isnan(max_vif) or max_vif < threshold:
                 break
 
-            # Remove feature with highest VIF
             worst_feature = vif_data.loc[vif_data["VIF"].idxmax(), "Feature"]
             features.remove(worst_feature)
             removed.add(worst_feature)

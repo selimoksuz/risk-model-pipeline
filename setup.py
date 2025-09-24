@@ -63,7 +63,7 @@ setup(
         "xbooster==0.2.6; python_version >= '3.10'",
         "pydantic==1.10.15",
         "nbformat==5.10.4",
-        "importlib-resources==5.13.0; python_version < "3.9"",
+        "importlib-resources==5.13.0; python_version < \"3.9\"",
     ],
     
     # Optional dependencies

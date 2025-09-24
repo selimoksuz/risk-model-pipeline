@@ -41,7 +41,8 @@ setup(
     # Core dependencies
     install_requires=[
         "pandas==2.3.2",
-        "numpy==1.26.4",
+        "numpy==1.26.0; python_version < '3.10'",
+        "numpy==1.26.4; python_version >= '3.10'",
         "scipy==1.11.4",
         "scikit-learn==1.3.2",
         "joblib==1.5.2",

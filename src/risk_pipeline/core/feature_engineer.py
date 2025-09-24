@@ -1,4 +1,4 @@
-"""Feature engineering module for WOE, PSI, and feature selection"""
+﻿"""Feature engineering module for WOE, PSI, and feature selection"""
 
 import os
 import warnings
@@ -21,7 +21,6 @@ class FeatureEngineer:
     """Handles WOE transformation, PSI calculation, and feature selection"""
 
     def __init__(self, config):
-        vw = []  # Initialize
         self.cfg = config
         self.woe_map = {}
         self.psi_summary_ = None
@@ -40,6 +39,8 @@ class FeatureEngineer:
         for _, row in var_catalog.iterrows():
             var = row["variable"]
             var_type = row["variable_group"]
+
+            vw = VariableWOE(variable=var, var_type=var_type)
 
             if var == target_col:
                 continue
@@ -77,7 +78,7 @@ class FeatureEngineer:
                     missing_label="<MISSING>",
                     other_label="<OTHER>",
                     alpha=getattr(self.cfg, "jeffreys_alpha", 0.5),
-                    max_abs_woe=getattr(self.cfg, "max_abs_woe", 4.0),
+                    max_abs_woe=getattr(self.cfg, "max_abs_woe", None),
                 )
 
             # Calculate IV
@@ -86,10 +87,11 @@ class FeatureEngineer:
             # Handle missing values
             missing_mask = x.isna()
             if missing_mask.any():
-                event_missing = y[missing_mask].sum()
-                nonevent_missing = (~y[missing_mask]).sum()
+                y_missing = y[missing_mask]
+                event_missing = y_missing.sum()
+                nonevent_missing = (1 - y_missing).sum()
                 total_event = y.sum()
-                total_nonevent = (~y).sum()
+                total_nonevent = len(y) - total_event
 
                 woe_missing, rate_missing, _ = compute_woe_iv(
                     event_missing,
@@ -147,9 +149,6 @@ class FeatureEngineer:
                 woe, rate, iv_contrib = compute_woe_iv(
     event, nonevent, total_event, total_nonevent, alpha)
 
-                # Clip WOE if needed
-                if max_abs_woe and abs(woe) > max_abs_woe:
-                    woe = np.sign(woe) * max_abs_woe
 
                 bin_obj = NumericBin(
                     left=float(left),
@@ -164,7 +163,13 @@ class FeatureEngineer:
                 bins.append(bin_obj)
 
             # Optimize bins - merge similar WOE bins
-            bins = self._optimize_bins(bins, min_bin_size=min_share)
+            bins = self._optimize_bins(
+                bins,
+                total_event=total_event,
+                total_nonevent=total_nonevent,
+                alpha=alpha,
+                min_bin_share=min_share,
+            )
 
             return bins
 
@@ -173,76 +178,68 @@ class FeatureEngineer:
             return [NumericBin(left=-np.inf, right=np.inf, woe=0.0)]
 
     def _optimize_bins(
-        self, bins: List[NumericBin], min_bin_size: float = 0.05, woe_threshold: float = 0.1
+        self,
+        bins: List[NumericBin],
+        *,
+        total_event: int,
+        total_nonevent: int,
+        alpha: float,
+        min_bin_share: float = 0.05,
+        woe_threshold: float = 0.05,
     ) -> List[NumericBin]:
-        """Merge bins with similar WOE values to reduce overfitting"""
-        if len(bins) <= 2:
+        """Merge bins using IV contribution and size heuristics."""
+        if len(bins) <= 1:
             return bins
 
-        optimized = []
-        i = 0
-
-        while i < len(bins):
-            current_bin = bins[i]
-
-            # Check if we should merge with next bin
-            if i < len(bins) - 1:
-                next_bin = bins[i + 1]
-
-                # Merge if:
-                # 1. WOE difference is small
-                # 2. Either bin is too small
-                # 3. Event rates are similar
-                woe_diff = abs(current_bin.woe - next_bin.woe)
-                current_size = current_bin.total_count / \
-                    sum(b.total_count for b in bins)
-                next_size = next_bin.total_count / \
-                    sum(b.total_count for b in bins)
-                rate_diff = abs(current_bin.event_rate - next_bin.event_rate)
-
-                should_merge = (
-                    (woe_diff < woe_threshold)
-                    or (current_size < min_bin_size)
-                    or (next_size < min_bin_size)
-                    or (rate_diff < 0.02 and woe_diff < 0.2)
-                )
-
-                if should_merge and len(
-                    optimized) + (len(bins) - i - 1) > 2:  # Keep at least 2 bins
-                    # Merge bins
-                    merged_event = current_bin.event_count + next_bin.event_count
-                    merged_nonevent = current_bin.nonevent_count + next_bin.nonevent_count
-                    merged_total = merged_event + merged_nonevent
-
-                    # Recalculate WOE for merged bin
-                    total_event = sum(b.event_count for b in bins)
-                    total_nonevent = sum(b.nonevent_count for b in bins)
-
-                    woe, rate, iv_contrib = compute_woe_iv(
-                        merged_event, merged_nonevent, total_event, total_nonevent, 0.5
+        bins_work = list(bins)
+        merged = True
+        while merged and len(bins_work) > 1:
+            merged = False
+            total_count = sum(b.total_count for b in bins_work)
+            new_bins: List[NumericBin] = []
+            i = 0
+            while i < len(bins_work):
+                current_bin = bins_work[i]
+                if i < len(bins_work) - 1:
+                    next_bin = bins_work[i + 1]
+                    share_current = current_bin.total_count / total_count if total_count else 0.0
+                    share_next = next_bin.total_count / total_count if total_count else 0.0
+                    woe_diff = abs(current_bin.woe - next_bin.woe)
+                    merge_candidate = (
+                        share_current < min_bin_share
+                        or share_next < min_bin_share
+                        or woe_diff <= woe_threshold
                     )
-
-                    merged_bin = NumericBin(
-                        left=current_bin.left,
-                        right=next_bin.right,
-                        woe=woe,
-                        event_count=merged_event,
-                        nonevent_count=merged_nonevent,
-                        total_count=merged_total,
-                        event_rate=rate,
-                        iv_contrib=iv_contrib,
-                    )
-
-                    optimized.append(merged_bin)
-                    i += 2  # Skip next bin as it's merged
-                else:
-                    optimized.append(current_bin)
-                    i += 1
-            else:
-                optimized.append(current_bin)
+                    if merge_candidate:
+                        merged_event = current_bin.event_count + next_bin.event_count
+                        merged_nonevent = current_bin.nonevent_count + next_bin.nonevent_count
+                        merged_woe, merged_rate, merged_iv = compute_woe_iv(
+                            merged_event,
+                            merged_nonevent,
+                            total_event,
+                            total_nonevent,
+                            alpha,
+                        )
+                        current_iv = current_bin.iv_contrib + next_bin.iv_contrib
+                        if merged_iv + 1e-6 >= current_iv or share_current < min_bin_share or share_next < min_bin_share:
+                            merged_bin = NumericBin(
+                                left=current_bin.left,
+                                right=next_bin.right,
+                                woe=float(merged_woe),
+                                event_count=int(merged_event),
+                                nonevent_count=int(merged_nonevent),
+                                total_count=int(merged_event + merged_nonevent),
+                                event_rate=float(merged_rate),
+                                iv_contrib=float(merged_iv),
+                            )
+                            new_bins.append(merged_bin)
+                            merged = True
+                            i += 2
+                            continue
+                new_bins.append(current_bin)
                 i += 1
-
-        return optimized
+            bins_work = new_bins
+        return bins_work
 
     def _group_categorical_adaptive(
         self, x, y, rare_threshold, missing_label, other_label, alpha, max_abs_woe
@@ -277,9 +274,6 @@ class FeatureEngineer:
             woe, rate, iv_contrib = compute_woe_iv(
     event, nonevent, total_event, total_nonevent, alpha)
 
-            # Clip WOE if needed
-            if max_abs_woe and abs(woe) > max_abs_woe:
-                woe = np.sign(woe) * max_abs_woe
 
             group = CategoricalGroup(
                 label=str(cat),
@@ -303,8 +297,6 @@ class FeatureEngineer:
             woe, rate, iv_contrib = compute_woe_iv(
     event, nonevent, total_event, total_nonevent, alpha)
 
-            if max_abs_woe and abs(woe) > max_abs_woe:
-                woe = np.sign(woe) * max_abs_woe
 
             group = CategoricalGroup(
                 label=other_label,
@@ -877,3 +869,8 @@ class FeatureEngineer:
         except Exception as e:
             print(f"   - Dictionary integration failed: {e}")
             return results
+
+
+
+
+

@@ -1,4 +1,4 @@
-"""Tests for error handling module."""
+﻿"""Tests for error handling module."""
 
 import tempfile
 import time
@@ -239,6 +239,7 @@ class TestIntegration:
             assert checkpoint['metadata']['stage'] == 'stage_1'
 
             # Continue with stage 3
-    # result3 = handler.safe_execute(stage_3)
+            handler.safe_execute(stage_3)
 
             assert stages_completed == ['stage_1', 'stage_2', 'stage_3']
+

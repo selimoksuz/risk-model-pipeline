@@ -116,6 +116,8 @@ class UnifiedRiskPipeline:
         if getattr(df, 'empty', False):
             raise ValueError("Model dataset 'df' cannot be empty.")
 
+        df = df.copy()
+
         # Store data dictionary
         self.data_dictionary = data_dictionary
 
@@ -382,7 +384,7 @@ class UnifiedRiskPipeline:
                 right_index=True,
             )
             df_processed.drop(columns='__tsfresh_id__', inplace=True)
-            print(f"  Added {tsfresh_features.shape[1]} tsfresh özelliği")
+            print(f"  Added {tsfresh_features.shape[1]} tsfresh Ã¶zelliÄŸi")
 
         # Identify variable types
         numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
@@ -422,6 +424,7 @@ class UnifiedRiskPipeline:
 
         # Add noise sentinel if enabled
         if self.config.enable_noise_sentinel:
+            df_processed = df_processed.copy()
             df_processed['noise_sentinel'] = np.random.normal(0, 1, len(df_processed))
 
         self.data_['processed'] = df_processed
@@ -815,21 +818,22 @@ class UnifiedRiskPipeline:
 
             # Filter to only selected features
             X_cal = cal_woe[selected_features] if all(f in cal_woe.columns for f in selected_features) else cal_woe[feature_cols]
+            X_cal = X_cal.copy()
 
             # Ensure all columns are numeric (WOE transformed)
             for col in X_cal.columns:
                 if X_cal[col].dtype == 'object' or pd.api.types.is_datetime64_any_dtype(X_cal[col]):
                     # Convert to numeric or fill with 0
-                    X_cal[col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
+                    X_cal.loc[:, col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
         else:
             # Only for non-WOE case, process data
             cal_processed = self._process_data(calibration_df)
-            X_cal = cal_processed[selected_features]
+            X_cal = cal_processed[selected_features].copy()
 
             # Ensure all columns are numeric
             for col in X_cal.columns:
                 if X_cal[col].dtype == 'object' or pd.api.types.is_datetime64_any_dtype(X_cal[col]):
-                    X_cal[col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
+                    X_cal.loc[:, col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
 
         y_cal = calibration_df[self.config.target_col]
 
@@ -868,7 +872,7 @@ class UnifiedRiskPipeline:
         if self.config.enable_woe:
             stage2_woe = self.woe_transformer.transform(stage2_processed)
             available_features = [f for f in selected_features if f in stage2_woe.columns]
-            X_stage2 = stage2_woe[available_features]
+            X_stage2 = stage2_woe[available_features].copy()
         else:
             stage2_woe = self.woe_transformer.transform(stage2_processed)
             categorical_cols = [
@@ -880,11 +884,11 @@ class UnifiedRiskPipeline:
             for col in categorical_cols:
                 if col in stage2_woe.columns:
                     stage2_processed[col] = stage2_woe[col]
-            X_stage2 = stage2_processed[selected_features]
+            X_stage2 = stage2_processed[selected_features].copy()
 
         for col in X_stage2.columns:
             if is_object_dtype(X_stage2[col]) or is_datetime64_any_dtype(X_stage2[col]):
-                X_stage2[col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
+                X_stage2.loc[:, col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
 
         y_stage2 = stage2_processed[self.config.target_col]
 

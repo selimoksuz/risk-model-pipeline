@@ -1,4 +1,4 @@
-"""Test stratified splitting functionality."""
+﻿"""Test stratified splitting functionality."""
 
 import numpy as np
 import pandas as pd
@@ -106,3 +106,38 @@ def test_no_test_split_when_disabled():
     assert test_idx is None, "No test set should be created when use_test_split = False"
     assert len(train_idx) > 0, "Train set should not be empty"
     assert len(oot_idx) > 0, "OOT set should not be empty"
+
+
+def test_monthly_event_rate_stability():
+    """Ensure monthly stratified split keeps per-month event rates aligned."""
+    rng = np.random.default_rng(2024)
+    months = pd.date_range('2024-01-01', periods=90, freq='D')
+    df = pd.DataFrame({
+        'app_id': range(len(months)),
+        'app_dt': months,
+        'target': rng.choice([0, 1], size=len(months), p=[0.7, 0.3]),
+        'feature1': rng.normal(size=len(months))
+    })
+
+    train_idx, test_idx, _ = time_based_split(
+        df,
+        time_col='app_dt',
+        target_col='target',
+        use_test_split=True,
+        oot_window_months=0,
+        test_size_row_frac=0.3
+    )
+
+    assert test_idx is not None and len(test_idx) > 0
+
+    train_df = df.loc[train_idx]
+    test_df = df.loc[test_idx]
+
+    train_df['month'] = train_df['app_dt'].dt.to_period('M')
+    test_df['month'] = test_df['app_dt'].dt.to_period('M')
+
+    common_months = sorted(set(train_df['month']).intersection(test_df['month']))
+    for month in common_months:
+        train_rate = train_df.loc[train_df['month'] == month, 'target'].mean()
+        test_rate = test_df.loc[test_df['month'] == month, 'target'].mean()
+        assert abs(train_rate - test_rate) < 0.1, f"Month {month}: rates diverged ({train_rate:.2f} vs {test_rate:.2f})"

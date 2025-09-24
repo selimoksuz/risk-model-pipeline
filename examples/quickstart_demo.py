@@ -4,21 +4,26 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Any
 
-import pandas as pd
-
 from risk_pipeline.core.config import Config
 from risk_pipeline.unified_pipeline import UnifiedRiskPipeline
-
-DATA_DIR = Path(__file__).resolve().parent / "data" / "credit_risk_sample"
-DEVELOPMENT_CSV = DATA_DIR / "development.csv"
-CALIBRATION_LONGRUN_CSV = DATA_DIR / "calibration_longrun.csv"
-CALIBRATION_RECENT_CSV = DATA_DIR / "calibration_recent.csv"
-SCORING_CSV = DATA_DIR / "scoring_future.csv"
-DICTIONARY_CSV = DATA_DIR / "data_dictionary.csv"
+from risk_pipeline.data.sample import load_credit_risk_sample
 
 
 def build_quickstart_config(output_dir: Path) -> Config:
     """Return a configuration that exercises all major pipeline stages."""
+    algorithms = [
+        "logistic",
+        "gam",
+        "catboost",
+        "lightgbm",
+        "xgboost",
+        "randomforest",
+        "extratrees",
+        "woe_boost",
+        "woe_li",
+        "shao",
+        "xbooster",
+    ]
     config = Config(
         target_column="target",
         id_column="customer_id",
@@ -31,17 +36,39 @@ def build_quickstart_config(output_dir: Path) -> Config:
         enable_scoring=True,
         enable_stage2_calibration=True,
         output_folder=str(output_dir),
-        n_risk_bands=6,
-        risk_band_method="quantile",
-        max_psi=0.6,
-        selection_steps=["psi", "univariate", "iv", "correlation", "stepwise"],
-        algorithms=["logistic", "lightgbm"],
-        use_optuna=False,
-        calculate_shap=False,
-        use_noise_sentinel=False,
+        selection_steps=["psi", "univariate", "iv", "correlation", "boruta", "stepwise"],
+        algorithms=algorithms,
+        psi_threshold=0.25,
+        iv_threshold=0.02,
+        univariate_gini_threshold=0.05,
+        correlation_threshold=0.95,
+        vif_threshold=5.0,
+        woe_binning_strategy="iv_optimal",
+        use_optuna=True,
+        n_trials=1,
+        optuna_timeout=120,
+        use_noise_sentinel=True,
+        calculate_shap=True,
+        shap_sample_size=500,
+        risk_band_method="pd_constraints",
+        n_risk_bands=8,
+        risk_band_min_bins=7,
+        risk_band_max_bins=10,
+        risk_band_micro_bins=1000,
+        risk_band_min_weight=0.05,
+        risk_band_max_weight=0.30,
+        risk_band_hhi_threshold=0.15,
+        risk_band_binomial_pass_weight=0.85,
+        risk_band_alpha=0.05,
+        risk_band_pd_dr_tolerance=1e-4,
+        risk_band_max_iterations=100,
+        risk_band_max_phase_iterations=50,
+        risk_band_early_stop_rounds=10,
+        calibration_stage1_method="isotonic",
+        calibration_stage2_method="lower_mean",
         random_state=42,
     )
-    config.model_type = ['LogisticRegression', 'LightGBM']
+    config.model_type = "all"
     return config
 
 
@@ -50,32 +77,17 @@ def run_quickstart(output_dir: Path | str) -> Dict[str, Any]:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    required_files = [
-        DEVELOPMENT_CSV,
-        CALIBRATION_LONGRUN_CSV,
-        CALIBRATION_RECENT_CSV,
-        SCORING_CSV,
-        DICTIONARY_CSV,
-    ]
-    missing = [p for p in required_files if not p.exists()]
-    if missing:
-        raise FileNotFoundError(f"Missing synthetic dataset files: {missing}")
-
-    development_df = pd.read_csv(DEVELOPMENT_CSV)
-    calibration_longrun_df = pd.read_csv(CALIBRATION_LONGRUN_CSV)
-    calibration_recent_df = pd.read_csv(CALIBRATION_RECENT_CSV)
-    scoring_df = pd.read_csv(SCORING_CSV)
-    data_dictionary = pd.read_csv(DICTIONARY_CSV)
+    sample = load_credit_risk_sample()
 
     cfg = build_quickstart_config(output_dir)
     pipe = UnifiedRiskPipeline(cfg)
 
     results = pipe.fit(
-        development_df,
-        data_dictionary=data_dictionary,
-        calibration_df=calibration_longrun_df,
-        stage2_df=calibration_recent_df,
-        score_df=scoring_df,
+        sample.development,
+        data_dictionary=sample.data_dictionary,
+        calibration_df=sample.calibration_longrun,
+        stage2_df=sample.calibration_recent,
+        score_df=sample.scoring_future,
     )
     return results
 

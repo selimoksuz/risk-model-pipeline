@@ -6,12 +6,430 @@ Supports: Logistic, GAM, CatBoost, LightGBM, XGBoost, RandomForest, ExtraTrees
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional, Any, Tuple
+from itertools import combinations
 from sklearn.metrics import roc_auc_score, roc_curve
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.feature_selection import mutual_info_classif
 import warnings
 
 warnings.filterwarnings('ignore')
+
+
+
+try:
+    import xgboost as _xgb
+    _XGBClassifier = getattr(_xgb, 'XGBClassifier', None)
+    _XGB_VERSION = getattr(_xgb, '__version__', '0.0.0')
+except ImportError:
+    _xgb = None
+    _XGBClassifier = None
+    _XGB_VERSION = '0.0.0'
+
+
+_USE_LABEL_ENCODER_PARAM = False
+
+
+def _xgb_supports_label_encoder(version_str: str) -> bool:
+    try:
+        parts = [int(part) for part in version_str.split('.')[:2]]
+        if len(parts) == 1:
+            parts.append(0)
+        major, minor = parts[0], parts[1]
+    except Exception:
+        return True
+    return (major, minor) < (1, 6)
+
+
+if _XGBClassifier is not None:
+    _USE_LABEL_ENCODER_PARAM = _xgb_supports_label_encoder(_XGB_VERSION)
+
+
+def _make_xgb_classifier(**kwargs):
+    if _XGBClassifier is None:
+        raise ImportError('xgboost is required for XGBoost-based models')
+    params = dict(kwargs)
+    if _USE_LABEL_ENCODER_PARAM:
+        params.setdefault('use_label_encoder', False)
+    else:
+        params.pop('use_label_encoder', None)
+    params.setdefault('eval_metric', params.get('eval_metric', 'logloss'))
+    return _XGBClassifier(**params)
+
+
+class WoeBoostClassifier(BaseEstimator, ClassifierMixin):
+    """Gradient boosted model configured for WOE-transformed features."""
+
+    def __init__(
+        self,
+        learning_rate: float = 0.08,
+        num_leaves: int = 31,
+        min_data_in_leaf: int = 20,
+        feature_fraction: float = 0.9,
+        bagging_fraction: float = 0.8,
+        bagging_freq: int = 1,
+        max_depth: int = -1,
+        lambda_l1: float = 0.0,
+        lambda_l2: float = 0.0,
+        num_boost_round: int = 120,
+        random_state: int = 42,
+    ):
+        self.learning_rate = learning_rate
+        self.num_leaves = num_leaves
+        self.min_data_in_leaf = min_data_in_leaf
+        self.feature_fraction = feature_fraction
+        self.bagging_fraction = bagging_fraction
+        self.bagging_freq = bagging_freq
+        self.max_depth = max_depth
+        self.lambda_l1 = lambda_l1
+        self.lambda_l2 = lambda_l2
+        self.num_boost_round = num_boost_round
+        self.random_state = random_state
+        self.booster_ = None
+        self.feature_importances_ = None
+        self.classes_ = None
+        self.n_features_in_ = None
+        self.feature_names_in_ = None
+
+    def fit(self, X, y):
+        try:
+            import lightgbm as lgb
+        except ImportError as exc:
+            raise RuntimeError('LightGBM is required for WoeBoost') from exc
+
+        X_values = X.values if hasattr(X, 'values') else np.asarray(X)
+        y_values = np.asarray(y)
+
+        params = {
+            'objective': 'binary',
+            'metric': 'auc',
+            'learning_rate': float(self.learning_rate),
+            'num_leaves': int(self.num_leaves),
+            'min_data_in_leaf': int(self.min_data_in_leaf),
+            'feature_fraction': max(0.1, min(1.0, float(self.feature_fraction))),
+            'bagging_fraction': max(0.1, min(1.0, float(self.bagging_fraction))),
+            'bagging_freq': max(0, int(self.bagging_freq)),
+            'max_depth': -1 if self.max_depth is None or int(self.max_depth) < 0 else int(self.max_depth),
+            'lambda_l1': float(self.lambda_l1),
+            'lambda_l2': float(self.lambda_l2),
+            'feature_pre_filter': False,
+            'verbosity': -1,
+            'seed': int(self.random_state),
+            'deterministic': True,
+            'force_row_wise': True,
+        }
+
+        dataset = lgb.Dataset(X_values, label=y_values, free_raw_data=True)
+        num_boost_round = max(10, int(self.num_boost_round))
+        self.booster_ = lgb.train(params, dataset, num_boost_round=num_boost_round)
+
+        self.classes_ = np.array(sorted(np.unique(y_values)))
+        self.n_features_in_ = X_values.shape[1]
+        if hasattr(X, 'columns'):
+            self.feature_names_in_ = list(X.columns)
+        else:
+            self.feature_names_in_ = [f'f_{idx}' for idx in range(self.n_features_in_)]
+        self.feature_importances_ = self.booster_.feature_importance(importance_type='gain')
+        return self
+
+    def predict_proba(self, X):
+        if self.booster_ is None:
+            raise ValueError('Model is not fitted.')
+
+        X_values = X.values if hasattr(X, 'values') else np.asarray(X)
+        preds = self.booster_.predict(X_values)
+        preds = np.clip(preds, 1e-6, 1 - 1e-6)
+        return np.column_stack([1 - preds, preds])
+
+    def predict(self, X):
+        proba = self.predict_proba(X)
+        return (proba[:, 1] >= 0.5).astype(int)
+
+
+class WoeLogisticInteractionClassifier(BaseEstimator, ClassifierMixin):
+    """Logistic model on WOE features enriched with pairwise interactions."""
+
+    def __init__(
+        self,
+        top_k: int = 5,
+        include_original: bool = True,
+        penalty: str = 'l2',
+        C: float = 1.0,
+        max_iter: int = 2000,
+        solver: Optional[str] = None,
+        random_state: int = 42,
+    ):
+        self.top_k = max(1, int(top_k))
+        self.include_original = include_original
+        self.penalty = penalty
+        self.C = C
+        self.max_iter = max(100, int(max_iter))
+        self.solver = solver
+        self.random_state = random_state
+        self.model_ = None
+        self.base_columns_: List[str] = []
+        self.interaction_pairs_: List[Tuple[str, str]] = []
+        self.feature_names_in_: List[str] = []
+        self.classes_: Optional[np.ndarray] = None
+
+    def fit(self, X, y):
+        if hasattr(X, 'columns'):
+            X_df = X.copy()
+        else:
+            X_df = pd.DataFrame(X, columns=[f'f_{i}' for i in range(np.asarray(X).shape[1])])
+        self.base_columns_ = list(X_df.columns)
+
+        data = X_df.fillna(0.0).astype(float)
+        if data.shape[1] == 0:
+            raise ValueError('WoeLogisticInteractionClassifier requires at least one feature.')
+
+        try:
+            scores = mutual_info_classif(
+                data.values,
+                np.asarray(y),
+                discrete_features=False,
+                random_state=self.random_state,
+            )
+        except Exception:
+            scores = np.zeros(data.shape[1], dtype=float)
+
+        order = np.argsort(scores)[::-1]
+        top_indices = order[: min(self.top_k, len(order))]
+        top_features = [self.base_columns_[i] for i in top_indices]
+
+        design = data.copy() if self.include_original else pd.DataFrame(index=data.index)
+        interaction_pairs: List[Tuple[str, str]] = []
+        for f1, f2 in combinations(top_features, 2):
+            col_name = f"{f1}__x__{f2}"
+            design[col_name] = data[f1].values * data[f2].values
+            interaction_pairs.append((f1, f2))
+        self.interaction_pairs_ = interaction_pairs
+
+        self.feature_names_in_ = list(design.columns)
+        design_matrix = design.values
+        y_array = np.asarray(y)
+
+        solver = self.solver
+        if solver is None:
+            solver = 'liblinear' if self.penalty == 'l1' else 'lbfgs'
+
+        model = LogisticRegression(
+            penalty=self.penalty,
+            C=float(self.C),
+            solver=solver,
+            max_iter=self.max_iter,
+            random_state=self.random_state,
+        )
+        model.fit(design_matrix, y_array)
+
+        self.model_ = model
+        self.classes_ = model.classes_
+        return self
+
+    def _prepare_features(self, X) -> pd.DataFrame:
+        if hasattr(X, 'columns'):
+            X_df = X.copy()
+        else:
+            X_df = pd.DataFrame(X, columns=self.base_columns_)
+        X_df = X_df.reindex(columns=self.base_columns_, fill_value=0.0).fillna(0.0).astype(float)
+
+        if self.include_original:
+            design = X_df.copy()
+        else:
+            design = pd.DataFrame(index=X_df.index)
+        for f1, f2 in self.interaction_pairs_:
+            col_name = f"{f1}__x__{f2}"
+            design[col_name] = X_df[f1].values * X_df[f2].values
+
+        if not self.feature_names_in_:
+            self.feature_names_in_ = list(design.columns)
+        design = design.reindex(columns=self.feature_names_in_, fill_value=0.0)
+        return design
+
+    def predict_proba(self, X):
+        if self.model_ is None:
+            raise ValueError('Model is not fitted.')
+        design = self._prepare_features(X)
+        return self.model_.predict_proba(design.values)
+
+    def predict(self, X):
+        proba = self.predict_proba(X)
+        return (proba[:, 1] >= 0.5).astype(int)
+
+
+class ShaoLogitClassifier(BaseEstimator, ClassifierMixin):
+    """Penalised logistic regression with CV-based regularisation (Shao et al.)."""
+
+    def __init__(
+        self,
+        Cs: Optional[List[float]] = None,
+        cv: int = 5,
+        penalty: str = 'l1',
+        max_iter: int = 2000,
+        random_state: int = 42,
+    ):
+        self.Cs = Cs or [0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
+        self.cv = max(2, int(cv))
+        self.penalty = penalty
+        self.max_iter = max(100, int(max_iter))
+        self.random_state = random_state
+        self.model_: Optional[LogisticRegressionCV] = None
+        self.feature_names_in_: List[str] = []
+        self.classes_: Optional[np.ndarray] = None
+
+    def fit(self, X, y):
+        if hasattr(X, 'columns'):
+            X_df = X.copy()
+        else:
+            X_df = pd.DataFrame(X, columns=[f'f_{i}' for i in range(np.asarray(X).shape[1])])
+        data = X_df.fillna(0.0).astype(float)
+        solver = 'liblinear' if self.penalty == 'l1' else 'lbfgs'
+
+        model = LogisticRegressionCV(
+            Cs=self.Cs,
+            cv=self.cv,
+            penalty=self.penalty,
+            solver=solver,
+            scoring='roc_auc',
+            max_iter=self.max_iter,
+            random_state=self.random_state,
+            refit=True,
+        )
+        model.fit(data.values, np.asarray(y))
+
+        self.model_ = model
+        self.feature_names_in_ = list(data.columns)
+        self.classes_ = model.classes_
+        return self
+
+    def _prepare_array(self, X) -> np.ndarray:
+        if hasattr(X, 'columns'):
+            X_df = X.copy()
+        else:
+            X_df = pd.DataFrame(X, columns=self.feature_names_in_)
+        X_df = X_df.reindex(columns=self.feature_names_in_, fill_value=0.0).fillna(0.0).astype(float)
+        return X_df.values
+
+    def predict_proba(self, X):
+        if self.model_ is None:
+            raise ValueError('Model is not fitted.')
+        return self.model_.predict_proba(self._prepare_array(X))
+
+    def predict(self, X):
+        proba = self.predict_proba(X)
+        return (proba[:, 1] >= 0.5).astype(int)
+
+
+
+class XBoosterClassifier(BaseEstimator, ClassifierMixin):
+    """Wrapper around XGBoost with scorecard generation via xbooster."""
+
+    def __init__(
+        self,
+        n_estimators: int = 200,
+        max_depth: int = 3,
+        learning_rate: float = 0.05,
+        subsample: float = 0.8,
+        colsample_bytree: float = 0.8,
+        gamma: float = 0.0,
+        min_child_weight: float = 1.0,
+        reg_alpha: float = 0.0,
+        reg_lambda: float = 1.0,
+        generate_scorecard: bool = True,
+        scorecard_kwargs: Optional[Dict[str, Any]] = None,
+        random_state: int = 42,
+    ):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.learning_rate = learning_rate
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
+        self.gamma = gamma
+        self.min_child_weight = min_child_weight
+        self.reg_alpha = reg_alpha
+        self.reg_lambda = reg_lambda
+        self.generate_scorecard = generate_scorecard
+        self.scorecard_kwargs = scorecard_kwargs
+        self.random_state = random_state
+        self.model_ = None
+        self.scorecard_constructor_ = None
+        self.scorecard_frame_ = None
+        self.scorecard_points_ = None
+        self.scorecard_error_: Optional[str] = None
+
+    def fit(self, X, y):  # noqa: N803 - sklearn signature
+        if isinstance(X, pd.DataFrame):
+            X_df = X.copy()
+        else:
+            X_array = np.asarray(X)
+            X_df = pd.DataFrame(X_array, columns=[f'feature_{i}' for i in range(X_array.shape[1])])
+
+        y_series = y if isinstance(y, pd.Series) else pd.Series(y)
+
+        self.model_ = _make_xgb_classifier(
+            n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            learning_rate=self.learning_rate,
+            subsample=self.subsample,
+            colsample_bytree=self.colsample_bytree,
+            gamma=self.gamma,
+            min_child_weight=self.min_child_weight,
+            reg_alpha=self.reg_alpha,
+            reg_lambda=self.reg_lambda,
+            random_state=self.random_state,
+            n_jobs=-1,
+        )
+        self.model_.fit(X_df, y_series)
+        self.feature_importances_ = getattr(self.model_, 'feature_importances_', None)
+        self.classes_ = np.array(sorted(np.unique(y_series)))
+        self.n_features_in_ = X_df.shape[1]
+        self.feature_names_in_ = list(X_df.columns)
+
+        self.scorecard_constructor_ = None
+        self.scorecard_frame_ = None
+        self.scorecard_points_ = None
+        self.scorecard_error_ = None
+
+        if self.generate_scorecard:
+            try:
+                from xbooster.constructor import XGBScorecardConstructor  # type: ignore
+
+                constructor = XGBScorecardConstructor(self.model_, X_df, y_series)
+                constructor.construct_scorecard()
+                kwargs = dict(self.scorecard_kwargs or {})
+                scorecard_points = constructor.create_points(**kwargs)
+                scorecard_points = constructor.add_detailed_split(scorecard_points.copy())
+                self.scorecard_constructor_ = constructor
+                self.scorecard_frame_ = constructor.xgb_scorecard.copy() if constructor.xgb_scorecard is not None else None
+                self.scorecard_points_ = scorecard_points.copy() if hasattr(scorecard_points, 'copy') else scorecard_points
+                self.scorecard_error_ = None
+            except ImportError:
+                self.scorecard_constructor_ = None
+                self.scorecard_frame_ = None
+                self.scorecard_points_ = None
+                self.scorecard_error_ = 'xbooster is not installed'
+            except Exception as exc:  # pragma: no cover - defensive
+                self.scorecard_constructor_ = None
+                self.scorecard_frame_ = None
+                self.scorecard_points_ = None
+                self.scorecard_error_ = str(exc)
+        return self
+
+    def predict_proba(self, X):
+        if self.model_ is None:
+            raise ValueError('Model is not fitted.')
+        return self.model_.predict_proba(X)
+
+    def predict(self, X):
+        proba = self.predict_proba(X)
+        return (proba[:, 1] >= 0.5).astype(int)
+
+    def get_scorecard(self, with_points: bool = True):
+        if with_points:
+            return self.scorecard_points_
+        return self.scorecard_frame_
+
 
 
 class ComprehensiveModelBuilder:
@@ -24,6 +442,7 @@ class ComprehensiveModelBuilder:
         self.models_ = {}
         self.scores_ = {}
         self.feature_importance_ = {}
+        self.interpretability_ = {}
 
     def train_all_models(self, X_train: pd.DataFrame, y_train: pd.Series,
                         X_test: Optional[pd.DataFrame] = None,
@@ -34,6 +453,8 @@ class ComprehensiveModelBuilder:
 
         print(f"  Training models on {X_train.shape[1]} features...")
 
+        self.interpretability_ = {}
+
         # Check if we have any features
         if X_train.shape[1] == 0:
             print("    WARNING: No features available for training. Skipping model training.")
@@ -43,6 +464,7 @@ class ComprehensiveModelBuilder:
                 'best_model': None,
                 'best_model_name': None,
                 'feature_importance': {},
+                'interpretability': {},
                 'selected_features': []
             }
 
@@ -54,7 +476,7 @@ class ComprehensiveModelBuilder:
             print(f"    Training {model_name}...")
 
             try:
-                if self.config.use_optuna and model_name != 'LogisticRegression':
+                if self.config.use_optuna and self._supports_optuna(model_name):
                     model = self._train_with_optuna(
                         model_name, X_train, y_train, X_test, y_test
                     )
@@ -79,6 +501,9 @@ class ComprehensiveModelBuilder:
                 self.feature_importance_[model_name] = self._get_feature_importance(
                     model, X_train.columns, model_name
                 )
+                self.interpretability_[model_name] = self._collect_interpretability(
+                    model, model_name
+                )
 
                 print(f"      Train AUC: {train_score:.4f}", end="")
                 if test_score:
@@ -101,6 +526,7 @@ class ComprehensiveModelBuilder:
                 'best_model': None,
                 'best_model_name': None,
                 'feature_importance': self.feature_importance_,
+                'interpretability': self.interpretability_,
                 'selected_features': list(X_train.columns) if X_train is not None and len(X_train.columns) > 0 else []
             }
 
@@ -110,7 +536,20 @@ class ComprehensiveModelBuilder:
             'best_model': self.models_[best_model_name],
             'best_model_name': best_model_name,
             'feature_importance': self.feature_importance_,
+            'interpretability': self.interpretability_,
             'selected_features': list(X_train.columns)
+        }
+
+    def _supports_optuna(self, model_name: str) -> bool:
+        """Return True if the model has an Optuna search space."""
+
+        return model_name in {
+            'RandomForest',
+            'ExtraTrees',
+            'LightGBM',
+            'XGBoost',
+            'CatBoost',
+            'GAM',
         }
 
     def _get_models_to_train(self) -> List[str]:
@@ -123,20 +562,89 @@ class ComprehensiveModelBuilder:
             'LightGBM',
             'XGBoost',
             'CatBoost',
-            'GAM'
+            'XBooster',
+            'GAM',
+            'WoeBoost',
+            'WoeLogisticInteraction',
+            'ShaoLogit'
         ]
 
-        if self.config.model_type == 'all':
-            # Check which are available
-            available = []
-            for model in all_models:
-                if self._is_model_available(model):
-                    available.append(model)
-            return available
-        elif isinstance(self.config.model_type, list):
-            return [m for m in self.config.model_type if self._is_model_available(m)]
+        mapping = {
+            'logistic': 'LogisticRegression',
+            'logistic_regression': 'LogisticRegression',
+            'logreg': 'LogisticRegression',
+            'randomforest': 'RandomForest',
+            'random_forest': 'RandomForest',
+            'extratrees': 'ExtraTrees',
+            'extra_trees': 'ExtraTrees',
+            'lightgbm': 'LightGBM',
+            'xgboost': 'XGBoost',
+            'catboost': 'CatBoost',
+            'xbooster': 'XBooster',
+            'x_booster': 'XBooster',
+            'gam': 'GAM',
+            'woe_boost': 'WoeBoost',
+            'woeboost': 'WoeBoost',
+            'woe_li': 'WoeLogisticInteraction',
+            'woeli': 'WoeLogisticInteraction',
+            'woe_logistic_interaction': 'WoeLogisticInteraction',
+            'shao': 'ShaoLogit',
+            'shao_logit': 'ShaoLogit',
+        }
+
+        def _canonical(name: str) -> str:
+            key = str(name).lower().replace('-', '_')
+            return mapping.get(key, name)
+
+        def _expand(selection) -> List[str]:
+            if selection is None:
+                return []
+            if isinstance(selection, str):
+                items = [selection]
+            else:
+                items = list(selection)
+            expanded: List[str] = []
+            for item in items:
+                canonical = _canonical(item)
+                if canonical.lower() == 'all':
+                    expanded.extend(all_models)
+                else:
+                    expanded.append(canonical)
+            return expanded
+
+        default_algorithms = ['logistic', 'gam', 'catboost', 'lightgbm', 'xgboost', 'randomforest', 'extratrees', 'woe_boost', 'woe_li', 'shao', 'xbooster']
+        default_selection = _expand(default_algorithms)
+
+        model_type = getattr(self.config, 'model_type', 'all')
+        algorithms_config = getattr(self.config, 'algorithms', default_algorithms)
+
+        model_type_selection = _expand(model_type)
+        algorithms_selection = _expand(algorithms_config)
+        algorithms_customized = bool(algorithms_selection) and set(algorithms_selection) != set(default_selection)
+
+        if isinstance(model_type, str) and model_type.lower() == 'all':
+            requested = algorithms_selection if algorithms_customized else [m for m in all_models]
+        elif isinstance(model_type, (list, tuple, set)):
+            requested = model_type_selection
         else:
-            return [self.config.model_type] if self._is_model_available(self.config.model_type) else []
+            requested = model_type_selection or (algorithms_selection if algorithms_customized else [m for m in all_models])
+
+        if not requested:
+            requested = algorithms_selection or [m for m in all_models]
+
+        seen = set()
+        result: List[str] = []
+        for name in requested:
+            canonical = _canonical(name)
+            if canonical not in seen and self._is_model_available(canonical):
+                seen.add(canonical)
+                result.append(canonical)
+
+        if not result:
+            for name in all_models:
+                if self._is_model_available(name):
+                    result.append(name)
+        return result
 
     def _is_model_available(self, model_name: str) -> bool:
         """Check if model library is available."""
@@ -161,6 +669,23 @@ class ComprehensiveModelBuilder:
                 return True
             except:
                 return False
+        elif model_name == 'XBooster':
+            try:
+                import xgboost
+                import xbooster  # noqa: F401
+                return True
+            except Exception:
+                return False
+        elif model_name == 'WoeBoost':
+            try:
+                import lightgbm
+                return True
+            except:
+                return False
+        elif model_name == 'WoeLogisticInteraction':
+            return True
+        elif model_name == 'ShaoLogit':
+            return True
         elif model_name == 'GAM':
             try:
                 from pygam import LogisticGAM
@@ -168,6 +693,7 @@ class ComprehensiveModelBuilder:
             except:
                 return False
         return False
+
 
     def _train_without_optuna(self, model_name: str, X_train: pd.DataFrame, y_train: pd.Series):
         """Train model with default parameters."""
@@ -213,14 +739,11 @@ class ComprehensiveModelBuilder:
             )
 
         elif model_name == 'XGBoost':
-            from xgboost import XGBClassifier
-            model = XGBClassifier(
+            model = _make_xgb_classifier(
                 n_estimators=100,
                 max_depth=3,
                 learning_rate=0.1,
-                random_state=self.config.random_state,
-                use_label_encoder=False,
-                eval_metric='logloss'
+                random_state=self.config.random_state
             )
 
         elif model_name == 'CatBoost':
@@ -232,6 +755,18 @@ class ComprehensiveModelBuilder:
                 random_state=self.config.random_state,
                 verbose=False
             )
+
+        elif model_name == 'XBooster':
+            return self._train_xbooster(X_train, y_train)
+
+        elif model_name == 'WoeBoost':
+            return self._train_woe_boost(X_train, y_train)
+
+        elif model_name == 'WoeLogisticInteraction':
+            return self._train_woe_li(X_train, y_train)
+
+        elif model_name == 'ShaoLogit':
+            return self._train_shao_logit(X_train, y_train)
 
         elif model_name == 'GAM':
             from pygam import LogisticGAM, s
@@ -246,6 +781,46 @@ class ComprehensiveModelBuilder:
 
         model.fit(X_train, y_train)
         return model
+
+    def _train_woe_boost(self, X_train: pd.DataFrame, y_train: pd.Series, params: Optional[Dict[str, Any]] = None):
+        params = params or {}
+        model = WoeBoostClassifier(random_state=self.config.random_state)
+        if params:
+            try:
+                model = model.set_params(**params)
+            except ValueError as exc:
+                raise RuntimeError(f'Invalid WoeBoost parameters: {exc}') from exc
+        return model.fit(X_train, y_train)
+
+    def _train_woe_li(self, X_train: pd.DataFrame, y_train: pd.Series, params: Optional[Dict[str, Any]] = None):
+        params = params or {}
+        model = WoeLogisticInteractionClassifier(random_state=self.config.random_state)
+        if params:
+            try:
+                model = model.set_params(**params)
+            except ValueError as exc:
+                raise RuntimeError(f'Invalid WoeLogisticInteraction parameters: {exc}') from exc
+        return model.fit(X_train, y_train)
+
+    def _train_shao_logit(self, X_train: pd.DataFrame, y_train: pd.Series, params: Optional[Dict[str, Any]] = None):
+        params = params or {}
+        model = ShaoLogitClassifier(random_state=self.config.random_state)
+        if params:
+            try:
+                model = model.set_params(**params)
+            except ValueError as exc:
+                raise RuntimeError(f'Invalid ShaoLogit parameters: {exc}') from exc
+        return model.fit(X_train, y_train)
+
+    def _train_xbooster(self, X_train: pd.DataFrame, y_train: pd.Series, params: Optional[Dict[str, Any]] = None):
+        params = params or {}
+        model = XBoosterClassifier(random_state=self.config.random_state)
+        if params:
+            try:
+                model = model.set_params(**params)
+            except ValueError as exc:
+                raise RuntimeError(f'Invalid XBooster parameters: {exc}') from exc
+        return model.fit(X_train, y_train)
 
     def _train_with_optuna(self, model_name: str, X_train: pd.DataFrame, y_train: pd.Series,
                           X_test: Optional[pd.DataFrame] = None, y_test: Optional[pd.Series] = None):
@@ -276,7 +851,11 @@ class ComprehensiveModelBuilder:
             # Optimize
             study = optuna.create_study(direction='maximize',
                                        sampler=optuna.samplers.TPESampler(seed=self.config.random_state))
-            study.optimize(objective, n_trials=self.config.n_optuna_trials if hasattr(self.config, 'n_optuna_trials') else 20)
+            n_trials = getattr(self.config, 'n_optuna_trials', getattr(self.config, 'n_trials', 20))
+            timeout = getattr(self.config, 'optuna_timeout', None)
+            if timeout is not None and timeout <= 0:
+                timeout = None
+            study.optimize(objective, n_trials=n_trials, timeout=timeout)
 
             # Train final model with best parameters
             best_params = study.best_params
@@ -337,6 +916,19 @@ class ComprehensiveModelBuilder:
                 'l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 1, 10)
             }
 
+        elif model_name == 'XBooster':
+            return {
+                'n_estimators': trial.suggest_int('n_estimators', 100, 400),
+                'max_depth': trial.suggest_int('max_depth', 2, 7),
+                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.2, log=True),
+                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                'gamma': trial.suggest_float('gamma', 0.0, 5.0),
+                'min_child_weight': trial.suggest_float('min_child_weight', 1.0, 10.0),
+                'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 5.0),
+                'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 5.0)
+            }
+
         elif model_name == 'GAM':
             return {
                 'n_splines': trial.suggest_int('n_splines', 5, 25),
@@ -371,13 +963,9 @@ class ComprehensiveModelBuilder:
             )
 
         elif model_name == 'XGBoost':
-            from xgboost import XGBClassifier
-            return XGBClassifier(
-                **params,
-                random_state=self.config.random_state,
-                use_label_encoder=False,
-                eval_metric='logloss'
-            )
+            params = dict(params)
+            params.setdefault('random_state', self.config.random_state)
+            return _make_xgb_classifier(**params)
 
         elif model_name == 'CatBoost':
             from catboost import CatBoostClassifier
@@ -386,6 +974,30 @@ class ComprehensiveModelBuilder:
                 random_state=self.config.random_state,
                 verbose=False
             )
+
+        elif model_name == 'XBooster':
+            model = XBoosterClassifier(random_state=self.config.random_state)
+            if params:
+                model = model.set_params(**params)
+            return model
+
+        elif model_name == 'WoeBoost':
+            model = WoeBoostClassifier(random_state=self.config.random_state)
+            if params:
+                model = model.set_params(**params)
+            return model
+
+        elif model_name == 'WoeLogisticInteraction':
+            model = WoeLogisticInteractionClassifier(random_state=self.config.random_state)
+            if params:
+                model = model.set_params(**params)
+            return model
+
+        elif model_name == 'ShaoLogit':
+            model = ShaoLogitClassifier(random_state=self.config.random_state)
+            if params:
+                model = model.set_params(**params)
+            return model
 
         elif model_name == 'GAM':
             from pygam import LogisticGAM, s
@@ -441,6 +1053,22 @@ class ComprehensiveModelBuilder:
             })
 
         return importance_df
+
+    def _collect_interpretability(self, model, model_name: str) -> Dict[str, Any]:
+        """Collect supplementary interpretability artifacts for a model."""
+
+        artifacts: Dict[str, Any] = {}
+
+        if model_name == 'XBooster':
+            if hasattr(model, 'scorecard_points_') and getattr(model, 'scorecard_points_', None) is not None:
+                artifacts['scorecard_points'] = model.scorecard_points_
+            if hasattr(model, 'scorecard_frame_') and getattr(model, 'scorecard_frame_', None) is not None:
+                artifacts['scorecard'] = model.scorecard_frame_
+            error = getattr(model, 'scorecard_error_', None)
+            if error:
+                artifacts['warnings'] = [error]
+
+        return artifacts
 
     def _select_best_model(self) -> str:
         """Select best model based on test performance."""

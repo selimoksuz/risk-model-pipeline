@@ -149,3 +149,4 @@ catboost_info/
 notebooks/output/
 notebooks/catboost_info/
 !tests/test_quickstart_demo.py
+!tests/test_sample_data.py

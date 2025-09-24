@@ -251,11 +251,14 @@ class EnhancedReporter:
             f"Top 50% Concentration: {metrics.get('cr_top50', 0):.2%}",
         ]
 
-        if "binomial_tests" in metrics:
-            total = len(metrics["binomial_tests"])
-            significant = sum(
-                1 for result in metrics["binomial_tests"].values() if result.get("significant", False)
-            )
+        binomial_info = metrics.get("binomial_tests")
+        if binomial_info:
+            if isinstance(binomial_info, dict):
+                records = list(binomial_info.values())
+            else:
+                records = [item for item in binomial_info if isinstance(item, dict)]
+            total = len(records)
+            significant = sum(1 for result in records if result.get("significant", False))
             summary_lines.append(f"Significant bands (binomial test): {significant}/{total}")
 
         self.reports_["risk_bands"] = bands_df

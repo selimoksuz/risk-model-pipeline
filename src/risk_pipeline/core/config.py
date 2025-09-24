@@ -1,4 +1,4 @@
-﻿"""
+"""
 
 Unified Configuration System for Risk Model Pipeline
 
@@ -53,6 +53,14 @@ class Config:
     stratify_test: bool = True  # Preserve event rate in splits
 
     equal_default_splits: bool = False
+
+    use_test_split: bool = True  # Backward-compatible flag for creating TEST split
+
+    train_ratio: float = 0.6
+
+    test_ratio: float = 0.2
+
+    oot_ratio: float = 0.2
 
     
 
@@ -111,6 +119,12 @@ class Config:
     woe_min_bins: int = 2
 
     woe_min_bin_size: float = 0.05
+    
+    woe_max_bin_share: float = 1.0
+    
+    woe_micro_bins: int = 256
+    
+    woe_binning_strategy: str = 'iv_optimal'  # 'iv_optimal', 'quantile'
 
     woe_monotonic_numeric: bool = True  # Enforce monotonicity for numeric
 
@@ -167,6 +181,22 @@ class Config:
     max_correlation: float = 0.95
 
     min_iv: float = 0.02
+    # Optional user-facing overrides for selection thresholds
+    
+    univariate_gini_threshold: Optional[float] = None
+    
+    iv_threshold: Optional[float] = None
+    
+    psi_threshold: Optional[float] = None
+    
+    correlation_threshold: Optional[float] = None
+    
+    monthly_psi_threshold: Optional[float] = None
+    
+    oot_psi_threshold: Optional[float] = None
+    
+    vif_threshold: Optional[float] = None
+    
 
     
 
@@ -204,6 +234,7 @@ class Config:
 
     # Algorithms to use
 
+    model_type: Union[str, List[str]] = 'all'  # 'all' or subset/list of models to train
     algorithms: List[str] = field(default_factory=lambda: [
 
         'logistic',
@@ -218,7 +249,12 @@ class Config:
 
         'randomforest',
 
-        'extratrees'
+        'extratrees',
+
+        'woe_boost',
+        'woe_li',
+        'shao',
+        'xbooster'
 
     ])
 
@@ -241,6 +277,17 @@ class Config:
     n_trials: int = 100
 
     optuna_timeout: int = 3600  # seconds
+    
+    # Advanced model training toggles
+    try_mlp: bool = False  # Optional MLP baseline for experimentation
+    hpo_method: str = 'optuna'
+    hpo_trials: int = 50
+    hpo_timeout_sec: Optional[int] = None
+    max_train_oot_gap: Optional[float] = None
+    model_selection_method: str = 'gini_oot'
+    model_stability_weight: float = 0.0
+    min_gini_threshold: float = 0.5
+    
 
     
 
@@ -255,6 +302,9 @@ class Config:
     # Stage 1 calibration
 
     calibration_method: str = 'isotonic'  # 'isotonic' or 'sigmoid'
+    
+    calibration_stage1_method: Optional[str] = None
+    
 
     calibration_cv_folds: int = 3
 
@@ -270,6 +320,9 @@ class Config:
 
     stage2_confidence_level: float = 0.95
     stage2_method: str = 'lower_mean'
+    
+    calibration_stage2_method: Optional[str] = None
+    
 
     
 
@@ -279,7 +332,32 @@ class Config:
 
     n_risk_bands: int = 10
 
-    risk_band_method: str = 'quantile'  # 'quantile', 'equal_width', 'optimal'
+    risk_band_method: str = 'pd_constraints'  # 'pd_constraints', 'quantile', 'equal_width', 'optimal'
+    
+    risk_band_min_bins: int = 7
+    
+    risk_band_max_bins: int = 10
+    
+    risk_band_micro_bins: int = 1000
+    
+    risk_band_min_weight: float = 0.05
+    
+    risk_band_max_weight: float = 0.30
+    
+    risk_band_hhi_threshold: float = 0.15
+    
+    risk_band_binomial_pass_weight: float = 0.85
+    
+    risk_band_alpha: float = 0.05
+    
+    risk_band_pd_dr_tolerance: float = 1e-4
+    
+    risk_band_max_iterations: int = 100
+    
+    risk_band_max_phase_iterations: int = 50
+    
+    risk_band_early_stop_rounds: int = 10
+    
 
     
 
@@ -396,28 +474,43 @@ class Config:
         """Validate configuration parameters"""
 
         # Validate splits
+        test_ratio = float(getattr(self, "test_ratio", getattr(self, "test_size", 0.2)))
+        oot_ratio = float(getattr(self, "oot_ratio", getattr(self, "oot_size", 0.0)))
+        train_ratio_val = getattr(self, "train_ratio", None)
+        if train_ratio_val is None:
+            train_ratio = 1.0 - test_ratio - oot_ratio
+        else:
+            train_ratio = float(train_ratio_val)
 
-        if self.test_size <= 0 or self.test_size >= 1:
+        for name, value in (
+            ("train_ratio", train_ratio),
+            ("test_ratio", test_ratio),
+            ("oot_ratio", oot_ratio),
+        ):
+            if value < 0 or value >= 1:
+                raise ValueError(f"{name} must be between 0 and 1")
 
-            raise ValueError("test_size must be between 0 and 1")
+        total_ratio = train_ratio + test_ratio + oot_ratio
+        if total_ratio > 1.0 + 1e-6:
+            raise ValueError("train_ratio + test_ratio + oot_ratio must be <= 1.0")
 
-        
+        if train_ratio <= 0:
+            raise ValueError("train_ratio must be positive")
+        use_test_flag = getattr(self, 'use_test_split', getattr(self, 'create_test_split', True))
+        if use_test_flag and test_ratio <= 0:
+            warnings.warn("use_test_split is enabled but test_ratio is zero; test split will be skipped")
+            use_test_flag = False
 
-        if self.oot_size <= 0 or self.oot_size >= 1:
+        if test_ratio + oot_ratio >= 0.9:
+            warnings.warn("Test + OOT ratio is very large, leaving little for training")
 
-            raise ValueError("oot_size must be between 0 and 1")
-
-        if self.vif_sample_size is not None and self.vif_sample_size <= 0:
-
-            raise ValueError("vif_sample_size must be positive when provided")
-
-        
-
-        if self.test_size + self.oot_size >= 0.8:
-
-            warnings.warn("Test + OOT size is very large, leaving little for training")
-
-        
+        self.use_test_split = use_test_flag
+        self.create_test_split = use_test_flag
+        self.train_ratio = train_ratio
+        self.test_ratio = test_ratio
+        self.oot_ratio = oot_ratio
+        self.test_size = test_ratio
+        self.oot_size = oot_ratio
 
         # Validate WOE parameters
 
@@ -472,6 +565,10 @@ class Config:
         if self.n_risk_bands < 2:
 
             raise ValueError("n_risk_bands must be at least 2")
+        valid_band_methods = {'pd_constraints', 'score_constraints', 'constrained', 'quantile', 'equal_width', 'optimal'}
+        if self.risk_band_method not in valid_band_methods:
+            raise ValueError(f"risk_band_method must be one of {sorted(valid_band_methods)}")
+
 
         
 
@@ -481,7 +578,7 @@ class Config:
 
             'logistic', 'gam', 'catboost', 'lightgbm', 
 
-            'xgboost', 'randomforest', 'extratrees'
+            'xgboost', 'randomforest', 'extratrees', 'woe_boost', 'woe_li', 'shao', 'xbooster'
 
         ]
 
@@ -555,7 +652,16 @@ class Config:
         self.id_col = getattr(self, 'id_column', None)
         self.time_col = getattr(self, 'time_column', None)
         self.target_col = getattr(self, 'target_column', None)
-        self.test_ratio = getattr(self, 'test_size', getattr(self, 'test_ratio', 0.2))
+        self.use_test_split = getattr(self, 'use_test_split', getattr(self, 'create_test_split', True))
+        self.create_test_split = self.use_test_split
+        self.test_ratio = float(getattr(self, 'test_ratio', getattr(self, 'test_size', 0.2)))
+        self.test_size = self.test_ratio
+        self.oot_ratio = float(getattr(self, 'oot_ratio', getattr(self, 'oot_size', 0.0)))
+        self.oot_size = self.oot_ratio
+        if getattr(self, 'train_ratio', None) is None:
+            self.train_ratio = max(0.0, 1.0 - self.test_ratio - self.oot_ratio)
+        else:
+            self.train_ratio = float(self.train_ratio)
         if not hasattr(self, 'stratify_test_split'):
             self.stratify_test_split = getattr(self, 'stratify_test', True)
 
@@ -567,11 +673,14 @@ class Config:
             self.min_category_freq = getattr(self, 'rare_category_threshold', 0.01)
 
         # WOE/binning aliases
-        self.binning_method = getattr(self, 'binning_method', getattr(self, 'woe_binning_method', 'optimized'))
+        binning_default = getattr(self, 'woe_binning_strategy', getattr(self, 'woe_binning_method', 'optimized'))
+        self.binning_method = getattr(self, 'binning_method', binning_default)
+        self.woe_binning_method = self.binning_method
+        self.woe_binning_strategy = self.binning_method
         self.max_bins = getattr(self, 'max_bins', getattr(self, 'woe_max_bins', 10))
         self.min_bin_size = getattr(self, 'min_bin_size', getattr(self, 'woe_min_bin_size', 0.05))
         self.monotonic_woe = getattr(self, 'monotonic_woe', getattr(self, 'woe_monotonic_numeric', True))
-        self.woe_binning_method = self.binning_method
+        self.max_abs_woe = getattr(self, 'max_abs_woe', getattr(self, 'woe_max_abs', None))
 
         # Selection aliases
         if not hasattr(self, 'selection_order'):
@@ -583,18 +692,42 @@ class Config:
                 'boruta',
                 'stepwise'
             ])
-        self.psi_threshold = getattr(self, 'psi_threshold', getattr(self, 'max_psi', 0.25))
-        self.monthly_psi_threshold = getattr(self, 'monthly_psi_threshold', max(0.05, self.psi_threshold / 2))
-        self.oot_psi_threshold = getattr(self, 'oot_psi_threshold', self.psi_threshold)
-        self.correlation_threshold = getattr(self, 'correlation_threshold', getattr(self, 'max_correlation', 0.95))
-        self.vif_threshold = getattr(self, 'vif_threshold', getattr(self, 'max_vif', 5.0))
-        self.iv_threshold = getattr(self, 'iv_threshold', getattr(self, 'min_iv', 0.02))
-        self.min_univariate_gini = getattr(self, 'min_univariate_gini', getattr(self, 'gini_threshold', 0.05))
+
+        if getattr(self, 'psi_threshold', None) is not None:
+            self.max_psi = float(self.psi_threshold)
+        else:
+            self.psi_threshold = getattr(self, 'max_psi', 0.25)
+
+        if getattr(self, 'monthly_psi_threshold', None) is None:
+            self.monthly_psi_threshold = max(0.05, self.psi_threshold / 2)
+        if getattr(self, 'oot_psi_threshold', None) is None:
+            self.oot_psi_threshold = self.psi_threshold
+
+        if getattr(self, 'correlation_threshold', None) is not None:
+            self.max_correlation = float(self.correlation_threshold)
+        else:
+            self.correlation_threshold = getattr(self, 'max_correlation', 0.95)
+
+        if getattr(self, 'vif_threshold', None) is not None:
+            self.max_vif = float(self.vif_threshold)
+        else:
+            self.vif_threshold = getattr(self, 'max_vif', 5.0)
+
+        if getattr(self, 'iv_threshold', None) is not None:
+            self.min_iv = float(self.iv_threshold)
+        else:
+            self.iv_threshold = getattr(self, 'min_iv', 0.02)
+
+        if getattr(self, 'univariate_gini_threshold', None) is not None:
+            self.min_univariate_gini = float(self.univariate_gini_threshold)
+        else:
+            self.univariate_gini_threshold = getattr(self, 'min_univariate_gini', getattr(self, 'gini_threshold', 0.05))
+
         self.max_features = getattr(self, 'max_features', getattr(self, 'stepwise_max_features', 30))
         self.max_features_per_cluster = getattr(self, 'max_features_per_cluster', 1)
 
         if not hasattr(self, 'band_method'):
-            self.band_method = getattr(self, 'risk_band_method', 'quantile')
+            self.band_method = getattr(self, 'risk_band_method', 'pd_constraints')
         if not hasattr(self, 'selection_method'):
             self.selection_method = getattr(self, 'stepwise_method', 'forward')
 
@@ -602,6 +735,45 @@ class Config:
         if not hasattr(self, 'enable_noise_sentinel'):
             self.enable_noise_sentinel = getattr(self, 'use_noise_sentinel', False)
         self.noise_threshold = getattr(self, 'noise_threshold', 0.5)
+
+        if getattr(self, 'calibration_stage1_method', None):
+            self.calibration_method = self.calibration_stage1_method
+        else:
+            self.calibration_stage1_method = self.calibration_method
+
+        if getattr(self, 'calibration_stage2_method', None):
+            self.stage2_method = self.calibration_stage2_method
+        else:
+            self.calibration_stage2_method = self.stage2_method
+
+        # Hyperparameter optimization aliases
+        if not hasattr(self, 'hpo_method'):
+            self.hpo_method = 'optuna' if getattr(self, 'use_optuna', False) else 'random'
+        self.hpo_trials = int(getattr(self, 'hpo_trials', getattr(self, 'n_trials', 100)))
+        self.n_trials = self.hpo_trials
+        optuna_timeout = getattr(self, 'optuna_timeout', None)
+        if getattr(self, 'hpo_timeout_sec', None) is None:
+            self.hpo_timeout_sec = optuna_timeout
+        else:
+            self.optuna_timeout = self.hpo_timeout_sec
+
+        self.max_train_oot_gap = getattr(self, 'max_train_oot_gap', getattr(self, 'max_train_oot_delta', None))
+        self.model_selection_method = getattr(self, 'model_selection_method', 'gini_oot')
+        self.model_stability_weight = float(getattr(self, 'model_stability_weight', 0.0))
+        self.min_gini_threshold = float(getattr(self, 'min_gini_threshold', 0.5))
+        self.try_mlp = bool(getattr(self, 'try_mlp', False))
+
+        algorithms_attr = getattr(self, 'algorithms', [])
+        if isinstance(algorithms_attr, str):
+            self.algorithms = [algorithms_attr]
+        else:
+            self.algorithms = list(algorithms_attr) if isinstance(algorithms_attr, (list, tuple, set)) else list(algorithms_attr or [])
+        default_algorithms = ['logistic', 'gam', 'catboost', 'lightgbm', 'xgboost', 'randomforest', 'extratrees', 'woe_boost', 'woe_li', 'shao', 'xbooster']
+        if not getattr(self, 'model_type', None):
+            if self.algorithms and set(self.algorithms) != set(default_algorithms):
+                self.model_type = list(self.algorithms)
+            else:
+                self.model_type = 'all'
 
         # Pipeline toggles
         self.enable_dual_pipeline = getattr(self, 'enable_dual_pipeline', getattr(self, 'enable_dual', False))

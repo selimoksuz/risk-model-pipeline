@@ -54,7 +54,7 @@ def _apply_legacy_aliases(cfg: Config) -> None:
         "numeric_imputation": ("numeric_imputation_strategy", "median"),
         "outlier_method": ("numeric_outlier_method", "clip"),
         "min_category_freq": ("rare_category_threshold", 0.01),
-        "band_method": ("risk_band_method", "quantile"),
+        "band_method": ("risk_band_method", "pd_constraints"),
         "selection_method": ("stepwise_method", "forward"),
         "stage2_method": (None, "lower_mean"),
     }

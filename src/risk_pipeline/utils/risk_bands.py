@@ -63,6 +63,21 @@ class RiskBandOptimizer:
             bands = self._create_equal_width_bands(scores, n_bands)
         elif method == 'optimal':
             bands = self._create_optimal_bands(scores, y_true, n_bands)
+        elif method in {'pd_constraints', 'score_constraints', 'constrained'}:
+            bands, band_stats, test_results, monotonicity, psi = self._optimize_with_constraints(
+                scores, y_true, n_bands, method
+            )
+            if self.config.business_risk_ratings:
+                band_stats = self._assign_risk_ratings(band_stats)
+            return {
+                'bands': bands,
+                'band_stats': band_stats,
+                'test_results': test_results,
+                'monotonicity': monotonicity,
+                'psi': psi,
+                'n_bands': len(bands) - 1 if isinstance(bands, np.ndarray) and getattr(bands, 'size', 0) > 0 else n_bands,
+                'method': method
+            }
         else:
             raise ValueError(f"Unknown band method: {method}")
         
@@ -98,6 +113,56 @@ class RiskBandOptimizer:
             'method': method
         }
     
+    def _optimize_with_constraints(
+        self,
+        scores: np.ndarray,
+        y_true: np.ndarray,
+        n_bands: int,
+        method: str,
+    ) -> Tuple[np.ndarray, pd.DataFrame, Dict[str, Any], Dict[str, Any], float]:
+        from ..core.risk_band_optimizer import OptimalRiskBandAnalyzer
+
+        analyzer = OptimalRiskBandAnalyzer(self.config)
+        band_stats = analyzer.optimize_bands(
+            scores,
+            y_true,
+            n_bands=n_bands,
+            method='pd_constraints',
+        )
+        bands = analyzer.bands_ if getattr(analyzer, 'bands_', None) is not None else np.array([])
+
+        if not isinstance(band_stats, pd.DataFrame) or band_stats.empty or getattr(bands, 'size', 0) == 0:
+            bands = self._create_quantile_bands(scores, n_bands)
+            band_stats = self._calculate_band_statistics(scores, y_true, bands)
+        else:
+            compat = band_stats.copy()
+            compat['n_samples'] = compat.get('n_samples', compat.get('count'))
+            compat['n_events'] = compat.get('n_events', compat.get('bad_count'))
+            compat['n_non_events'] = compat.get('n_non_events', compat['n_samples'] - compat['n_events'])
+            compat['mean_score'] = compat.get('mean_score', compat.get('avg_score'))
+            compat['event_rate'] = compat.get('event_rate', compat.get('bad_rate'))
+            compat['sample_pct'] = compat.get('sample_pct', compat.get('pct_count'))
+            for col in ('n_samples', 'n_events', 'n_non_events', 'mean_score', 'event_rate', 'sample_pct'):
+                compat[col] = pd.to_numeric(compat[col], errors='coerce').fillna(0.0)
+            band_stats = compat
+
+        test_results: Dict[str, Any] = {}
+        if 'binomial' in self.config.risk_band_tests:
+            test_results['binomial'] = self._binomial_test(band_stats)
+        if 'hosmer_lemeshow' in self.config.risk_band_tests:
+            test_results['hosmer_lemeshow'] = self._hosmer_lemeshow_test(band_stats)
+        if 'herfindahl' in self.config.risk_band_tests:
+            test_results['herfindahl'] = self._calculate_herfindahl_index(band_stats)
+
+        monotonicity = self._check_monotonicity(band_stats)
+        psi = self._calculate_band_psi(band_stats)
+
+        summary = getattr(analyzer, 'band_summary_', None)
+        if isinstance(summary, dict):
+            test_results['summary'] = summary
+
+        return bands, band_stats, test_results, monotonicity, psi
+
     def _create_quantile_bands(self, scores: np.ndarray, n_bands: int) -> np.ndarray:
         """Create bands using quantiles"""
         

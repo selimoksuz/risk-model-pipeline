@@ -10,11 +10,12 @@ Production-ready risk modeling pipeline with WOE transformation and advanced ML 
 ## Features
 
 - **WOE Transformation**: Automatic Weight of Evidence binning and transformation
-- **Advanced ML Models**: XGBoost, LightGBM, CatBoost, Random Forest, and more
+- **Advanced ML Models**: XGBoost, LightGBM, CatBoost, Random Forest, WoE-LI interactions, Shao penalised logistic, and more
 - **Dual Pipeline**: Simultaneous raw and WOE-transformed feature processing
 - **Hyperparameter Optimization**: Optuna integration for automated tuning
 - **Model Interpretability**: SHAP values and feature importance analysis
 - **Comprehensive Reporting**: Excel reports with model metrics, WOE bins, and visualizations
+- **Bundled Sample Dataset**: Synthetic credit risk data shipped under `risk_pipeline.data.sample` for reproducible quickstarts
 - **Production Ready**: Modular design with proper error handling and logging
 
 ## Installation
@@ -30,6 +31,9 @@ pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@developmen
 ```
 
 ### With Optional Dependencies
+
+> Not: Kurulum, LightGBM/XGBoost/CatBoost, PyGAM, Optuna, SHAP, xbooster ve nbformat gibi istege bagli kutuphaneleri de otomatik olarak yukler; ayri paket kurulumuna gerek kalmaz.
+
 ```bash
 # Full installation with all features
 pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[all]"
@@ -53,14 +57,30 @@ df = pd.read_csv("your_data.csv")
 
 # Configure the unified pipeline
 config = Config(
-    target_col="target",
-    id_col="app_id",
-    time_col="app_dt",
-    enable_dual_pipeline=True,
-    selection_order=["psi", "vif", "correlation", "iv", "boruta", "stepwise"],
-    n_risk_bands=10,
-    enable_scoring=True,
+    target_column="target",
+    id_column="app_id",
+    time_column="app_dt",
+    create_test_split=True,
+    use_test_split=True,
+    train_ratio=0.6,
+    test_ratio=0.2,
+    oot_ratio=0.2,
+    enable_dual=True,
+    selection_steps=["psi", "univariate", "iv", "correlation", "boruta", "stepwise"],
+    algorithms=[
+        "logistic", "gam", "catboost", "lightgbm", "xgboost",
+        "randomforest", "extratrees", "woe_boost", "woe_li", "shao", "xbooster",
+    ],
+    use_optuna=True,
+    n_trials=10,
+    model_selection_method="balanced",
+    model_stability_weight=0.25,
+    risk_band_method="pd_constraints",
+    n_risk_bands=8,
+    random_state=42,
 )
+config.model_type = 'all'
+
 
 # Train and optionally score
 demo = UnifiedRiskPipeline(config)
@@ -74,64 +94,43 @@ print("Selected features:", results.get("selected_features"))
 
 ```python
 config = Config(
-    # Data columns
-    id_col="app_id",
-    time_col="app_dt",
-    target_col="target",
+    # Core columns
+    target_column="target",
+    id_column="app_id",
+    time_column="app_dt",
 
-    # Feature engineering & stability guards
-    rare_threshold=0.01,
+    # Dataset splitting
+    create_test_split=True,
+    use_test_split=True,
+    train_ratio=0.6,
+    test_ratio=0.2,
+    oot_ratio=0.2,
+    stratify_test=True,
+
+    # Feature engineering safeguards
+    rare_category_threshold=0.01,
     psi_threshold=0.25,
     iv_threshold=0.02,
-    rho_threshold=0.90,
+    correlation_threshold=0.95,
+    vif_threshold=5.0,
 
     # Model training
+    algorithms=["lightgbm", "xgboost", "catboost", "woe_boost"],
+    model_type='all',
     cv_folds=5,
     use_optuna=True,
-    n_trials=100,
+    n_trials=50,
 
     # Model selection
     model_selection_method="balanced",
     model_stability_weight=0.3,
+    max_train_oot_gap=0.08,
 
-    # Splitting & multicollinearity
-    equal_default_splits=True,
-    stratify_test_split=True,
-    vif_sample_size=8000,
-
-    # Output
-    output_dir="output_reports",
+    # Outputs
+    output_folder="output_reports",
     random_state=42,
 )
-```
 
-```python
-config = Config(
-    # Data columns
-    id_col='app_id',
-    time_col='app_dt',
-    target_col='target',
-    
-    # Feature Engineering
-    rare_threshold=0.01,       # Rare category threshold
-    psi_threshold=0.25,        # PSI stability threshold  
-    iv_min=0.02,              # Minimum Information Value
-    rho_threshold=0.90,       # Correlation threshold
-    
-    # Model Training
-    cv_folds=5,
-    use_optuna=True,
-    n_trials=100,
-    
-    # Model Selection
-    model_selection_method='balanced',
-    model_stability_weight=0.3,
-    
-    # Output
-    output_folder='output_reports',
-    random_state=42
-)
-```
 
 ## Model Selection Strategies
 

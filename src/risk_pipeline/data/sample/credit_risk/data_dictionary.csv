@@ -1,0 +1,20 @@
+variable,description,category
+app_id,Metadata - Unique application identifier,Metadata
+customer_id,Metadata - Underlying customer id for tsfresh grouping,Metadata
+app_dt,Metadata - Application date,Metadata
+snapshot_month,Metadata - Month bucket for reporting,Metadata
+target,Target - Default flag (1 = default),Target
+bureau_score,Risk - Bureau credit score (higher is better),Risk
+utilization_ratio,Risk - Revolving utilization ratio,Risk
+credit_usage_ratio,Risk - Correlated usage ratio,Risk
+payment_income_ratio,Financial - Payment to income ratio,Financial
+balance_to_limit,Risk - Balance to credit limit ratio,Risk
+monthly_spend,Behavioural - Recent monthly spend amount,Behavioural
+segment,Demographic - Customer segment,Demographic
+region,Demographic - Region of the applicant,Demographic
+employment_type,Demographic - Employment type,Demographic
+delinquent_last_6m,Risk - Delinquency indicator last 6 months,Risk
+open_trades,Risk - Number of open trades,Risk
+channel_code,Operational - Acquisition channel (drift driver),Operational
+promo_flag,Operational - Promotional campaign flag (high PSI),Operational
+noise_feature,Diagnostic - Low IV random noise feature,Diagnostic

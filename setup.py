@@ -55,7 +55,7 @@ setup(
         "typer==0.9.0",
         "lightgbm==4.6.0",
         "catboost==1.2.7",
-        "xgboost==1.7.6; python_version < '3.10'",
+        "xgboost==2.0.3; python_version < '3.10'",
         "xgboost==2.0.3; python_version >= '3.10'",
         "pygam==0.10.1",
         "optuna==4.5.0",

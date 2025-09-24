@@ -48,7 +48,7 @@ pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@developme
 ## Quick Start
 
 ```bash
-pip install "risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
+pip install --no-cache-dir --upgrade --force-reinstall git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-pipeline[ml,notebook]
 ```
 
 ```python

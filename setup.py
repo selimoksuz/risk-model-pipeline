@@ -68,32 +68,27 @@ setup(
     # Optional dependencies
     extras_require={
         "dev": [
-            "pytest>=7.0.0",
-            "pytest-cov>=3.0.0",
-            "black>=22.0.0",
-            "isort>=5.0.0",
-            "flake8>=4.0.0",
-            "mypy>=0.950",
-            "pre-commit>=2.0.0",
-            "twine>=4.0.0",
-            "wheel>=0.37.0",
-            "build>=0.7.0",
+            "pytest==8.4.2",
+            "pytest-cov==7.0.0",
+            "black==24.8.0",
+            "isort==5.13.2",
+            "flake8==7.1.0",
+            "mypy==1.11.1",
+            "pre-commit==3.7.1",
+            "twine==5.1.1",
+            "wheel==0.43.0",
+            "build==1.2.1",
         ],
         "viz": [
-            "matplotlib>=3.6.0,<3.9.0",
-            "seaborn>=0.12.0",
-            "plotly>=5.0.0",
+            "plotly==5.24.1",
         ],
         "ml": [
-            "optuna>=3.0.0",
-            "shap>=0.41.0",
-            "imbalanced-learn>=0.9.0",
-            "scikit-learn-extra>=0.2.0",
+            "shap==0.43.0",
         ],
         "notebook": [
-            "jupyter>=1.0.0",
-            "notebook>=6.0.0",
-            "ipywidgets>=7.0.0",
+            "jupyter==1.1.0",
+            "notebook==7.2.1",
+            "ipywidgets==8.1.3",
         ],
     },
     
@@ -134,3 +129,5 @@ setup(
         "credit-risk",
     ],
 )
+
+

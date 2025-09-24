@@ -40,7 +40,8 @@ setup(
     
     # Core dependencies
     install_requires=[
-        "pandas==2.3.2",
+        "pandas==2.0.3; python_version < '3.10'",
+        "pandas==2.3.2; python_version >= '3.10'",
         "numpy==1.26.0; python_version < '3.10'",
         "numpy==1.26.4; python_version >= '3.10'",
         "scipy==1.11.4",

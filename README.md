@@ -48,7 +48,7 @@ pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@developme
 ## Quick Start
 
 ```bash
-pip install --no-cache-dir --upgrade --force-reinstall "risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
+pip install --no-cache-dir --upgrade --force-reinstall "risk-pipeline @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
 ```
 
 > Not: Python 3.8/3.9 ortamlarında pip otomatik olarak `pandas==2.0.3`, `numpy==1.26.0`, `xgboost==1.7.6` ve `xbooster==0.2.2` sürümlerini seçer; Python 3.10+ için sırasıyla `pandas==2.3.2`, `numpy==1.26.4`, `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktır.

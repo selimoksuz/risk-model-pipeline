@@ -51,7 +51,7 @@ pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@developme
 pip install --no-cache-dir --upgrade --force-reinstall "risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
 ```
 
-> Not: Python 3.8/3.9 ortamlarýnda pip otomatik olarak `xgboost==1.7.6` ve `xbooster==0.2.2` sürümlerini seçer; Python 3.10+ için sýrasýyla `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktýr.
+> Not: Python 3.8/3.9 ortamlarÄ±nda pip otomatik olarak `xgboost==1.7.6` ve `xbooster==0.2.2` sÃ¼rÃ¼mlerini seÃ§er; Python 3.10+ iÃ§in sÄ±rasÄ±yla `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktÄ±r.
 
 ```python
 import pandas as pd

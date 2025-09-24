@@ -43,7 +43,7 @@ dependencies = [
     "optuna==4.5.0",
     "imbalanced-learn==0.11.0",
     "scikit-learn-extra==0.3.0",
-    "xbooster==0.0.12",
+    "xbooster==0.2.6",
     "pydantic==1.10.15",
     "nbformat==5.10.4",
     'importlib-resources==5.13.0; python_version < "3.9"'
@@ -122,5 +122,6 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+
 
 

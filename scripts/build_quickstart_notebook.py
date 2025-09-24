@@ -16,7 +16,7 @@ scoring batch so that every major pipeline step can be validated quickly."""))
 cells.append(nbf.v4.new_markdown_cell(
 """## 0. Environment setup
 
-Install the latest development build of the pipeline (with notebook extras) directly from GitHub.
+Install the latest development build of the pipeline (latest development build) directly from GitHub.
 Re-run this cell if you refresh the kernel."""))
 
 cells.append(nbf.v4.new_code_cell("%pip uninstall -y risk-pipeline risk_pipeline risk-pipeline-ml risk-pipeline-notebook"))

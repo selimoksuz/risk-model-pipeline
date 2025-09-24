@@ -30,28 +30,13 @@ pip install risk-model-pipeline
 pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@development
 ```
 
-### With Optional Dependencies
-
-> Not: Kurulum, LightGBM/XGBoost/CatBoost, PyGAM, Optuna, SHAP, xbooster ve nbformat gibi istege bagli kutuphaneleri de otomatik olarak yukler; ayri paket kurulumuna gerek kalmaz.
-
-```bash
-# Full installation with all features
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[all]"
-
-# Only visualization tools
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[viz]"
-
-# Only advanced ML models
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@development#egg=risk-model-pipeline[ml]"
-```
-
 ## Quick Start
 
 ```bash
 pip install --no-cache-dir --upgrade --force-reinstall "risk-pipeline @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
 ```
 
-> Not: Python 3.8/3.9 ortamlarında pip otomatik olarak `pandas==2.0.3`, `numpy==1.26.0`, `xgboost==1.7.6` ve `xbooster==0.2.2` sürümlerini seçer; Python 3.10+ için sırasıyla `pandas==2.3.2`, `numpy==1.26.4`, `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktır.
+> Not: Python 3.8/3.9 ortamlarında pip otomatik olarak `pandas==2.0.3`, `numpy==1.26.0`, `xgboost==2.0.3` ve `xbooster==0.2.2` sürümlerini seçer; Python 3.10+ için sırasıyla `pandas==2.3.2`, `numpy==1.26.4`, `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktır.
 
 ```python
 import pandas as pd

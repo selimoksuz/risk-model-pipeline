@@ -14,6 +14,14 @@ The sample includes stratified monthly observations, calibration hold-outs, stag
 scoring batch so that every major pipeline step can be validated quickly."""))
 
 cells.append(nbf.v4.new_markdown_cell(
+"""## 0. Environment setup
+
+Install the latest development build of the pipeline (with notebook extras) directly from GitHub.
+Re-run this cell if you refresh the kernel."""))
+
+cells.append(nbf.v4.new_code_cell("%pip install --quiet \"risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development\""))
+
+cells.append(nbf.v4.new_markdown_cell(
 """## 1. Imports and sample loader
 
 The dataset ships with the package under `risk_pipeline.data.sample`."""))

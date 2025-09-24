@@ -47,6 +47,10 @@ pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@developme
 
 ## Quick Start
 
+```bash
+pip install "risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
+```
+
 ```python
 import pandas as pd
 from risk_pipeline.core.config import Config

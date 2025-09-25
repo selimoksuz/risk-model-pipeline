@@ -84,33 +84,48 @@ class GAMWrapper(BaseEstimator, ClassifierMixin):
         self.classes_ = np.array([0, 1])
         self.n_features_in_: Optional[int] = None
 
+
+
     def fit(self, X, y):
         X_df = self._prepare_features(X)
+
         y_series = pd.Series(y).astype(float)
         y_series = y_series.reindex(X_df.index)
         if self.max_samples and len(X_df) > self.max_samples:
             sampled_idx = X_df.sample(self.max_samples, random_state=self.random_state).index
             X_df = X_df.loc[sampled_idx]
             y_series = y_series.loc[sampled_idx]
+
         self.feature_names_in_ = list(X_df.columns)
         self.fill_values_ = X_df.median().fillna(0.0)
         X_matrix = X_df.fillna(self.fill_values_).to_numpy(dtype=float, copy=False)
         y_array = y_series.fillna(y_series.median()).to_numpy(dtype=float, copy=False)
         if X_matrix.shape[0] != y_array.shape[0]:
             raise ValueError("GAMWrapper received misaligned feature and target lengths.")
+
+        classes = np.unique(np.round(y_array).astype(int))
+        if classes.size < 2:
+            raise ValueError("GAMWrapper requires binary target with both classes present.")
+        self.classes_ = classes
+
         self.n_features_in_ = X_matrix.shape[1]
         self.model_ = self._build_model(self.n_features_in_)
         self.model_.fit(X_matrix, y_array)
+        self.is_fitted_ = True
         return self
+
 
     def predict_proba(self, X):
         if self.model_ is None:
             raise ValueError('GAM model is not fitted yet.')
         X_matrix = self._transform_features(X)
-        proba = np.asarray(self.model_.predict_proba(X_matrix))
+
+        proba = np.asarray(self.model_.predict_proba(X_matrix), dtype=float)
+        proba = np.nan_to_num(proba, nan=0.0, posinf=1.0, neginf=0.0)
         if proba.ndim == 1:
+            proba = np.clip(proba, 1e-6, 1 - 1e-6)
             return np.column_stack([1 - proba, proba])
-        return proba
+        return np.clip(proba, 1e-6, 1 - 1e-6)
 
     def predict(self, X):
         probs = self.predict_proba(X)

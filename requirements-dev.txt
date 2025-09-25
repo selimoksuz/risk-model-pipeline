@@ -5,6 +5,7 @@ scikit-learn==1.2.2
 matplotlib==3.8.4
 seaborn==0.13.2
 statsmodels==0.14.3
+tsfresh==0.20.1
 typer==0.9.0
 lightgbm==4.6.0
 xgboost==2.0.3

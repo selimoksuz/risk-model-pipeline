@@ -45,6 +45,13 @@ class Config:
     categorical_imputation_strategy: str = 'missing'  # 'mode', 'missing'
     rare_category_threshold: float = 0.01
     max_categories: int = 20
+    enable_tsfresh_features: bool = False
+    tsfresh_feature_set: str = 'minimal'
+    tsfresh_window: Optional[int] = None
+    tsfresh_max_ids: Optional[int] = None
+    tsfresh_n_jobs: int = 0
+    tsfresh_custom_fc_parameters: Optional[Dict[str, Any]] = None
+
     
     # ==================== WOE CONFIGURATION ====================
     # WOE calculation settings
@@ -275,3 +282,21 @@ class Config:
 
         # Pipeline toggles
         self.enable_dual_pipeline = getattr(self, 'enable_dual', False)
+        legacy_tsfresh_flags = [getattr(self, 'use_tsfresh', None), getattr(self, 'enable_tsfresh', None)]
+        for flag in legacy_tsfresh_flags:
+            if flag is not None:
+                self.enable_tsfresh_features = bool(flag)
+
+        legacy_fc = getattr(self, 'tsfresh_params', None) or getattr(self, 'tsfresh_settings', None) or getattr(self, 'tsfresh_fc_parameters', None)
+        if legacy_fc and not getattr(self, 'tsfresh_custom_fc_parameters', None):
+            self.tsfresh_custom_fc_parameters = legacy_fc
+
+        legacy_jobs = getattr(self, 'tsfresh_jobs', None)
+        if legacy_jobs is not None:
+            try:
+                self.tsfresh_n_jobs = int(legacy_jobs)
+            except (TypeError, ValueError):
+                pass
+
+        if getattr(self, 'tsfresh_feature_set', None) is None:
+            self.tsfresh_feature_set = 'minimal'

@@ -235,6 +235,7 @@ class EnhancedReporter:
                         "tsfresh_source": ts_meta.get('source_variable'),
                         "tsfresh_statistic": ts_meta.get('statistic'),
                         "tsfresh_generator": ts_meta.get('generator'),
+                        "tsfresh_parameters": ts_meta.get('parameters', ''),
                     }
                 )
             else:
@@ -257,6 +258,7 @@ class EnhancedReporter:
                 "tsfresh_source",
                 "tsfresh_statistic",
                 "tsfresh_generator",
+                "tsfresh_parameters",
             ]
             ordered_cols = [c for c in preferred_order if c in features_df.columns]
             remaining_cols = [c for c in features_df.columns if c not in ordered_cols]

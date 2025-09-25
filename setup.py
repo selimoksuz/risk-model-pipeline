@@ -1,4 +1,4 @@
-﻿"""
+"""
 Setup configuration for risk-model-pipeline
 Professional PyPI package configuration
 """
@@ -19,7 +19,7 @@ setup(
     name="risk-pipeline",
     version=version["__version__"],
     author="Selim Oksuz",
-    author_email="your.email@example.com",  # TODO: Update with your email
+    author_email="selimoksuz@users.noreply.github.com",
     description="Production-ready risk modeling pipeline with WOE transformation and advanced ML features",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -40,55 +40,58 @@ setup(
     
     # Core dependencies
     install_requires=[
-        "pandas>=1.3.0,<2.0.0",
-        "numpy>=1.20.0,<1.25.0",
-        "scikit-learn>=1.0.0,<1.3.0",
-        "joblib>=1.0.0",
-        "openpyxl>=3.0.0",
-        "xlsxwriter>=3.0.0",
-        "matplotlib>=3.5.0,<3.7.0",
-        "seaborn>=0.12.0",
-        "statsmodels>=0.13.0",
-        "typer>=0.9.0",
-        "lightgbm>=3.3.0,<4.0.0",
-        "catboost>=1.0.0,<2.0.0",
-        "xgboost>=1.6.0,<1.8.0",
-        "pygam>=0.8.0,<0.9.0",
-        "optuna>=3.0.0,<4.0.0",
-        "shap>=0.41.0,<0.43.0",
-        "imbalanced-learn>=0.9.0,<0.11.0",
-        "scikit-learn-extra>=0.2.0,<0.3.0",
+        "pandas==2.0.3; python_version < '3.10'",
+        "pandas==2.3.2; python_version >= '3.10'",
+        "numpy==1.26.0; python_version < '3.10'",
+        "numpy==1.26.4; python_version >= '3.10'",
+        "scipy==1.11.4",
+        "scikit-learn==1.3.2",
+        "joblib==1.5.2",
+        "openpyxl==3.1.5",
+        "xlsxwriter==3.2.5",
+        "matplotlib==3.8.4",
+        "seaborn==0.13.2",
+        "statsmodels==0.14.3",
+        "typer==0.9.0",
+        "lightgbm==4.6.0",
+        "catboost==1.2.7",
+        "xgboost==2.0.3; python_version < '3.10'",
+        "xgboost==2.0.3; python_version >= '3.10'",
+        "pygam==0.10.1",
+        "optuna==4.5.0",
+        "imbalanced-learn==0.11.0",
+        "scikit-learn-extra==0.3.0",
+        "xbooster==0.2.2; python_version < '3.10'",
+        "xbooster==0.2.6; python_version >= '3.10'",
+        "pydantic==1.10.15",
+        "nbformat==5.10.4",
+        "importlib-resources==5.13.0; python_version < \"3.9\"",
     ],
     
     # Optional dependencies
     extras_require={
         "dev": [
-            "pytest>=7.0.0",
-            "pytest-cov>=3.0.0",
-            "black>=22.0.0",
-            "isort>=5.0.0",
-            "flake8>=4.0.0",
-            "mypy>=0.950",
-            "pre-commit>=2.0.0",
-            "twine>=4.0.0",
-            "wheel>=0.37.0",
-            "build>=0.7.0",
+            "pytest==8.4.2",
+            "pytest-cov==7.0.0",
+            "black==24.8.0",
+            "isort==5.13.2",
+            "flake8==7.1.0",
+            "mypy==1.11.1",
+            "pre-commit==3.7.1",
+            "twine==5.1.1",
+            "wheel==0.43.0",
+            "build==1.2.1",
         ],
         "viz": [
-            "matplotlib>=3.5.0,<3.7.0",
-            "seaborn>=0.12.0",
-            "plotly>=5.0.0",
+            "plotly==5.24.1",
         ],
         "ml": [
-            "optuna>=3.0.0",
-            "shap>=0.41.0",
-            "imbalanced-learn>=0.9.0",
-            "scikit-learn-extra>=0.2.0",
+            "shap==0.43.0",
         ],
         "notebook": [
-            "jupyter>=1.0.0",
-            "notebook>=6.0.0",
-            "ipywidgets>=7.0.0",
+            "jupyter==1.1.0",
+            "notebook==7.2.1",
+            "ipywidgets==8.1.3",
         ],
     },
     
@@ -129,3 +132,8 @@ setup(
         "credit-risk",
     ],
 )
+
+
+
+
+

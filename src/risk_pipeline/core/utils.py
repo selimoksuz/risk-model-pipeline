@@ -60,6 +60,68 @@ def gini_from_auc(auc: float) -> float:
     return 2 * auc - 1
 
 
+def predict_positive_proba(model, X, *, positive_label=1, fallback_to_last=True):
+    """Return positive-class probabilities as a 1D numpy array."""
+
+    if model is None or X is None:
+        return None
+
+    if hasattr(model, 'predict_proba'):
+        try:
+            proba = model.predict_proba(X)
+        except Exception:
+            proba = None
+        else:
+            proba = np.asarray(proba)
+            if proba.ndim == 1:
+                return proba
+            if proba.ndim == 2:
+                if proba.shape[1] == 1:
+                    return proba[:, 0]
+                classes = getattr(model, 'classes_', None)
+                idx = None
+                if classes is not None:
+                    classes = np.asarray(classes)
+                    try:
+                        idx = int(np.where(classes == positive_label)[0][0])
+                    except Exception:
+                        try:
+                            idx = int(np.where(classes == True)[0][0])
+                        except Exception:
+                            idx = None
+                if idx is None:
+                    idx = proba.shape[1] - 1 if fallback_to_last else 1
+                return proba[:, idx]
+
+    if hasattr(model, 'decision_function'):
+        try:
+            scores = np.asarray(model.decision_function(X))
+        except Exception:
+            scores = None
+        else:
+            if scores.ndim == 1:
+                try:
+                    from scipy.special import expit
+                except Exception:
+                    return scores
+                return expit(scores)
+            if scores.ndim == 2:
+                try:
+                    from scipy.special import softmax
+                    return softmax(scores, axis=1)[:, -1]
+                except Exception:
+                    return scores[:, -1]
+
+    if hasattr(model, 'predict'):
+        try:
+            preds = np.asarray(model.predict(X)).astype(float)
+            return preds.ravel()
+        except Exception:
+            pass
+
+    raise ValueError('Model does not support probability estimation via predict_proba or decision_function.')
+
+
 def ks_statistic(y_true: np.ndarray, y_proba: np.ndarray):
     """Calculate KS statistic"""
     y_true = np.asarray(y_true)

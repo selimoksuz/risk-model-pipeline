@@ -22,3 +22,5 @@ recursive-exclude docs *
 recursive-exclude notebooks *
 recursive-exclude examples *
 recursive-exclude scripts *
+recursive-include src/risk_pipeline/data/sample *.csv
+

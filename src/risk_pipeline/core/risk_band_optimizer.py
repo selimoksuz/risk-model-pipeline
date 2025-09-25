@@ -5,7 +5,8 @@ Includes: Herfindahl Index, Hosmer-Lemeshow, Binomial Tests
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+import math
+from typing import Any, Dict, List, Optional, Tuple
 from scipy import stats
 from sklearn.metrics import roc_curve, auc
 import warnings
@@ -31,6 +32,7 @@ class OptimalRiskBandAnalyzer:
         self.config = config
         self.bands_ = None
         self.band_stats_ = None
+        self.band_summary_ = None
         self.metrics_ = {}
 
     def optimize_bands(self, predictions: np.ndarray, actuals: np.ndarray,
@@ -47,7 +49,7 @@ class OptimalRiskBandAnalyzer:
         n_bands : int
             Number of risk bands
         method : str
-            Banding method ('quantile', 'equal_width', 'optimal')
+            Banding method ('quantile', 'equal_width', 'optimal', 'pd_constraints')
 
         Returns:
         --------
@@ -56,31 +58,63 @@ class OptimalRiskBandAnalyzer:
 
         print(f"    Optimizing {n_bands} risk bands (method={method})...")
 
-        # Create initial bands
-        if method == 'quantile':
+        band_stats: Optional[pd.DataFrame] = None
+        summary_meta: Optional[Dict[str, Any]] = None
+        method_key = (method or 'quantile').lower()
+
+        if method_key == 'quantile':
             bands = self._create_quantile_bands(predictions, n_bands)
-        elif method == 'equal_width':
+        elif method_key == 'equal_width':
             bands = self._create_equal_width_bands(predictions, n_bands)
-        elif method == 'optimal':
+        elif method_key == 'optimal':
             bands = self._optimize_bands_iterative(predictions, actuals, n_bands)
+        elif method_key in {'pd_constraints', 'score_constraints', 'constrained'}:
+            bands, constrained_stats, summary_meta = self._optimize_bands_with_constraints(
+                predictions, actuals, n_bands
+            )
+            if bands is None or constrained_stats is None:
+                print('      Warning: constrained risk band optimization failed; falling back to quantile bands')
+                bands = self._create_quantile_bands(predictions, n_bands)
+                summary_meta = None
+            else:
+                band_stats = constrained_stats
         else:
             bands = self._create_quantile_bands(predictions, n_bands)
 
-        # Assign bands
-        band_assignments = self._assign_to_bands(predictions, bands)
+        if band_stats is None:
+            band_assignments = self._assign_to_bands(predictions, bands)
+            band_stats = self._calculate_band_statistics(
+                predictions, actuals, band_assignments
+            )
+        else:
+            if 'cum_count' not in band_stats.columns:
+                band_assignments = self._assign_to_bands(predictions, bands)
+                base_stats = self._calculate_band_statistics(
+                    predictions, actuals, band_assignments
+                )
+                extra_cols = [col for col in band_stats.columns if col not in base_stats.columns]
+                band_stats = base_stats.merge(
+                    band_stats[['band'] + extra_cols],
+                    on='band',
+                    how='left'
+                )
 
-        # Calculate statistics
-        band_stats = self._calculate_band_statistics(
-            predictions, actuals, band_assignments
-        )
+        if method_key in {'pd_constraints', 'score_constraints', 'constrained'} and summary_meta is None:
+            penalty, augmented_stats, summary = self._score_band_configuration(band_stats)
+            band_stats = augmented_stats
+            summary['total_penalty'] = penalty
+            summary['n_bins'] = int(len(augmented_stats))
+            summary['method'] = method_key
+            summary['table'] = augmented_stats
+            summary_meta = summary
 
-        # Check monotonicity
         is_monotonic = self._check_monotonicity(band_stats)
         if not is_monotonic:
-            print("      Warning: Bands are not monotonic in bad rate")
+            print('      Warning: Bands are not monotonic in bad rate')
 
         self.bands_ = bands
         self.band_stats_ = band_stats
+        self.band_summary_ = summary_meta
 
         return band_stats
 
@@ -129,6 +163,17 @@ class OptimalRiskBandAnalyzer:
         # Concentration Ratio
         metrics['cr_top20'] = self._calculate_concentration_ratio(band_stats, 0.2)
         metrics['cr_top50'] = self._calculate_concentration_ratio(band_stats, 0.5)
+
+        if isinstance(getattr(self, 'band_summary_', None), dict):
+            summary_meta = self.band_summary_
+            metrics['ci_overlaps'] = summary_meta.get('ci_overlaps')
+            metrics['binomial_pass_weight'] = summary_meta.get('binomial_pass_weight')
+            metrics['binomial_pass_rate'] = summary_meta.get('binomial_pass_rate')
+            metrics['risk_band_penalty'] = summary_meta.get('total_penalty')
+            metrics['weight_violations'] = summary_meta.get('weight_violations')
+            metrics['hhi_total'] = summary_meta.get('hhi_total')
+            metrics['monotonic_pd'] = summary_meta.get('monotonic_pd')
+            metrics['monotonic_dr'] = summary_meta.get('monotonic_dr')
 
         self.metrics_ = metrics
         return metrics
@@ -209,6 +254,261 @@ class OptimalRiskBandAnalyzer:
         new_bands.append(bands[-1])
 
         return np.array(new_bands)
+
+    def _optimize_bands_with_constraints(self, predictions: np.ndarray, actuals: np.ndarray,
+                                         target_bins: int) -> Tuple[Optional[np.ndarray], Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
+        """Construct bands using constrained optimization inspired by PD binning reference."""
+
+        predictions = np.asarray(predictions, dtype=float)
+        actuals = np.asarray(actuals, dtype=float)
+
+        if predictions.size == 0 or np.allclose(np.nanstd(predictions), 0.0):
+            return None, None, None
+
+        cfg = self.config
+        min_bins = int(getattr(cfg, 'risk_band_min_bins', max(2, min(target_bins, 7))))
+        max_bins = int(getattr(cfg, 'risk_band_max_bins', max(target_bins, 10)))
+        if target_bins:
+            max_bins = max(min_bins, min(max_bins, target_bins))
+            min_bins = min(min_bins, max_bins)
+
+        n_records = predictions.size
+        if n_records < min_bins:
+            return None, None, None
+
+        order = np.argsort(predictions)
+        pred_sorted = predictions[order]
+        actual_sorted = np.nan_to_num(actuals[order], nan=0.0)
+
+        micro_target = int(getattr(cfg, 'risk_band_micro_bins', max_bins * 20))
+        micro_bins = max(max_bins, min(micro_target, n_records))
+        boundaries = [0]
+        for i in range(1, micro_bins):
+            idx = int(round(i * n_records / micro_bins))
+            if idx > boundaries[-1]:
+                boundaries.append(idx)
+        if boundaries[-1] != n_records:
+            boundaries.append(n_records)
+        boundaries = sorted(set(boundaries))
+        if boundaries[-1] != n_records:
+            boundaries.append(n_records)
+
+        num_segments = len(boundaries) - 1
+        if num_segments < min_bins:
+            return None, None, None
+
+        max_bins = min(max_bins, num_segments)
+        min_bins = min(min_bins, max_bins)
+
+        prefix_bad = np.cumsum(actual_sorted)
+        prefix_pred = np.cumsum(pred_sorted)
+
+        min_weight = float(getattr(cfg, 'risk_band_min_weight', 0.05))
+        max_weight = float(getattr(cfg, 'risk_band_max_weight', 0.30))
+        alpha = float(getattr(cfg, 'risk_band_alpha', 0.05))
+        z_value = stats.norm.ppf(1 - alpha / 2) if 0 < alpha < 1 else stats.norm.ppf(0.975)
+
+        segment_cache: List[List[Optional[Dict[str, Any]]]] = [[None] * (num_segments + 1) for _ in range(num_segments)]
+        for i in range(num_segments):
+            for j in range(i + 1, num_segments + 1):
+                start = boundaries[i]
+                end = boundaries[j]
+                count = end - start
+                if count <= 0:
+                    continue
+                bads = prefix_bad[end - 1] - (prefix_bad[start - 1] if start > 0 else 0)
+                pred_sum = prefix_pred[end - 1] - (prefix_pred[start - 1] if start > 0 else 0)
+                mean_pd = float(pred_sum / count)
+                observed_dr = float(bads / count)
+                pd_var = max(mean_pd * (1 - mean_pd), 1e-6)
+                pd_se = math.sqrt(pd_var / count)
+                ci_low = max(mean_pd - z_value * pd_se, 0.0)
+                ci_high = min(mean_pd + z_value * pd_se, 1.0)
+                binomial_pass = ci_low <= observed_dr <= ci_high
+                weight = count / n_records
+                dr_pd_diff = abs(observed_dr - mean_pd)
+
+                penalty = 0.0
+                if weight < min_weight:
+                    penalty += (min_weight - weight) * 3000.0
+                if weight > max_weight:
+                    penalty += (weight - max_weight) * 3000.0
+                penalty += dr_pd_diff * 200.0
+                if not binomial_pass:
+                    penalty += abs(dr_pd_diff) * 2000.0 + 500.0
+
+                segment_cache[i][j] = {
+                    'start': start,
+                    'end': end,
+                    'count': count,
+                    'bads': float(bads),
+                    'weight': weight,
+                    'mean_pd': mean_pd,
+                    'observed_dr': observed_dr,
+                    'ci_low': ci_low,
+                    'ci_high': ci_high,
+                    'dr_pd_diff': dr_pd_diff,
+                    'binomial_pass': binomial_pass,
+                    'penalty': penalty,
+                    'min_score': float(pred_sorted[start]),
+                    'max_score': float(pred_sorted[end - 1]),
+                }
+
+        dp = [[math.inf] * (num_segments + 1) for _ in range(max_bins + 1)]
+        back: List[List[Optional[int]]] = [[None] * (num_segments + 1) for _ in range(max_bins + 1)]
+        dp[0][0] = 0.0
+
+        for k in range(1, max_bins + 1):
+            for j in range(1, num_segments + 1):
+                for i in range(k - 1, j):
+                    segment = segment_cache[i][j]
+                    if segment is None:
+                        continue
+                    previous = dp[k - 1][i]
+                    if not math.isfinite(previous):
+                        continue
+                    cost = previous + segment['penalty']
+                    if cost < dp[k][j]:
+                        dp[k][j] = cost
+                        back[k][j] = i
+
+        best_solution = None
+        best_stats: Optional[pd.DataFrame] = None
+        best_summary: Optional[Dict[str, Any]] = None
+        best_penalty = math.inf
+
+        for bins_count in range(min_bins, max_bins + 1):
+            if not math.isfinite(dp[bins_count][num_segments]):
+                continue
+            chain = []
+            curr = num_segments
+            steps = bins_count
+            valid = True
+            while steps > 0:
+                prev = back[steps][curr]
+                if prev is None:
+                    valid = False
+                    break
+                chain.append((prev, curr))
+                curr = prev
+                steps -= 1
+            if not valid or curr != 0:
+                continue
+            chain.reverse()
+
+            edges = [float(pred_sorted[0])]
+            for seg_index, (start_idx, end_idx) in enumerate(chain[:-1]):
+                boundary = segment_cache[start_idx][end_idx]['end']
+                if boundary >= n_records:
+                    continue
+                left_val = float(pred_sorted[boundary - 1])
+                right_val = float(pred_sorted[boundary]) if boundary < n_records else left_val
+                if right_val == left_val:
+                    boundary_value = left_val + 1e-6 * (seg_index + 1)
+                else:
+                    boundary_value = (left_val + right_val) / 2.0
+                if boundary_value <= edges[-1]:
+                    boundary_value = edges[-1] + 1e-6
+                edges.append(boundary_value)
+            edges.append(float(pred_sorted[-1]) + 1e-6)
+            edges_array = np.array(edges, dtype=float)
+
+            assignments = self._assign_to_bands(predictions, edges_array)
+            band_stats = self._calculate_band_statistics(predictions, actuals, assignments)
+            penalty, augmented, summary = self._score_band_configuration(band_stats)
+            if not math.isfinite(penalty):
+                continue
+
+            if penalty < best_penalty:
+                best_penalty = penalty
+                best_solution = edges_array
+                best_stats = augmented
+                summary['total_penalty'] = penalty
+                summary['n_bins'] = int(len(augmented))
+                summary['method'] = 'pd_constraints'
+                summary['table'] = augmented
+                best_summary = summary
+
+        if best_solution is None or best_stats is None or best_summary is None:
+            return None, None, None
+
+        return best_solution, best_stats, best_summary
+
+    def _score_band_configuration(self, band_stats: pd.DataFrame) -> Tuple[float, pd.DataFrame, Dict[str, Any]]:
+        """Evaluate band statistics against business constraints and compute penalty."""
+
+        if band_stats is None or band_stats.empty:
+            return math.inf, band_stats, {}
+
+        df = band_stats.copy().sort_values('band').reset_index(drop=True)
+        total = float(df['count'].sum())
+        if total <= 0:
+            return math.inf, df, {}
+
+        cfg = self.config
+        min_weight = float(getattr(cfg, 'risk_band_min_weight', 0.05))
+        max_weight = float(getattr(cfg, 'risk_band_max_weight', 0.30))
+        hhi_threshold = float(getattr(cfg, 'risk_band_hhi_threshold', 0.15))
+        required_pass_weight = float(getattr(cfg, 'risk_band_binomial_pass_weight', 0.85))
+        alpha = float(getattr(cfg, 'risk_band_alpha', 0.05))
+        z_value = stats.norm.ppf(1 - alpha / 2) if 0 < alpha < 1 else stats.norm.ppf(0.975)
+
+        df['pct_count'] = df['count'] / total
+        df['avg_score'] = df['avg_score'].astype(float)
+        df['bad_rate'] = df['bad_rate'].astype(float)
+        se = np.sqrt(np.clip(df['avg_score'] * (1 - df['avg_score']), 1e-6, None) / np.clip(df['count'], 1, None))
+        df['ci_lower'] = np.clip(df['avg_score'] - z_value * se, 0.0, 1.0)
+        df['ci_upper'] = np.clip(df['avg_score'] + z_value * se, 0.0, 1.0)
+        df['dr_pd_diff'] = np.abs(df['bad_rate'] - df['avg_score'])
+        df['binomial_pass'] = (df['bad_rate'] >= df['ci_lower'] - 1e-12) & (df['bad_rate'] <= df['ci_upper'] + 1e-12)
+        df['binomial_result'] = np.where(df['binomial_pass'], 'Pass', 'Reject')
+        df['mean_pd_gt_dr'] = (df['avg_score'] >= df['bad_rate']).astype(int)
+        df['weight'] = df['pct_count']
+        df['hhi_contrib'] = df['pct_count'] ** 2
+        if 'bin_range' not in df.columns:
+            df['bin_range'] = df.apply(
+                lambda row: f"[{row['min_score']:.4f}, {row['max_score']:.4f}]",
+                axis=1
+            )
+
+        ci_overlaps = int(np.sum(df['ci_upper'].values[:-1] > df['ci_lower'].values[1:] + 1e-6)) if len(df) > 1 else 0
+        binomial_failures = int((~df['binomial_pass']).sum())
+        binomial_pass_weight = float(df.loc[df['binomial_pass'], 'pct_count'].sum())
+        binomial_pass_rate = float(df['binomial_pass'].mean()) if len(df) else 0.0
+        avg_dr_pd_diff = float(df['dr_pd_diff'].mean()) if len(df) else 0.0
+        mean_pd_failures = int(((~df['binomial_pass']) & (df['mean_pd_gt_dr'] == 0)).sum())
+        hhi_total = float(df['hhi_contrib'].sum())
+        weight_violations = int(((df['pct_count'] < min_weight - 1e-9) | (df['pct_count'] > max_weight + 1e-9)).sum())
+        monotonic_pd = bool(np.all(np.diff(df['avg_score']) >= -1e-6))
+        monotonic_dr = bool(np.all(np.diff(df['bad_rate']) >= -1e-6))
+
+        overlaps_penalty = ci_overlaps * 10000.0
+        binomial_penalty = binomial_failures * 200.0
+        binomial_weight_penalty = 0.0
+        if binomial_pass_weight < required_pass_weight:
+            binomial_weight_penalty = (required_pass_weight - binomial_pass_weight) * 500.0 * 1000.0
+        dr_pd_penalty = avg_dr_pd_diff * 80.0 * 100.0
+        mean_pd_penalty = mean_pd_failures * 50.0
+        hhi_penalty = max(0.0, hhi_total - hhi_threshold) * 100.0 * 20.0
+        weight_penalty = weight_violations * 50.0 * 100.0
+        monotonic_penalty = 0.0 if (monotonic_pd and monotonic_dr) else 1_000_000.0
+
+        total_penalty = overlaps_penalty + binomial_penalty + binomial_weight_penalty + dr_pd_penalty + mean_pd_penalty + hhi_penalty + weight_penalty + monotonic_penalty
+
+        summary = {
+            'ci_overlaps': ci_overlaps,
+            'binomial_failures': binomial_failures,
+            'binomial_pass_weight': binomial_pass_weight,
+            'binomial_pass_rate': binomial_pass_rate,
+            'dr_pd_diff_mean': avg_dr_pd_diff,
+            'mean_pd_gt_dr_failures': mean_pd_failures,
+            'hhi_total': hhi_total,
+            'weight_violations': weight_violations,
+            'monotonic_pd': monotonic_pd,
+            'monotonic_dr': monotonic_dr,
+        }
+
+        return total_penalty, df, summary
 
     def _assign_to_bands(self, predictions: np.ndarray, bands: np.ndarray) -> np.ndarray:
         """Assign predictions to bands."""

@@ -1,0 +1,1949 @@
+1. Pipeline Giriş Parametreleri ve Config Ayarları
+RiskModelPipeline
+ sınıfı, davranışını 
+Config
+ konfigürasyon objesinden alır. 
+Config
+ içinde modelleme sürecinin tüm önemli ayarları tanımlanmıştır. Başlıca giriş parametreleri ve işlevleri şunlardır:
+Temel Kolonlar:
+ Hedef değişken ismi (
+target_col
+), benzersiz ID kolonu (
+id_col
+) ve zaman damgası kolonu (
+time_col
+) config’de belirtilir. Varsayılan olarak 
+target_col="target"
+, 
+id_col="app_id"
+, 
+time_col="app_dt"
+ olarak gelir
+[1]
+. Bu alanlar veri setinde bulunmazsa pipeline başta doğrulama adımında hata verir
+[2]
+.
+Veri Bölme Oranları:
+ Eğitim, test ve OOT (out-of-time) ayrımı için oranlar veya süre belirtilir. 
+use
+_test_split=True
+ olduğunda veri train/test olarak bölünür; 
+train_ratio
+, 
+test_ratio
+ ve 
+oot_ratio
+ parametreleri toplamı 1 olacak şekilde ayarlanmalıdır (örn. %60 train, %20 test, %20 oot). Alternatif olarak 
+oot_months
+ verilip son N ay OOT olarak ayrılabilir. Girdi veride 
+time_col
+ mevcutsa pipeline zaman bazlı ayırma yapar, aksi halde rastgele stratified ayırma yapar
+[5]
+[6]
+. (Not: Geliştirmede 
+test_size
+ parametresi de kullanılmış ancak config’de tanımlı değildir; bu parametre oranlarla tutarlı hale getirilmelidir – bkz. Eksiklikler bölümü).
+Duzeltme:
+use
+_test_split
+=True ise 
+ratio
+ dediğim şey 
+oot
+ verisi belirlendikten sonra (kaç ay olduğu ayrıca bir 
+paramtre
+ ile belirtilir eğer parametre verilmezse 
+oot
+ ayrımı yapılmaz) geri kalan veride 
+train
+ ve test ayrımını yapar ve bu her ay bazında 
+event
+ rate i hem 
+trainde
+ 
+hemde
+ testte aynı olacak şekilde 
+slipt
+ etmeli 
+WOE ve Binning Ayarları:
+ Ağırlıklandırılmış kanıt (Weight of Evidence) dönüşümü için 
+n_bins
+ (max bin sayısı, varsayılan 10) ve 
+min_bin_size
+ (her bin için min oran, varsayılan %5) gibi parametreler tanımlıdır
+[7]
+. 
+woe_monotonic=True
+ ise sayısal değişken binning’inde monotonik artan/azalan WOE kısıtı uygulanması hedeflenir. 
+max_abs_woe
+ ile WOE değerlerine büyüklük sınırı konulabilir (örn. 4.0 gibi)
+[8]
+. Kategorik değişkenler için nadir sınıfların birleştirilmesi amacıyla 
+rare_threshold
+ (varsayılan %1) belirlenir
+[9]
+[10]
+. Eksik değerlerin WOE hesabındaki ele alınışı 
+handle_missing
+ ile kontrol edilir (örn. “as_category” ile eksikleri ayrı bir kategori gibi ele al)
+[11]
+.
+Düzeltme:
+ 
+Woe
+ dediğin şeyin normalde bir kısıtlaması olmamalı sayısal değeri için söylüyorum bunu. Bunun dışında iv optimizasyonuna göre 
+woe
+ 
+bucketleri
+ 
+optimze
+ edilmeli.
+Özellik Eleme ve Seçim Eşikleri:
+ Değişkenlerin filtrelenmesinde kullanılacak eşikler config’de tanımlıdır. Öntanımlı minimum IV değeri 
+iv_min=0.02
+ (daha düşük IV’li değişkenler atılır), yüksek IV eşiği 
+iv_high_threshold=0.5
+ (çok yüksek IV için bayraklama amaçlı olabilir) olarak gelir
+[12]
+. Stabilite için nüfus stabilite indeksi eşiği 
+psi_threshold=0.25
+ (PSI bu değeri aşarsa değişken atılır)
+[13]
+. Korelasyon için Spearman rho eşiği 
+rho_threshold=0.90
+ (bu değerden yüksek korelasyonlu değişkenler elenir) ve varyans şişme faktörü (VIF) eşiği 
+vif_threshold=5.0
+ mevcuttur
+[13]
+. Ayrıca 
+use_boruta=True
+ ile Boruta algoritmasının kullanımı, 
+forward_selection=True
+ ile ileri yönlü seçim açılıp kapatılabilir; 
+max_features=20
+, 
+min_features=3
+ ile seçilecek değişken sayısı sınırları belirlenir
+[14]
+. Gürültü değişkeni ekleyerek seçim kontrolü için 
+use_noise_sentinel=True
+ parametresi vardır.
+Model Eğitimi ve Optuna:
+ Çapraz doğrulama kat sayısı 
+cv_folds=5
+ (varsayılan) olarak belirlenir. Optuna hiperparametre optimizasyonu 
+use_optuna=True
+ ile açılır ve deneme sayısı 
+n_trials=100
+ gibi ayarlanabilir
+[15]
+. Arama süresi 
+optuna_timeout
+ ile sınırlandırılabilir.
+Model Seçim Stratejisi:
+ Birden çok model eğitildiğinde “en iyi model” seçim kriteri config’de 
+model_selection_method
+ ile tanımlanmak istenir. Örneğin 
+"gini_oot"
+, 
+"stable"
+, 
+"balanced"
+ gibi seçenekler öngörülmüş
+[16]
+. Ayrıca dengeli seçim için 
+model_stability_weight=0.3
+ gibi bir ağırlık parametresi ve minimum istenen Gini için 
+min_gini_threshold=0.5
+ belirtilebilir
+[17]
+. (Not: Mevcut implementasyonda bu stratejiler tam olarak devreye alınmamış, seçim doğrudan en yüksek OOT/Test AUC’ye göre yapılıyor – bkz. Eksiklikler
+).
+Bu
+ kısım düzeltilmeli.
+Çift Pipeline Modu:
+ 
+enable_dual_pipeline=True
+ ise pipeline’ın hem ham değişkenlerle hem de WOE dönüşümlü değişkenlerle model kurması hedeflenir. Dual mod açıkken 
+DualRiskModelPipeline
+ sınıfı devreye girer ve en iyi modelin ham mı yoksa WOE pipeline’ından mı seçileceğine karar verilir (fikirsel olarak 
+pipeline.best_pipeline
+ ile “WOE” veya “RAW” çıktı vermesi planlanmıştı
+[18]
+). (Not: Dual akışın uygulanması eksik, detayları ilgili bölümde ele alınmıştır).
+Çıktı ve Kayıt Ayarları:
+ Pipeline çıktıları için 
+output_folder
+ dizini ve opsiyonel Excel rapor yolu (
+output_excel_path
+) belirtilebilir
+[19]
+. 
+run_id
+ her çalışmada benzersiz olarak üretilir (datetime damgası ile) ve bu ID log/çıktı dosya adlarında kullanılır
+[20]
+. Kod, eğer 
+log_to_file=True
+ ise işlem loglarını belirtilen output klasörüne yazmayı destekler (ancak config’de 
+log_to_file
+ parametresi tanımlı olmayabilir, eksik bir noktadır).
+Düzetlme
+:
+ ilgili logların bağlantısı kurulması lazım 
+Önerilen İyileştirmeler:
+ Config parametrelerinde bazı tutarsızlıklar giderilmelidir. Örneğin 
+test_size
+ ile 
+train_ratio
+ parametreleri tek bir yaklaşımla birleştirilmelidir (şu an development dalında ikisi de kullanılmış görünüyor). Benzer şekilde, imputation için 
+imputation_strategy
+ ve 
+raw_imputation_strategy
+ adlandırmaları netleştirilmeli. Ayrıca 
+model_selection_method
+ ve ilgili 
+stability
+ ağırlığı parametreleri kodda kullanılmadığı için ya çıkarılmalı ya da uygun model seçim kuralı eklenmelidir. Genel olarak config yapısı, literatürdeki 
+configurable pipeline
+ tasarımlarına uygun şekilde tutarlı ve kapsamlı hale getirilmelidir. Tüm önemli adımların config üzerinden kontrol edilebilir olması (örn. risk band optimizasyon parametreleri gibi) esneklik kazandıracaktır.
+2. Veri Tipi Ayrımı ve Ön İşleme
+Pipeline, modeli beslemeden önce veriyi tipine göre ayrıştırır ve gerekli ön işlemleri yapar. Özellikle sayısal ve kategorik değişkenler farklı muamele görür:
+Değişken Tipi Sınıflandırma:
+ Giriş verisindeki kolonlar, ID, zaman ve hedef kolonları hariç, otomatik olarak 
+sayısal
+ veya 
+kategorik
+ olarak sınıflandırılır. Geliştirilen yöntem, veri tipine ve benzersiz değer oranına bakar. Örneğin, dtype’i int/float ise doğrudan “numeric” atanır. Diğer durumlarda benzersiz değer sayısı oranı %5’ten az ise “categorical”, çok çeşitli ama az sayıda unique varsa yine “categorical”, aksi halde “numeric” kabul edilir
+[21]
+. Bu işlem sonunda her değişkenin adı, tipi, benzersiz değer adedi ve eksik yüzdesini içeren bir 
+var_catalog
+ tablosu oluşturulur
+[22]
+. (Varsayılan kural bazı sınır durumlarında hatalı sınıflama yapabilir; örneğin 30 farklı değerli bir integer kolon “numeric” kabul edilebilir, ama eşik 20 olarak kodlanmış. Bu eşikler gerektiğinde kullanıcı tarafından override edilebilmelidir).
+Eksik Değer İşleme (İmputation):
+ Config’de belirtilen 
+imputation_strategy
+ ya da 
+raw_imputation_strategy
+’ye göre eksikler doldurulur. Varsayılan “median” stratejisinde her sayısal kolon medyanıyla, kategorik kolon moduyla doldurulur. Pipeline, 
+“multiple”
+ stratejisini de destekler: Bu seçilirse her eksik değişken için median, mean, forward fill, target mean gibi birden çok yöntemle doldurulmuş yeni özellikler yaratılır ve orijinal kolon medyanla doldurulur
+[23]
+[24]
+. Örneğin “multiple” imputation aktif ise 
+X[col]_imp_mean
+, 
+_imp_forward_fill
+ gibi ek sütunlar oluşturulur ve ayrıca her kolon için bir 
+col_was_missing
+ bayrak değişkeni eklenir
+[25]
+[26]
+. Bu yaklaşım, eksik değer belirsizliğini modele yansıtmak için literatürde önerilen 
+“missing indicator”
+ yöntemini uygular. Eğer tek bir strateji (median, mean, mode vs.) seçilmişse sadece o yöntemle doldurup her kolon için 
+_was_missing
+ indikatörü eklenir
+[27]
+. Geliştirim sırasında “target_mean” (hedef 1 ve 0 için ayrı ortalama) veya “knn” gibi gelişmiş yöntemler de eklenmiştir; 
+target_mean
+ seçeneğinde eğitim verisinde hedef=1 ve hedef=0 grupları için ayrı ortalama hesaplanıp eksiklere uygun olan atanır
+[28]
+[29]
+. Bu yöntem, default oranı farklı segmentler için daha doğru bir doldurma sağlamayı hedefler. (Not: “knn” seçeneği kodda henüz tam uygulı değil, median’a düşüyor
+[30]
+.) İmpute işlemi eğitimde 
+fit=True
+ modunda çalışır ve hesaplanan doldurma değerleri 
+imputation_stats_
+ içinde saklanır; test/oot’da 
+fit=False
+ ile bu değerler kullanılarak doldurma yapılır
+[31]
+[32]
+.
+Aykırı Değer İşleme:
+ Sayısal değişkenler için aşırı uç değerlerin etkisini azaltmak amacıyla 
+outlier
+ işlemleri uygulanabilir. Config’de 
+raw_outlier_method
+ ile bu belirlenir (
+"none"
+ (pasif), 
+"iqr"
+ veya 
+"zscore"
+ gibi) ve 
+raw_outlier_threshold
+ ile sınır değeri verilir (örn. 3.0)
+[33]
+. Geliştirilen pipeline’da aykırı işlemi, 
+Robust Scaler
+ ile birleşik uygulanır: Eğitim verisinde outlier_method “iqr” veya “zscore” ise önce değişkenler medyan etrafında IQR=1 olacak şekilde ölçeklenir (RobustScaler) ve ardından değerler ±threshold arasında kırpılır
+[34]
+[35]
+. Örneğin threshold=3 ise robust scale sonrası değeri 3’ü aşanlar 3’e (ve -3 altı olanlar -3’e) çekilir (Winsorizing). Bu sayede aykırı değerler dağılımın büyük kısmından 3 medyan mutlak sapma dışında tutulmaz. Test verisine de aynı scaler uygulanıp aynı şekilde kırpma yapılır
+[36]
+. (Not: Kodda 
+raw_outlier_method=="clip"
+ kontrolü yok, ancak 
+"iqr"
+ ve 
+"zscore"
+ pratikte aynı işlemi yapıyor. Bu kısım iyileştirilip 
+IQR
+ yöntemi için farklı hesaplama (ör. Q1-1.5IQR, Q3+1.5IQR) uygulanabilir).
+Ölçekleme:
+ Yukarıdaki outlier adımında 
+RobustScaler
+ kullanılması ölçekleme etkisi de yaratır. Ayrıca config’de 
+raw_scaler_type
+ parametresi belirtilmiş olsa da (standard, minmax, robust gibi) kod içinde bu parametre doğrudan kullanılmamış ve outlier işlemine entegre edilmiş durumda. Gerekirse ham veriler için ekstra bir scaling adımı eklenebilir. WOE dönüşümü yapılacak değişkenler için ise ölçekleme gerekmediğinden, ölçekleme genelde ham değişken pipeline’ına özgüdür.
+Doğrulama ve Tip Düzeltmeleri:
+ Pipeline başında 
+DataProcessor.validate_and_freeze
+ çağrısı ile hedef değişkenin 0/1 dışında değer içerip içermediği kontrol edilir, eksik kolon var mı bakılır ve 
+snapshot_month
+ kolonu oluşturularak tarih aylık bazda sabitlenir
+[2]
+[37]
+. Ayrıca bellek optimizasyonu için sayısal kolonlar mümkün olan en küçük tiplere (downcast) çevrilir (ör. int64 -> int32)
+[38]
+. Bu, büyük veri setlerinde bellek yükünü azaltmak için iyi bir uygulamadır.
+Önerilen İyileştirmeler:
+ 
+Aykırı değer işlemi
+ bölümünde, IQR yöntemi literatürde genellikle 
+Q1-1.5
+IQR, 
+Q3+1.5
+IQR sınırlarıyla yapılır; kodda robust scaler kullanımı pratik ancak 
+raw_outlier_method="iqr"
+ adına rağmen aslında standart sapma benzeri bir kesme uyguluyor. Bu tutarsızlık giderilmeli, veya parametre ismi “robust_zscore” gibi güncellenmeli. 
+Eksik değer imputation
+ tarafında, birden fazla strateji ile yeni özellik türetme (multiple) oldukça ileri düzey bir özellik – ancak bu her modelde gerekmeyebilir. Bu nedenle 
+imputation_strategy
+, “multiple” dışında 
+["median","mean","mode","target_mean"]
+ gibi tekil seçeneklere de sahip ve bunlar işlevsel. Bu kısım literatürle uyumlu, ancak 
+knn imputation
+ gerçekten entegre edilecekse scikit-learn’in KNNImputer veya benzerini kullanmak daha anlamlı olabilir. Genel olarak ön işleme adımları, 
+scikit-learn Pipeline
+ mantığına benzer biçimde modüler olmalı ve gerektiğinde bazılarını atlama (skip etme) opsiyonu 
+config’den
+ kontrol edilebilmelidir.
+Düzeltme: 
+woe
+ transformasyonu 
+pipeline’nında
+ bu işlemlerin 
+hiç birinin
+ uygulanmaması gerekmektedir. Ne aykırı değer ne 
+missing
+ 
+imputation
+ gerekmemektedir. 
+Raw
+ 
+pipeline
+ kısmında da kategorik değişkenler 
+woe
+ ile hesaplandığından onlar içinde gerekmemektedir. Bu kurgular sadece 
+raw
+ 
+numeric
+ değişkenlerde uygulanmalı.
+3. TSfresh Kullanımı (Opsiyonel Özellik Oluşturma)
+TSFresh
+, zaman serisi verilerinden otomatik özellik çıkarımı yapan bir Python kütüphanesidir. Bu pipeline’da TSFresh entegrasyonu, özellikle aynı müşteri için zaman içinde birden fazla gözlemin bulunduğu durumlarda, 
+time series feature engineering
+ amaçlı düşünülmüştür. Örneğin bir müşterinin aylık hareketleri, başvuru geçmişi gibi bilgiler 
+id_col
+ ve 
+time_col
+ ile birlikte verilmişse, TSFresh yüzlerce özellik özetini (trendler, frekans bileşenleri, istatistiksel ölçüler vb.) otomatik üretebilir.
+Kullanım Senaryosu:
+ Eğer 
+time_col
+ belirtilmiş ve her 
+id_col
+ için birden fazla zaman noktasında gözlem varsa, pipeline opsiyonel olarak TSFresh ile ek zaman serisi özellikleri hesaplayabilir. Bu özellikler, id bazında gruplanmış zaman 
+serilerinden çıkarılan: maksimum, minimum, ortalama, eğim (trend), periyodik özellikler, değişkenlik ölçütleri gibi zengin bir set olabilir. Özellikle kredi riski gibi problemler için bir müşterinin zaman içindeki davranış değişimi (örneğin gelir-gider dalgalanmaları, önceki kredilerini ödeme düzeni vs.) risk modeline önemli sinyal kazandırabilir. TSFresh kütüphanesi bu tür sinyalleri insan müdahalesi olmadan üretip, önem sırasına göre de filtreleyebilmektedir.
+Opsiyonellik:
+ TSFresh oldukça yüksek sayıda özellik çıkarabileceğinden, bu işlem config’den kontrol edilmeli (örn. 
+use_tsfresh=True/False
+). Varsayılan pipeline’da TSFresh entegrasyonu hazır değildir – ne config’de ne kodda doğrudan “tsfresh” ifadesi geçmiyor. Ancak 
+development
+ dokümantasyonunda ileri seviye pipeline planlarında bu opsiyon düşünülmüş olabilir. Örneğin 
+AdvancedRiskPipeline
+ konsepti altında TSFresh ile zaman serisi özellik zenginleştirme yapılacağı belirtilmiş ancak kod şu an için bunu içermiyor. Yani TSFresh şimdilik bir 
+opsiyonel geliştirme alanı
+ olarak duruyor.
+Üretilecek Özelliklerin Kapsamı:
+ TSFresh uygulanırsa, her bir sayısal zaman serisi kolonundan yüzlerce potansiyel özellik türetilebilir. Pipeline bu durumda, örneğin son 3 aya ait ortalama, standart sapma; en yüksek değer; belirli bir periyodik pattern’e ait Fourier katsayıları; ya da değerlerin trend olup olmadığını belirten test istatistikleri gibi output’lar alabilir. Bu özelliklerden anlamlı olanları (ör. hedef ile ilişkililer) TSFresh’in scoring mekanizmasıyla seçilip pipeline’ın ileriki adımlarına dahil edilebilir. Bu, modelin performansını artırma potansiyeline sahiptir ancak fazla özellik üretimi durumunda Boruta/forward selection gibi adımlarla birlikte kullanılması gerekir.
+Performans ve Uyum:
+ TSFresh hesaplaması yoğun olduğundan büyük veri için zaman maliyeti yüksektir. Bu yüzden genelde off-line özellik mühendisliği olarak kullanılıp önemli bulunan özellikler cüzi bir sete indirgenir. Pipeline içinde entegre edilirse, belki sadece küçük pilot veri üzerinde veya örneklem üzerinde çalıştırılıp çıkan önemli özellikler kalıcı olarak kullanılabilir.
+Mevcut development sürümünde TSFresh entegre 
+değil
+ – dolayısıyla bu konuda bir eksiklik bulunmaktadır. 
+Literatürde
+, zaman serisi özellik çıkarımının model başarısını artırdığı bilinse de, pipeline’ın geneli kredi başvuru anındaki statik veriler üzerine kuruluysa TSFresh’e her zaman ihtiyaç olmayabilir. 
+Öneri:
+ İleride zaman boyutlu veri kullanım ihtimali varsa, pipeline’a TSFresh veya benzeri bir otomatik özellik üretim modülü eklenebilir. Bunu yapılandırmak için config’e 
+tsfresh_settings
+ (örn. hangi kolonlar için, kaç özellik üretilecek vb.) eklemek uygun olur. Aksi halde, TSFresh entegrasyonu yoksa dokümantasyondan çıkarılmalı veya not olarak belirtilmelidir. Sonuç olarak TSFresh bu pipeline’da opsiyonel ve ileri seviye bir özellik mühendisliği aracı olup halihazırda uyarlanmadığı için literatürdeki kullanımına (örn. 
+Kazemi et al., 2017
+) uygun şekilde geleceğe dönük planlanmalıdır.
+Duzeltme
+: 
+TSFresh
+ hazır olmalı 
+paramtre
+ ile açılıp kapatılıyor olmalı.
+4. WOE Hesaplama Metodolojisi (IV/Gini Optimizasyonu ve Binning)
+Weight of Evidence (WOE)
+ dönüşümü, değişkenleri kategoriler/bin’ler halinde gruplandırıp her gruba log-odds değer atayarak hem monotoniciteyi sağlamayı hem de modele giren değişkenlerin bilgi değerini artırmayı amaçlar. Pipeline’daki WOE modülü, sayısal ve kategorik değişkenleri farklı stratejilerle biniyor ve her bir bin için WOE değerini hesaplıyor:
+Sayısal Değişkenlerin Binning’i:
+ Geliştirilen yöntem, adaptif bir yaklaşımla başlar. İlk adımda değişkendeki gözlemler, yaklaşık olarak 
+n_bins
+ kadar 
+kantil
+ aralığına bölünür (varsayılan en fazla 10 bin)
+[39]
+. Bu, veriyi eşit büyüklükte dilimleyerek her dilimde benzer sayıda gözlem olmasını sağlar. Daha sonra, oluşturulan ardışık bin’ler 
+WOE değerlerine göre
+ optimize edilerek birleştirilebilir. Kodda 
+_optimize_bins
+ fonksiyonu, birbirine çok yakın WOE değerine sahip komşu bin’leri birleştirerek gereksiz bölünmeleri engeller
+[40]
+. Örneğin, ardışık iki bin’in WOE farkı belirli bir eşik değerden azsa bunlar tek bin haline getirilebilir (kodda 
+woe_threshold=0.1
+ gibi bir sabit üzerinden yapılıyor). Bu sayede hem 
+monotonik olmayan dalgalanmalar
+ azalır hem de aşırı fit engellenir. Pipeline, 
+woe_monotonic=True
+ ise ayrıca bin’leri kötü-iyi oranına göre sıralı hale getirmeyi gözetir – ancak mevcut implementasyonda monotonluk kontrolü tam değil, optimize edilirken WOE değerlerinin trendine bakılmıyor.
+WOE ve IV Hesabı:
+ Her oluşan bin için WOE değeri klasik formülle hesaplanır: 
+woe = ln(EventOranı / NonEventOranı)
+[41]
+. Bunu yaparken sıfır bölme hatasını engellemek için her değere Laplace düzeltmesi (alpha=0.5) eklenir
+[42]
+. Her bin’in 
+Information Value (IV)
+ katkısı da 
+(EventOranı - NonEventOranı) * WOE
+ şeklinde hesaplanır ve toplamı o değişkenin IV değerini verir
+[43]
+[44]
+. Kodda, bir değişkenin IV’si hesaplanırken şimdilik basit bir grup bazlı yöntem kullanılmış: değerin her eşsiz değeri bir grup kabul edilip event/non-event oranlarından IV hesaplanıyor
+[45]
+[46]
+. (Not: Bu basit yöntem kategorik değişkenler için uygundur ancak sayısal değişkenler için WOE binleme öncesi yapılmadığından tam isabetli değil. Geliştirme notlarında da “Production’da WOE binlerini kullanmalı” şeklinde bir yorum var
+[47]
+). Yine de, WOETransformer içinde asıl WOE mapping’i 
+FeatureEngineer.fit_woe
+ ile yapılıyor – orada adaptif binleme yaklaşımı geçerli. Sonuçta her değişken için bir 
+VariableWOE
+ nesnesi yaratılıyor; içinde numeric_bins veya categorical_groups listesi, her bir grup için WOE, event count, nonevent count, event rate ve iv_contrib gibi bilgiler tutuluyor
+[48]
+[49]
+. Bu detaylar raporlama aşamasında da kullanılıyor.
+Kategorik Değişkenlerin Binning’i:
+ Kategorik değerlerde, WOETransformer algoritması 
+nadir kategorileri birleştirme
+ kuralı uyguluyor. Config’de 
+rare_threshold=0.01
+ (yani %1’den az orana sahip kategori nadir kabul edilir) değeri varsa, eğitim setinde çok az görülen kategoriler toplanıp tek bir “<OTHER>” grubu haline getiriliyor
+[50]
+. Ayrıca eksik değerler ayrı bir “<MISSING>” kategorisi gibi ele alınıyor. Ardından kategorilerin her biri için event/non-event sayıları hesaplanıp WOE değeri veriliyor. Monotonluk kavramı kategorik için geçerli olmadığından, burada esas amaç benzer 
+IV katkısına
+ sahip veya hedefe benzer etkisi olan kategorileri bir araya getirmek. Kodda 
+_group_categorical_adaptive
+ fonksiyonu bu görevi yapıyor 
+(detay kod görünmese de ismine binaen). Nadirler ve eksikler belirlendikten sonra, kategoriler hedef oranlarına göre sıralanıp muhtemelen benzer oranlı olanlar birleştiriliyor. Örneğin bir değişkendeki “A, B, C” kategorileri arasında B ve C’nin hedef oranları yakınsa bunlar aynı WOE grubunda toplanabilir. Bu sayede finalde her kategorik değişkenin bir 
+categorical_groups
+ listesi (her biri label, members ve woe içeren) elde ediliyor.
+Binning Kısıtları:
+ Pipeline WOE binleme sırasında bazı kurallara dikkat ediyor: Her bin, toplam verinin en az 
+%5
+’ini içermeli (min_bin_size=0.05)
+[7]
+. Aksi halde çok küçük bir bin varsa komşusuyla birleştiriliyor (kodda 
+_optimize_bins
+ içinde bu kontrol var). Ayrıca her bin’de event veya non-event olmaması durumu Laplace smoothing ile yumuşatılıyor (0 olay varsa 0.5 olarak alınıyor, 0 non-event varsa 0.5)
+[51]
+. 
+Monotonluk
+ isteğe bağlı olsa da, tam uygulanmamış – literatürde WOE binleri genellikle 
+bad rate
+’e göre sıralı olmalıdır (risk artıyorsa WOE artmalı veya azalmalı monoton). Kodun adaptif yaklaşımı kısmen bunu sağlıyor ancak kesin bir garanti yok.
+IV/Gini optimizasyonu:
+ WOE binlemenin amacı değişkenin modele kattığı ayrım gücünü maksimize etmektir. Bilindiği gibi IV değeri arttıkça değişkenin ayrıştırma gücü artar. Geliştirilen yaklaşım, olabildiğince detaylı binleyip sonra anlamsız farkları birleştirerek 
+IV’i korumaya
+ çalışıyor. Örneğin model isteklerinde “iv veya gini’ye olumlu etkisi olmayan binleri birleştir” şartı belirtilmişti
+[52]
+. Kodda doğrudan IV optimizasyonu yapan bir arama yok, ancak kantil bazlı başlama ve benzer WOE’leri merge etme heuristiği dolaylı olarak yüksek IV sağlamaya çalışıyor. Gini optimizasyonu ayrı bir kriter olarak kullanılmıyor (Gini = 2*AUC-1, AUC de model seviyesinde hesaplanır), dolayısıyla değişken seviyesinde IV ile paralel gittiği varsayılıyor.
+Önerilen İyileştirmeler:
+ WOE dönüşümü genel hatlarıyla literatüre uygun uygulanmış olsa da, 
+monotonik WOE
+ isteği tam karşılanmamış durumda. Bunu sağlamak için merge aşamasında, her birleştirme sonrası binlerin bad rate’lerinin sıralı olup olmadığı kontrol edilebilir ve bozulma varsa farklı bir birleştirme yolu denenebilir. Ayrıca mevcut yaklaşım 
+optimal binning
+ (örn. karar ağaçları veya maksimum IV artışı ile binleme) kadar sofistike değil. Literatürde 
+Chi-Square Merge (ChiMerge)
+ veya 
+Entropi tabanlı
+ binning algoritmaları da var – pipeline bunlardan biriyle değişken bazında optimal bin sayısını belirleyip sonra monotonicity enforce edebilir. Kategorik değişkenler için, tüm kombinasyonları denemek imkansız ama event rate’lere göre 
+greedy merging
+ (ör. benzer bad rate’li grupları kademeli birleştirme) yapılabilir. Bu pipeline’da nadir değer birleştirme mantığı doğru bir adımdır (nadir kategoriler “OTHER” altında toplanıyor), bu literatürde de önerilir
+[10]
+. Son olarak, WOE hesaplarında 
+sıfır olay/nolay
+ durumları için yapılan Laplace smoothing (0.5 ekleme) not edilmiş – bu iyi bir uygulama, ancak alpha değeri config’den ayarlanabilir yapılarak kullanıcı ihtiyacına göre (ör. daha güçlü smoothing) değiştirilebilir. Genel olarak WOE modülü, literatürdeki 
+“binning + WOE + IV”
+ üçlüsüne uygun çalışıyor, ancak kodun bazı kısımlarında (IV hesaplamada) basit yaklaşımlar var; bunlar ileride daha tutarlı hale getirilmeli ki WOE transformu gerçekten optimum faydayı sağlasın.
+5. PSI ve IV ile Değişken Eleme (Stabilite ve Güç Filtreleme)
+Özellik sayısını azaltmak ve modele sadece anlamlı ve kararlı değişkenleri almak için pipeline, 
+Information Value (IV)
+ ve 
+Population Stability Index (PSI)
+ metriklerini kullanarak ön eleme yapar. Bu adımlar, 
+FeatureSelector.select_features
+ içinde ardışık olarak uygulanır:
+IV Eşiğine Göre Eleme:
+ İlk olarak her bir aday değişkenin IV değeri hesaplanır. IV, değişkenin hedefi tek başına ne kadar ayırt edebildiğini gösteren bir metriktir. Kod, her değişken için IV’leri hesaplayıp bir DataFrame döndürüyor
+[53]
+[45]
+. Hesaplamada, basitçe değişken değerlerine göre gruplayıp event/non-event oranlarından IV çıkarılıyor (WOE binleri hesaba katılmadan, ham değer üzerinden). Sonra 
+iv_min
+ parametresinin altında kalanlar eleniyor: varsayılan eşik 0.02 olduğundan IV’si 0.02’nin altındaki değişkenler “bilgi değeri düşük” kabul edilip listeden çıkarılıyor
+[54]
+[55]
+. Bu işlem genelde birçok etkisiz değişkeni atarak sonraki adımlara daha az değişken bırakır. Literatürde IV için yaygın eşikler: 0.02 altı “önemsiz”, 0.02-0.1 “zayıf”, 0.1-0.3 “orta”, 0.3 üzeri “güçlü” şeklindedir – burada alt sınır 0.02 olarak seçilerek sadece tamamen bilgisiz değişkenler atılıyor denebilir.
+PSI Hesabı ve Kararlılık Filtrelemesi:
+ Eğer elimizde eğitim dışı bir veri (test veya özellikle OOT) varsa, her değişkenin dağılım kararlılığını ölçmek için PSI kullanılır. Config’de 
+enable_psi=True
+ ise ve en az bir karşılaştırmalı veri mevcutsa, IV sonrasında PSI adımı çalışır
+[56]
+. Kod, her bir değişken için eğitim dağılımı ile test ve/veya oot dağılımını karşılaştırarak PSI değeri hesaplar
+[57]
+[58]
+. Hesaplama şu şekildedir: eğitim verisinde ilgili değişkenin değer aralığı 10 adet eşit frekanslı bin’e bölünür (q-cut ile)
+[59]
+, ardından aynı bin sınırları kullanılarak test/oot verisindeki frekanslar hesaplanır
+[60]
+. Bu iki dağılım arasındaki fark `PSI = \sum (p_i - q_i) * \ln(p_i/q_i)` formülüyle bulunur
+[61]
+. Kod bu hesabı her değişken için yapıp bir sözlükte saklıyor (her değişken için test PSI ve oot PSI ayrı ayrı)
+[62]
+. Sonra 
+psi_threshold
+ ile karşılaştırılıyor: config’de varsayılan 0.25. Bir değişkenin test veya oot PSI değeri 0.25’i aşıyorsa o değişken kararsız (drift etmiş) kabul edilip listeden çıkarılıyor
+[63]
+. Yani değişkenin dağılımı eğitimden çok farklılaştıysa, modelin tutarlılığı açısından onu kullanmamak tercih ediliyor. 0.25 eşiği literatürde 
+“ılımlı değişim”
+ sınırı gibidir (0.1 altı önemsiz, 0.1-0.25 küçük, 0.25-0.5 orta, 0.5 üzeri yüksek değişim şeklinde derecelendirilir). Bu pipeline, en yüksek tolere edilebilir sınırı seçmiş; dolayısıyla yalnızca ciddi dağılım kaymaları ele alınmakta. Bu adım özellikle OOT datası kullanıldığında önem kazanıyor – model geliştirilirken dahil edilen değişkenler hem train hem OOT’da stabil kalmış olacak şekilde süzülüyor.
+Korelasyon Filtrelemesi:
+ (PSI ve IV ardından uygulandığı için burada kısaca değinmek gerek) Yüksek korelasyonlu değişkenlerin elemesi de bir nevi 
+bilgi tekrarı
+ ve 
+stabilite
+ açısından önemli. Kod, Spearman korelasyon matrisi hesaplayıp 
+rho_threshold
+ (örn. 0.90) üzerinde ilişkiye sahip değişkenlerden IV’si düşük olanları atıyor
+[64]
+[65]
+. Bu sayede birbirinin yerine geçebilecek çok benzer değişkenlerden sadece en iyisi kalıyor. Bu adım IV/PSI sonrası geldiğinden, listede kalmış önemli değişkenlerin aralarında gereksiz tekrar varsa onu da temizliyor.
+PSI ve IV bazlı eleme birlikte çalışarak, modelin 
+predictive güç
+ ve 
+zaman içindeki tutarlılık
+ açısından en iyi değişkenlerini bırakmayı amaçlar. Örneğin, IV < 0.02 olup bir de yüksek PSI gösteren değişken kesinlikle atılacaktır. Tersine, IV yüksek ama PSI biraz sınırda bir değişken varsa – pipeline eşiği geçmediği sürece tutuyor. Bu noktada bir 
+literatür notu
+: Bazı kurumlar PSI eşiği olarak 0.1 kullanır (daha muhafazakâr), ancak model geliştirme aşamasında 0.25 makul bir tavizdir çünkü her küçük drift’te değişken atmamak için esneklik sağlar.
+Önerilen İyileştirmeler:
+ IV ve PSI filtreleme adımları halihazırda doğru sırada ve mantıkta uygulanmış. Ancak 
+IV hesaplamasının WOE binlerine dayalı yapılması
+ daha sağlıklı olur; şu an ham değer üzerinden kabaca yapılıyor. Bu belki kategorik için sorun değil ama sayısal değişkenlerde ham değerin kendisi yerine bin’lenmiş halinin IV’si hesaplanırsa daha hassas olabilir. İleride bu düzeltilebilir (kodda zaten not düşülmüş). 
+PSI hesaplamasında
+ kullanılan 10’luk sabit bin sayısı yerine veri büyüklüğüne göre dinamik binleme (ör. belirli sayıda örnek düşecek şekilde) yapılabilir. Ayrıca PSI sadece dağılım değişimine bakar; eğer OOT datası yoksa PSI devre dışı kalıyor – bu durumda modelin gelecekteki olası drift riskini ölçemiyoruz. Belki train içinde k-fold PSI (synthetik) hesaplamak gibi yaratıcı yaklaşımlar eklenebilir. Yine de şimdilik pipeline yaklaşımı endüstride yaygın olan 
+“train-test-oot”
+ yapısına göre PSI’ı doğru noktada kullanıyor. 
+Öneri:
+ Kullanıcıya, eğer PSI ile elenen değişken sayısı çok yüksekse (ör. tüm değişkenlerin yarısından fazlası drift etmişse) bir uyarı vermek iyi olabilir, çünkü bu durumda eğitim ile test arasında veri uyumsuzluğu vardır. Bu gibi meta-analizler pipeline’ın robustness’ını artırır. Son olarak, belki 
+KS testi
+ gibi istatistiksel drift testleri de (alternatif/ek) kullanılabilir ancak PSI zaten yaygın ve anlaşılır olduğundan bu haliyle yeterli denebilir.
+6. Feature Selection (Sıralama, İleri/Geri Adım Seçimleri, Boruta – LGBM ile)
+IV/PSI/korelasyon filtrelerinden sonra kalan değişkenler üzerinde pipeline, model eğitimine girmeden önce daha ileri seviye 
+özellik seçimi
+ uygular. Bu kısım, otomatik önemli değişken belirleme ve aşırı uyumu engelleme amacını güder. Sırasıyla uygulanan yöntemler: 
+Boruta
+, 
+ileri yönlü (forward) seçme
+, 
+gürültü değişken kontrolü
+ ve 
+VIF kontrolü
+ şeklindedir
+[66]
+[67]
+.
+Boruta Seçimi (Özellik Sıralama & Eleme):
+ Boruta algoritması, Random Forest veya benzeri bir ensemble modeli kullanarak değişken önemini değerlendirir. Pipeline’da 
+use_boruta=True
+ ise ve elde ≥ 10 değişken kaldıysa Boruta çalıştırılır
+[68]
+. Geliştirmede Boruta’nın LightGBM ile çalışması sağlanmıştır: Kod, 
+BorutaPy
+ kütüphanesini kullanarak varsayılan olarak bir LGBMClassifier modeliyle iteratif önem testi yapıyor
+[69]
+[70]
+. Eğer LightGBM kurulu değilse RandomForest ile de yapabilir (parametre 
+use_lightgbm
+). Boruta, her değişkenin rastgele permütasyonlarla kıyaslandığında anlamlı olup olmadığını belirlerek “core” (kesin önemli), “tentative” (kararsız) ve “rejected” (önemsiz) setler üretir. Kod sonuçta core + tentative değişkenleri seçiyor (güvenli tarafta kalıp)
+[71]
+[72]
+. Eğer Boruta sonucu çok az değişken seçerse (5’ten az) bir emniyet önlemi olarak en iyi 5 değişkeni 
+univariate ANOVA F-test skorlarına göre ekliyor
+[73]
+. Bu esneklik, Boruta’nın bazen fazla elemesini telafi etmek için düşünülmüş. Varsayılan parametrelerle (100 ağaç, max_iter=100) çalışıyor ve LGBM ile oldukça hızlı sonuç verebilir. Bu adım sonunda örneğin 50 değişken girdi ise belki 15-20 tanesi kalmış oluyor. Boruta’yı LGBM ile kullanmak, isteklerde belirtilen “boruta algoritması LGBM ile çalışsın” şartını karşılıyor
+[74]
+[75]
+.
+İleri Yönlü (Forward) Seçim:
+ Boruta sonrası genellikle hala birden çok değişken kalıyor. Pipeline, 
+forward_selection=True
+ ise bu değişkenlerden en iyi alt kümesini bulmak için ileri seçim yapar
+[76]
+. Kod, ileri seçimi 
+5-fold stratified CV
+ üzerinde AUC skorunu maksimize ederek gerçekleştiriyor
+[77]
+[78]
+. Süreç: Seçilecek maks değişken sayısı config’de 
+max_features
+ ile kısıtlanmış (varsayılan 20)
+[79]
+[80]
+. Algoritma, her iterasyonda kalan değişkenlerden birini daha ekleyip CV AUC skoruna bakıyor, en çok iyileştirme getiren değişkeni seçiyor. Bu şekilde skor artışı durana veya limit dolana kadar devam ediyor. Kodda dikkat çeken bir detay, 
+1SE kuralı
+ kullanılması: En iyi CV skoru alan modele karşılık gelen değişken sayısını bulduktan sonra, en iyi skordan bir standart sapma içinde olan en küçük modeli tercih ediyor
+[81]
+[82]
+. Bu sayede gereksiz karmaşıklık engelleniyor (Örn. en iyi skor 5 değişkenle ise ve 3 değişkenli modelin skoru da arada bir sapma kadar yakınsa 3 değişkenli model seçiliyor). Forward selection aşamasında model olarak LogisticRegression (dengelenmiş ağırlıklı) kullanılıyor
+[83]
+. Bu, hızlı ve istikrarlı bir seçim yöntemi – literatürde de cross-validated forward selection ile optimum subset arama kullanılır, burada da aynısı uygulanmış. Geriye yönelik (backward) veya stepwise (iki yönlü) arama ise pipeline’da 
+doğrudan yok
+: isteklerde bunların da olması belirtilmiş olsa da
+[74]
+, kod sadece ileri yönlü gerçekleştiriyor.
+Noise Sentinel (Gürültü Değişken) Kontrolü:
+ Forward selection sonucu bir 
+seçilmiş değişkenler listesi
+ elde edilince pipeline bir ek kontrol yapar: Modelin aşırı fit olup olmadığını anlamak için rasgele gürültü değişkenler ekleyip tekrar seçim yapar. 
+use_noise_sentinel=True
+ ise, kod eğitim verisine 
+_noise_gaussian
+ (normal dağılımdan rassal) ve 
+_noise_permuted
+ (hedefi permüte eden) iki sahte değişken ekliyor
+[84]
+. Sonra önce seçilen değişkenler + bu 2 noise ile tekrar forward selection yapıyor
+[85]
+. Eğer yeni seçimde bu sahte değişkenler seçilmişse, bu kötüye işaret: demek ki model gerçek değişkenler yerine gürültüyü almayı eşdeğer gördü. Kod bu durumda bir uyarı basıp (
+WARNING: Noise variables selected
+) o gürültü değişkenleri listeden çıkarıyor ve orijinal değişken setini koruyor
+[86]
+. Eğer gürültüler seçilmezse “PASS: No noise variables selected” diyerek sorun olmadığını belirtip, muhtemelen aynı listeyi koruyor
+[87]
+. Bu yenilikçi yöntem literatürde de bilinir – 
+“garbage variable”
+ testi – modelin rastgele bir özelliği önemli görmesi, aşırı uyuma veya data leak’e işaret edebilir. Pipeline bunu otomatik yaparak seçilen değişkenlerin gerçekten sinyal taşıdığına emin oluyor.
+VIF (Çoklu Doğrusal Bağımlılık) Kontrolü:
+ Son bir adım olarak config’de 
+vif_threshold
+ tanımlıysa (örn. 5.0), seçilen değişkenler arasında hala yüksek doğrusal ilişki olup olmadığı kontrol edilir. Kod, seçilmiş değişkenlerin VIF değerlerini hesaplayıp threshold’u aşanları listeden çıkarıyor
+[88]
+[89]
+. Örneğin 5’ten 
+büyük VIF, ilgili değişkenin diğerleriyle çok korrele olduğunu gösterir, bu durumda en muhtemel problem birden fazla benzer özellik kalmış olmasıdır. Kod hangi değişkenleri çıkardığını yazıyor (
+After VIF filter: X features
+)
+[90]
+. Bu adım pratikte çok devreye girmeyebilir; zira korelasyon filtresi zaten %90 üzerini atmıştı. Ancak ileri seçim birden fazla ilgili değişkeni birlikte seçmiş olabilir (model açısından birlikte anlamlı olabilirler ama VIF yüksek çıkabilir). Bu filtre, istatistiksel çoklu bağlantıyı engelleyerek modelin kararlılığını artırır.
+Tüm bu adımların sonunda 
+FeatureSelector.select_features
+ fonksiyonu seçilen final değişken listesini (
+final_features
+) ve hesapladığı IV/PSI skorlarını döner
+[91]
+. Pipeline da bu listeyi alıp sonraki aşamalara (WOE transform ve modelleme) bu değişkenlerle devam eder
+[92]
+.
+Önerilen İyileştirmeler:
+ Özellik seçimi adımları oldukça kapsamlı tasarlanmış, ancak birkaç eksik nokta var: 
+Backward veya Stepwise
+ seçimin seçenek olarak sunulması istenmişti (kullanıcı isterse geri seçim yapabilmeli)
+[74]
+. Şu an bunlar implement edilmemiş. Forward selection birçok durumda iyi çalışsa da, optimum subset her zaman forward ile bulunamayabilir; bu yüzden backward elimination veya iki yönlü stepwise alternatifleri ileride eklenmeli. Ayrıca forward selection’da kullanılan metrik AUC olarak sabit – belki 
+model_selection_metric
+ config parametresiyle F1, BIC, AIC gibi farklı kriterler de seçilebilmesi esneklik sağlar. 
+Boruta adımı
+ LGBM ile entegre edilmiş, ancak Boruta’nın sonuçları kararsız olabiliyor; belki 
+tentative
+ değişkenler için Boruta’nın önerdiği ek adım olan 
+medianZ-score
+ yöntemi uygulanabilir (BorutaPy genelde kararsızları dahil eder, burada da öyle yapılmış). Ayrıca Boruta’nın iterasyon sayısı, orman boyutu config’den ayarlanabilir hale getirilmeli (şu an kod içinde sabitler var). 
+Noise sentinel
+ kontrolü çok yararlı bir özellik – bunu raporlama aşamasında belirtmek de iyi olur (örneğin “Noise check passed/failed” şeklinde). 
+VIF kontrolü
+ son aşamada yapılıyor, belki korelasyon filtresine entegre de edilebilir ancak mevcut hali de işlevsel. Genel olarak bu seçim adımları literatürdeki 
+“ön seçim (filter) + gömülü seçim (Boruta) + wrapper (forward CV)”
+ kombinasyonunun güçlü bir uygulamasıdır. Yapısal olarak modüler olması (her adım config ile aç-kapa yapılabiliyor) avantajlı. Test kapsamı olarak, özellikle noise sentinel ve VIF adımlarının uç durumları (hiç değişken kalmaması vs.) ele alınmalı. Son olarak, 
+gereksiz hesaplamaları önlemek
+ için optimize edilebilir: Örneğin Boruta sonrasında değişken sayısı zaten azaldıysa forward selection belki direk sonuca yakın olacak, ama yine CV yapıyor. Bu bir trade-off; pipeline şimdilik güvenli tarafta kalarak hepsini yapıyor, bu kabul edilebilir.
+7. Dual Akış: Ham ve WOE Tabanlı Modelleme
+Dual akış, aynı veriyle hem ham (RAW) değişkenler üzerinden, hem de WOE dönüşmüş değişkenler üzerinden model kurulması ve bunlar arasından en iyi sonuç verenin seçilmesi anlamına gelir. Böylece modelci, WOE dönüşümünün faydasını test etme ve gerektiğinde ham değişkenlerle çalışan bir model seçebilme esnekliğine sahip olur. Bu pipeline’da dual akış desteği planlanmış ancak tam uygulaması bitmemiştir:
+DualRiskModelPipeline Sınıfı:
+ 
+DualRiskModelPipeline
+, 
+RiskModelPipeline
+’ın bir alt sınıfı olarak tanımlanmış ve 
+__init__
+ içinde 
+enable_dual_pipeline=True
+ yaparak config’i ayarlıyor
+[93]
+. Bu, pipeline çalışırken ilgili kod bloklarının dual moda uygun davranmasını amaçlar. Örneğin WOE dönüşüm aşaması veya model eğitimi aşaması dual moddaysa iki farklı veri setiyle işlem yapabilir. Dual pipeline’ın hedefi, her iki pipeline’ı da koşturup 
+best_model
+’i seçerken en iyi AUC/Gini hangisindeyse onu ve onun türünü (WOE mi RAW mı) işaretlemektir. Dokümantasyon örneğinde, dual pipeline çalıştırıldıktan sonra 
+pipeline.best_pipeline
+ özelliğinin "WOE" veya "RAW" çıktığını göstermişlerdir
+[18]
+.
+Seçim Algoritması:
+ Dual modda, temel fikir şudur: Pipeline, WOE dönüşümlü değişken seti ile model(ler) kurar ve ayrıca WOE dönüşümü uygulanmamış ham değişken seti ile model(ler) kurar. Örneğin logistic, XGBoost vb. her iki veri setinde de eğitilir. Sonra 
+model seçim metriğine
+ göre (muhtemelen OOT Gini/AUC) en iyi performansı veren modele bakılır. Eğer ham değişkenlerle kurulan model daha iyiyse best_pipeline "RAW", yok WOE’li daha iyiyse "WOE" seçilir, ve ilgili model sonuçları kullanılır. Bu yaklaşım, WOE dönüşümünün performansa katkısını otomatik değerlendirmiş olur. Özellikle ağaç tabanlı modellerde WOE dönüşümü gereksiz olabilir (çünkü ağaçlar kategorikleri ve non-linearity’yi kendi halledebilir). Bu dual mekanizma sayesinde pipeline insan gözüne bırakmadan her iki durumu da dener.
+Mevcut Durum (Eksiklikler):
+ Şu an development branch kodunda dual akış tam olarak gerçekleşmiyor. 
+RiskModelPipeline.run
+ içinde veriler WOE’ye dönüştürülüyor ve 
+ModelBuilder.build_models
+ fonksiyonuna tek bir veri seti (woe_data) gönderiliyor
+[94]
+. Yani ham değişkenlerle paralel bir modelleme yapılmıyor. ModelBuilder tarafında da 
+enable_dual_pipeline
+ kontrol eden bir kod yok (ör. iki set modeli orada ayırmıyor). Dolayısıyla 
+DualRiskModelPipeline.run
+ şimdilik, normal pipeline.run’ı çağırıp (süper) bitiriyor ve “ModelBuilder already handles dual logic” diye bir yorum bırakıyor
+[95]
+, fakat gerçekte ModelBuilder’da bu mantık henüz yok. Bu nedenle dual mode flag’i açık olsa bile pipeline tek bir model seti (WOE’li) üzerinden best_model’i seçiyor. Sonuçta 
+pipeline.best_model
+ her zaman WOE pipeline’dan geliyor; ham pipeline sonucu hesaplanmıyor. Bu bir eksikliktir.
+Dual Mode’un Tamamlanması:
+ Bu özelliğin tamamlanması için muhtemel senaryo: WOETransformer, 
+enable_dual_pipeline=True
+ iken hem WOE dönüşümlü veriyi hem de ham veriyi sunabilmeli. Örneğin 
+woe_data
+ yapısına ham train/test de eklenebilir. Veya ModelBuilder, dual moddaysa kendisi DataProcessor’dan ham değişkenleri impute/scale edip ayrı bir model seti eğitebilir. İsteklerde “best model, dual kapatılmadığı müddetçe hem woeli hem raw çalışılan modeller içinden seçilebilir” deniyordu
+[96]
+. Yani idealde 
+best_model
+ seçilirken belki bir ham logistic ve bir WOE logistic, bir ham XGBoost ve bir WOE XGBoost vs. hepsi eğitilecek ve aralarından seçilecek. Hatta raporda “best modelde kullanılan değişkenler, WOE’leri ile birlikte verilmeli” şeklinde bir not var
+[96]
+ – bu da dual moddaysa, ham seçilse bile onun WOE karşılıkları raporda listelensin istenmiş. Bu oldukça ileri bir senaryo ve kod tabanında şimdilik desteklenmiyor.
+Uygulama Önerisi:
+ Dual pipeline kavramı, modellerin karşılaştırması yönüyle değerlidir ancak pratikte maliyetli olabilir (model eğitim süresini yaklaşık iki katına çıkarır). Pipeline’ın bunu kontrollü yapması gerekir. Örneğin config’de 
+model_selection_method='balanced'
+ seçilirse belki o zaman dual mod devreye girmeli, veya ayrı bir bayrak ile dual mod aktif edilmelidir (şu an doğrudan 
+enable_dual_pipeline
+ var zaten). Eksik kalan kısım ModelBuilder’ın ham veriyle ikinci bir model seti eğitmesi ve sonuçları birleştirmesidir. Bu geliştirilirse, çıktı olarak belki 
+pipeline.best_pipeline_type
+ ve iki set skorları da dönebilir. Raporlama kısmında da her iki pipeline’ın performansı gösterilebilir. Literatürde WOE dönüşümü genelde logistic/regression modellerinde performansı artırırken ağaç tabanlı modellerde gereksizdir, bu dual test bunu doğrulamaya yarar. Pipeline seviyesinde entegre test imkanı olması kullanıcı için faydalıdır. Özetle dual akış fikri mevcut ama 
+uygulaması tamamlanmadığı
+ için şu an pipeline hep WOE tarafına yöneliyor. Bu, geliştirme aşamasında önceliklendirilecek bir konudur.
+8. Modelleme Algoritmaları ve Optuna ile Hiperparametre Optimizasyonu
+Pipeline, farklı türde makine öğrenmesi modellerini deneyerek en iyisini seçmeyi hedefler. Belirtilen algoritmalar: 
+Lojistik Regresyon (Logistic)
+, 
+Genelleştirilmiş Katmanlı Model (GAM)
+, 
+CatBoost
+, 
+LightGBM
+, 
+XGBoost
+, 
+Rastgele Orman (Random Forest)
+ ve 
+ExtraTrees
+. Kod incelendiğinde bu algoritmalardan çoğunun entegrasyonu yapılmıştır:
+Lojistik Regresyon:
+ Baseline model olarak ele alınır. Kodda 
+LogisticRegression
+ modeli, 
+solver='lbfgs'
+ (ve Optuna için 
+'liblinear'
+ denemesi), 
+penalty='l2'
+ ve 
+C
+ (düzenleme parametresi) için bir dizi değer ile tanımlanmış. Logistic regression hızlı olduğu için Optuna ile her denemede tekrar eğitmeye gerek duyulmamış; bu model için kod 
+use_optuna
+ durumunda bile 
+_train_with_optuna
+ çağırmıyor (explicit olarak 
+if model_name != 'LogisticRegression'
+ diye kontrol var)
+[97]
+. Bunun yerine logistic için sabit bir grid araması param_space tanımlanmış (C ve penalty varyasyonları) ancak şu an implementasyonda bu grid manuel denenmiyor, sadece param_space olarak duruyor. Yani logistic genelde default parametrelerle tek sefer eğitiliyor. Sonuçta logistic, özellikle WOE transform yapılmış veride sıkça en iyi model olabilecek basit ve açıklanabilir bir modeldir.
+Ağaç Tabanlı Modeller (RF, ExtraTrees):
+ Kod, 
+RandomForestClassifier
+ ve 
+ExtraTreesClassifier
+’ı da içe aktarıyor
+[98]
+. Model listesinde açıkça RF tanımlanmış (100 ağaç, max_depth=5 vs.) ve param_space ile n_estimators, max_depth, min_samples_split/leaf gibi hiperparametreler veriliyor. ExtraTrees için benzer bir giriş yok; muhtemelen eklemeyi unutmuşlar veya model listesine koymadıkları için ExtraTrees kullanılmıyor (import edilmiş ama kullanılmamış gözüküyor). Bu da küçük bir eksiklik. Random Forest, Boruta’nın da temelinde kullanıldığından, pipeline zaten RF’ten faydalanıyor. Final model adayları arasında RF de değerlendirilir (genelde logistic, XGB vs. ile kıyaslanır).
+Gradient Boosting Modelleri (XGBoost, LightGBM, CatBoost):
+ Kod dinamik olarak bu kütüphaneler mevcutsa model listesine ekliyor. Örneğin XGBoost kurulmuşsa bir 
+XGBClassifier
+ tanımı yapılıyor (100 ağaç, max_depth=3, learning_rate=0.1 vs.) ve 
+param_space ile n_estimators, max_depth, learning_rate, subsample varyasyonları veriliyor. LightGBM için benzer şekilde 
+LGBMClassifier
+ (100 iterasyon, max_depth=3, learning_rate=0.1) ekleniyor ve param_space’de n_estimators, max_depth, learning_rate, num_leaves deneniyor. CatBoost için de eğer kuruluysa 
+CatBoostClassifier
+ (100 iterasyon, depth=3, learning_rate=0.1) ve param_space’de iterations, depth, learning_rate veriliyor. Bu modeller genellikle eksik değeri kendi halledebilir, kategorikleri kendi kodlayabilir (CatBoost özellikle) – pipeline WOE kullanmadan ham datayla da çalışabilirler. Şu an pipeline WOE dönüşümlü veriyi verdiği için onlara, çok bir sorun yok, sadece belki biraz bilgi kaybı olabilir (ağaç modeller ham veride daha iyi performans gösterebilir). Bu yüzden dual mod bunları ham datada da denemeyi düşünmüştü.
+GAM (Genelleştirilmiş Additif Model):
+ GAM, özellikle isteklerde geçiyordu fakat kodda bir GAM implementasyonu veya entegrasyonu yok. Muhtemelen planlanmış ama yapılmamış. Python’da GAM için 
+pygam
+ kütüphanesi kullanılabilirdi. Geliştirme notlarında veya belki ileriki planlarda bu düşünülebilir. Şu an pipeline GAM modeli eğitmiyor.
+Optuna ile Hiperparametre Araması:
+ Config’de 
+use_optuna=True
+ ve 
+n_trials
+ verilmişse, pipeline ağaç tabanlı modellerin hiperparametrelerini Optuna ile optimize etmeye çalışır. Kodda, her model eğitimine girmeden önce kontrol var: eğer optuna açıksa ve model logistic değilse 
+_train_with_optuna
+ fonksiyonunu çağırıyor
+[97]
+. Bu fonksiyon param_space’te tanımlı hiperparametre aralığını kullanıp optuna çalıştırır. Kodun devamı snippet’te görünmüyor ancak muhtemelen şunu yapıyor: Optuna study oluşturup ilgili modelin 
+sklearn
+ API’sini cross-val skoruna göre optimize ediyor. Param_space’de genelde grid şeklinde birkaç olası değer verilmiş (yukarıda bahsedilen dict’ler) – belki Optuna bunlardan rastgele seçerek veya bayes optim ile dener. Eğer optuna başarılı olursa en iyi parametrelerle modeli döndürüyor. Bu sayede insan müdahalesi olmadan makul hiperparametreler bulunabilir.
+Model Eğitimi ve Değerlendirmesi:
+ Her model eğitildikten sonra pipeline hemen Train, Test, OOT AUC değerlerini hesaplıyor
+[99]
+. Skorlamada AUC için scikit-learn 
+roc_auc_score
+ kullanılmış, eğer test/yada oot mevcut değilse onların skorlarını atlıyor. Bu skorlar bir sözlükte saklanıyor (ör. 
+scores_['LightGBM'] = {'train_auc':..., 'test_auc':..., 'oot_auc':...}
+)
+[100]
+. Tüm modeller bittikten sonra 
+ModelBuilder.select_best_model()
+ çağrılıyor; bu da eldeki skor sözlüğüne bakıp OOT AUC varsa onu önceliklendirerek en yüksek AUC’lu modeli seçiyor
+[101]
+[102]
+. Şu an seçim direkt AUC’ye göre – config’de tanımlı stable/balanced metodları henüz kullanılmıyor, dolayısıyla en iyi OOT AUC = en iyi model olarak alınıyor. Seçilen model adı ve skoru konsola da basılıyor (“Best model: X (AUC: Y)”)
+[102]
+.
+Özetle pipeline, Lojistik ve bir dizi ağaç tabanlı modeli deniyor. Varsayılan olarak Logistic, RandomForest, XGBoost, LightGBM, CatBoost listede; ExtraTrees ve GAM eksik. Optuna desteği sayesinde bu modellerin hiperparametreleri kabaca optimize edilebiliyor, bu da 
+model tuning
+ sürecini otomatize ediyor.
+Önerilen İyileştirmeler:
+ 
+GAM modelinin eklenmesi
+ açık bir eksik – eğer isteniyorsa 
+pygam
+ ile bir entegre yapılabilir. Ancak GAM eğitimi nispeten yavaştır ve parametre ayarı zordur, belki logistic’e alternatif olarak eklenebilirdi. 
+ExtraTrees
+ modelinin import edildiği halde listeye konmaması küçük bir hatadır; kolayca eklenebilir (parametreler RF ile benzer olur). Model listesi belki config üzerinden seçilebilir hale getirilmeli (örn. 
+models_to_run=['Logistic','XGBoost','CatBoost']
+ gibi) – bu sayede gereksiz modeller denenmez, süreden kazanılır. 
+Optuna optimizasyonu
+ şu an grid benzeri sabit aralıklarda yapılıyor; bunun yerine Optuna’nın sürekli arama alanları tanımlanabilir (örn. max_depth 3-10 arası int, learning_rate 0.01-0.3 arası float gibi) – böylece daha iyi kombinasyonlar bulunabilir. Ayrıca Optuna deneme sayısı 100 default; bu bazen fazla bazen az olabilir, belki 
+n_trials
+ config parametresi her model için uygulanmak yerine toplam deney sayısı olarak düşünülmeli (kod öyle yapmış, her model için ayrı çalıştırıyor görünüyor, bu da toplam deneme = model_sayısı * n_trials demek – oldukça maliyetli olabilir). Bunu iyileştirmek için ya Optuna’yı sadece en önemli hiperparametrelerde kullanmak ya da 
+multi-model tek study
+ gibi yöntemler düşünülebilir ama ikincisi kompleks olur. Seçim kriterleri konusunda, config’de tanımlı 
+model_selection_method
+ (“stable”, “balanced” vs.) uygulanmalı: Örneğin “balanced” seçildiyse belki skor = OOT AUC – 0.3
+(Train AUC - Test AUC) gibi bir metrik hesaplanıp en yüksek skorlu model seçilmeli (şu an bunlar yapılmıyor). Bu, stable (dengeli) model seçimi hedefine ulaşırdı. Dolayısıyla
+ 
+best model seçimi
+ 
+fonksiyonu geliştirilmeli ki config parametresi anlamsız kalmasın. Yine model seçimde belki birden fazla modeli birleştirme (ensemble) opsiyonu da olabilirdi – pipeline’da 
+model/ensemble.py
+ dosyası var ama içeriği belirsiz; belki planlanmış. Son olarak, raporlamada her modelin Train/Test Gini’si veriliyor mu diye bakılmalı – halihazırda reporter’da muhtemelen best model ve belki tüm modellerin performansı listelenebilir. Eğer değilse, kullanıcıya model karşılaştırma tablosu sunmak yararlı olur (Advanced pipeline notunda 
+pipeline.model_comparison_
+ diye bir çıktı örneği var
+[103]
+, bu muhtemelen her modelin skorlarını içeriyordu). Bu da implement edilmemiş şu aşamada. Genel olarak pipeline’ın model deneme kapsamı literatürde iyi görülen algoritmaları içeriyor (özellikle XGB, LGBM, CatBoost güncel ve güçlü algoritmalar). Kalibrasyon ihtiyacına göre logistic de dahil edilmiş. Bu çeşitlilik,
+ 
+şampiyon model
+* seçimi için ideal bir yaklaşım.
+9. Model Kalibrasyonu: Stage 1 ve Stage 2 Yapıları
+Model kalibrasyonu
+, modelin ürettiği olasılık skorlarını gerçek gerçekleşme oranlarıyla uyumlu hale getirme işlemidir. Bu pipeline, kalibrasyonu iki aşamalı olarak kurgulamıştır: 
+Stage 1
+ temel kalibrasyon (istatistiksel kalibrasyon), 
+Stage 2
+ ise dönemsel ayarlama veya dış hedefe kalibrasyon.
+Stage 1 – İstatistiksel Kalibrasyon:
+ Model eğitildikten sonra, özellikle olasılık tahmini veren modeller için, prediksiyonların güvenilirlik eğrisi incelenir. Pipeline’da 
+CalibrationAnalyzer
+ sınıfı bu amaçla kullanılıyor. Öncelikle modelin train (ve test) setindeki performansı çerçevesinde 
+Kalibrasyon Hataları
+ ölçülüyor: Ör. ECE (Expected Calibration Error) ve MCE (Maximum Calibration Error) gibi metrikler hesaplanıyor
+[104]
+. ECE, tahmin olasılıklarının gruplar halinde gerçek gerçekleşme oranından ne kadar sapma gösterdiğinin ağırlıklı ortalamasıdır; MCE ise en kötü 
+sapmadır. Ayrıca Brier Score (olasılık tahmininin kare hatası) raporlanıyor
+[104]
+. Bu metrikler, modelin olasılıklarının ne kadar güvenilir olduğunu sayısal olarak özetler. Eğer model kalibrasyonsuz bir ağaç modeli ise genelde ECE yüksek çıkar (ağaçlar aşırı güvenli tahminler verebilir). Bunu düzeltmek için pipeline, 
+calibrate_predictions
+ adımı uygular: Bu adımda eğitim verisi üzerindeki tahminlerle gerçekler kullanılarak ya 
+Isotonic Regression
+ ya da 
+Platt Sigmoid (logistic)
+ kalibrasyon modeli öğrenilir ve bu kalibratör test seti tahminlerine uygulanır
+[105]
+[106]
+. Kodda 
+fit_calibrator(scores, y, method='isotonic'|'sigmoid')
+ fonksiyonu var – isotonic seçilirse 
+IsotonicRegression
+ modeli ile kalibrasyon eğitiliyor, sigmoid seçilirse 
+LogisticRegression
+ ile Platt scaling yapılıyor
+[106]
+. Ardından 
+apply_calibrator
+ ile bu kalibratör objesi test skorlarına uygulanıyor
+[105]
+[107]
+. Isotonic regression, olasılıkların monotonik dönüştürmesi ile çok esnek bir kalibrasyon sağlar; Platt’s sigmoid ise bir tane offset ve ölçek parametresi ile daha kısıtlı ama daha az overfit eden bir yöntemdir. Pipeline dokümantasyonunda calibrate_predictions kullanımı isotonic olarak örneklenmiş, bu da genelde tavsiye edilendir (yeterli veri varsa)
+[105]
+. Bu Stage 1 sonucunda modelin tahminleri, özellikle test ve OOT üzerinde gerçek default oranlarıyla daha uyumlu hale gelir. Örneğin model ortalama %5 olasılık veriyorsa gerçekten de %5 bad rate çıkmasını bekleriz – kalibrasyon bunu sağlamaya çalışır.
+Stage 2 – Trend/Ortalama Ayarlaması:
+ İkinci kalibrasyon aşaması, modelin tahmin ortalamasını belirli bir hedefe çekmektir. Özellikle kredi risk modellerinde, modelin verdiği PD dağılımı, eldeki veri döneminin default oranına göre ayarlanmıştır; ancak gelecekte default oranı değişirse (ekonomik koşullar vb.), modeli tekrar eğitmeden bunu ayarlamak gerekebilir. Stage 2 kalibrasyonu bu amaçla tasarlanmış görünüyor. Model isteklerinde de “mevcut veri ile kalibrasyon yapıldı (stage1), bir de yakın zamanlı predict’ler alınarak onların üzerinden upper/lower bound’lu yeni orana kalibrasyon yapılmalı (stage2)” denmiş
+[108]
+. Bu bağlamda pipeline, eğer ayrı bir kalibrasyon veri seti (ör. izleme dönemine ait gerçek default oranları) verilirse, o verideki gerçekleşme oranına modeli uyduruyor. Geliştirme sırasında yazılmış bir notebook kod parçasından anlaşıldığı üzere (kalibrasyon_stage.txt), stage2’nin fonksiyonelliği parametreye bağlı: 
+stage2=='u'
+ ise 
+upwards
+ (yani modelin tahmin ortalamasını üst güven sınırına kalibre et), 
+'d'
+ ise 
+downwards
+ (alt güven sınırına), 
+'m'
+ ise 
+mean
+ (basit ortalamaya), 
+'o'
+ ise 
+expert (manuel)
+ verilen orana kalibre et anlamına geliyor
+[109]
+[110]
+. Hesaplama şu şekilde yapılıyor: Belirli bir kalibrasyon dönemi için gerçek default oranlarının aylık ortalaması alınıyor (
+mean_dr
+), bunun güven aralığı (95% CI) hesaplanıyor (t dağılımıyla)
+[111]
+[112]
+. Eğer stage2 'u' ise bu aralığın üst bandının ortalaması hedef alınıyor, 'd' ise alt bandın ortalaması, 'm' ise direkt ortalama, 'o' ise kullanıcının verdiği manuel oran hedefleniyor
+[109]
+[110]
+. Ardından modelin PD’leri bu hedef orana ölçekleniyor (muhtemelen tüm PD dağılımına çarpan veya offset uygulanarak). Bu aslında bir tür 
+benchmark adjustment
+: Örneğin mevcut model ortalama PD %4 iken son 6 ay gerçek default %5 ise, stage2 ile tüm PD’ler oranlı şekilde %5’e çekiliyor. Bu sayede modelin 
+kalibrasyonu güncellenmiş
+ oluyor. Bu yöntem literatürde 
+“population shift 
+calibration”
+ veya 
+“through-the-cycle vs point-in-time adjustment”
+ olarak da bilinir. Yani modelin PD’si makroekonomik koşullara göre yukarı ya da aşağı kaydırılabilir. Stage2’nin amacı tam olarak budur. Kod tarafında stage2 ile ayarlanmış kalibratör çıktısı kayıt altına alınırsa, gelecekte yeni veriye uygularken bu kullanılabilir. Nitekim 
+monitor_scores
+ fonksiyonunda, eğer 
+calibrator_path
+ verilirse yeni skorlar o kalibratörden geçirilerek karşılaştırma yapılıyordu
+[113]
+. Bu, stage1 calibrator’ı kastediyor olsa da, stage2 belki ayrı bir parametreli kalibrasyon objesi olarak da düşünülebilir.
+Özetle Stage1, modelin 
+internal
+ kalibrasyonunu düzeltir (tahminlerin reliability curve’ünü düzeltir); Stage2 ise 
+external
+ hedef orana kalibre eder. Stage2’nin kullanımı, kalibrasyon datası sağlanmasına bağlı olduğundan pipeline bunu opsiyonel tutmalı. Geliştirme dokümanına göre eğer kullanıcı kalibrasyon veri seti verirse Stage2 yapılmalı, vermezse tüm veriyle long-run average kalibrasyon yapılmalı denmiş
+[114]
+. Şu an pipeline kodunda stage2 otomasyonu yok, ancak konsept doküman ve notlar var.
+Önerilen İyileştirmeler:
+ Stage1 kalibrasyonu için pipeline halihazırda 
+isotonic
+ ve 
+Platt scaling
+ sunuyor, bu iyi bir pratiktir. Bunu genişletmek için belki 
+sınıf ağırlıklandırmalı
+ kalibrasyon eklenebilir (özellikle dengesiz veri için). Ayrıca ECE, MCE gibi metriklerin raporlanması çok faydalı; bunlar raporda görünmeli. Stage2 için, kod prototipi notebook’ta kalmış, bunu pipeline’ın bir parçası haline getirmek önemli. Örneğin config’e 
+calibration_strategy=('none'|'auto_lower'|'auto_upper'|...)
+ gibi bir seçenek eklenebilir. Kullanıcı güncel default oranını biliyorsa manuel girebilir, bilmiyorsa pipeline bunu son dönem performansından tahminleyebilir. Bu kısım oldukça uzmanlık gerektiriyor, o yüzden belki sadece dokümante edilip manuel uygulanması önerilebilir. Ayrıca Stage2’de güven aralığı kullanımı mantıklı; bunun için kaç aylık ortalama alınacağı parametreleştirilebilir. 
+Literatürde
+, kalibrasyonun model doğruluğu kadar önemli olduğu vurgulanır, özellikle PD modellerinde. Bu pipeline bu farkındalıkla tasarlanmış görünüyor. Son olarak, calibrator obje’sinin saklanıp yeniden kullanılabilmesi (pickle ile) güzel düşünülmüş – kodda 
+calibrator_path
+ ile kaydedip sonra apply edebiliyorlar
+[113]
+. Bu, model deployment’ta gereklidir. Pipeline nihai çıktılarından biri kalibratör olmalı (yani 
+pipeline.calibrator_
+ gibi). Özetle kalibrasyon tarafı oldukça iyi planlanmış, ufak eksik uygulamaları tamamlandığında pratik bir çözüm sunacak.
+10. Risk Bandı Optimizasyonu
+Kredi risk modellerinde sürekli skordan (PD’den) belirli 
+risk bantları
+ oluşturmak (AAA, AA, A... veya 1-10 gibi skor bantları) yaygın bir taleptir. Bu pipeline, risk bantlarını otomatik olarak belirlemek için optimizasyon yaklaşımı içeriyor. Hedef, hem belirli sayıda bant oluşturmak, hem de her bandın iş kurallarına uygun ve istatistiksel olarak anlamlı olmasını sağlamak. Development aşamasında kapsamlı bir risk band optimizasyon kodu hazırlanmış:
+Bant Sayısı ve Aralıkları:
+ Kullanıcı genelde sabit bir bant sayısı ister (örn. 5 veya 10 bant). Pipeline config’de band sayısı için bir aralık veya kesin değer tanımlayabilir. 
+Kodda 
+min_final_bins=7
+, 
+max_final_bins=10
+ gibi sabitler görülüyor
+[115]
+. Yani bant sayısının 7 ile 10 arasında bir yerde olmasına çalışılmış. Bu esneklik, eğer veride yeterince ayrışma yoksa 7’ye kadar düşebilmeyi, çok ayrışma varsa 10’a kadar çıkabilmeyi sağlar. İlk adımda skor dağılımından çok daha ince “mikro bin”ler oluşturuluyor (örn. 1000 bin hedeflenmiş)
+[116]
+[117]
+. Kod, tüm skoru küçük dilimlere ayırarak her dilimde yaklaşık eşit sayıda gözlem olacak şekilde mikro binler oluşturuyor
+[118]
+[119]
+. Örneğin 10000 gözlem varsa ve 1000 mikro bin istenmişse her bin ~10 gözlem içeriyor. Bu mikro binler her biri için 
+Count, Bads, Mean PD, Observed DR
+ vs. hesaplanarak bir tablo oluşturuluyor
+[120]
+[121]
+. Bu tablo bant birleştirmeleri sırasında temel veri olarak kullanılıyor.
+Optimizasyon Metriği (Cezalar):
+ Risk band optimizasyonu bir hedef fonksiyon tanımlayıp bunu minimize edecek şekilde bin birleştirmeleri yapar. Kodda bir 
+calculate_penalty
+ fonksiyonu var – bu, verilen bir bant konfigürasyonu için bir ceza skoru döndürüyor
+[122]
+[123]
+. Ceza ne kadar düşükse bantlar o kadar iyi demek. Hesaplanan metrikler şunlar:
+Confidence Interval Overlap Cezası:
+ Her bandın PD için hesaplanan %95 güven aralığı var (binomiyal yaklaşım). Eğer komşu bantların güven aralıkları üst üste biniyorsa, aralarında istatistiksel fark yok demektir. Bu istenmeyen bir durum çünkü bantlar ayrı risk seviyeleri olmalı. Kod, CI çakışma sayısını hesaplayıp her çakışma için büyük bir ceza ekliyor (w_ci_overlap=10000)
+[124]
+. Bu pratikte 
+Hosmer-Lemeshow
+ testinin bir yansımasıdır – HL testinde bantlar arası fark anlamlı mı bakılır. Pipeline, çakışma varsa cezayı sonsuza (inf) yaklaştıracak bir büyüklük vererek o konfigürasyonu diskalifiye ediyor. Nitekim optimize algoritma, ceza sonsuz ise o adımı atlıyor
+[125]
+.
+Binomial Test Cezası:
+ Her band için “Binomial Test Result” hesaplanmış – bu, bandın gerçek default oranının kendi PD’sinin güven aralığında kalıp kalmadığı (“Pass” veya “Reject”) şeklinde
+[126]
+. Eğer bir bantta gözlenen default oranı, modelin o bant için ortalama PD değerinden istatistiksel olarak farklıysa (beklenenden fazla/az default varsa) bu bant kötü kalibre olmuş demektir. Kod, bu durumu ceza puanına yansıtıyor: “Reject” çıkan bant sayısını alıp w_binomial (200) ile çarpıyor
+[127]
+. Yani her kalibrasyonsuz bant 200 puan ceza. Ayrıca toplam ağırlığın %85’inden fazlasının binomial testi geçmesi isteniyor – yoksa eksik kısmı w_binomial_weight=500 ile çarpılıp ceza ekleniyor
+[128]
+. Örneğin sadece %70’i geçiyorsa %15’lik eksik kısım için 0.15
+500
+1000 ≈ 75,000 ceza puanı veriliyor
+[129]
+. Bu, bantların büyük çoğunluğunda PD vs gerçekleşen uyumlu olsun, bir iki bantta sorun olabilir ama toplam popülasyonun en az %85’i iyi kalibre olsun şartını dayatıyor.
+DR-PD Farkı Cezası:
+ Bandların ortalama PD’si ile gerçekleşen default rate’i arasındaki mutlak fark ne kadar ise bunu da cezaya ekliyor. Kod, tüm bantlar için ortalama |DR-PD| farkını alıp w_dr_pd_diff=80 ile çarpıp 100 ile ölçekliyor
+[130]
+. Band sayısı azaldıkça her bant içinde daha fazla veri olur ve PD ile DR farkı genelde düşer, ama band sayısı arttıkça kalibrasyon hataları artabilir. Bu ceza, global olarak 
+modelin kalibrasyon hatasını minimize eden bant konfigürasyonunu tercih etmeyi sağlıyor.
+WOE Trend (Mean PD > DR) Cezası:
+ Kod, eğer herhangi bir bantta gözlenen default oranı, o bandın PD’sinden büyükse (yani model o bandı fazla iyimser tahmin etmişse) ve bu bant aynı zamanda binomial testi de geçmemişse, böyle durumlar için bir küçük ceza daha ekliyor (her böyle bant için 50 puan)
+[131]
+. Bu daha teknik bir detay, muhtemelen model PD’si bant içinde hep DR’den büyük ise (beklenenden az default çıkmış) bir işaret koymak amaçlı.
+HHI (Yoğunlaşma) Cezası:
+ Her bantın popülasyon ağırlıkları kullanılarak 
+Herfindahl-Hirschman Index (HHI)
+ hesaplanıyor. HHI = \sum (band ağırlığı)^2 şeklinde. Kod bunu önce total HHI olarak hesaplayıp threshold 0.15 üzerinde kısmı ceza olarak alıyor
+[132]
+. Örneğin HHI toplamı 0.20 çıktıysa, 0.15’i aşan kısım 0.05’tir; w_hhi=20 ve 100 ile çarpılıp 0.05
+20
+100 = 100 puan ceza gelir. HHI’nin band sayısıyla ilişkisi vardır: bant sayısı az ise HHI yükselir (çünkü ağırlıklar daha az banda bölünür). Bu ceza ile çok az banda düşülmesi engellenir ve aynı zamanda bant dağılımının dengeli olması teşvik edilir.
+Ağırlık İhlali Cezası:
+ İş kuralları genelde her risk bandının portföyün çok küçük bir kısmını ya da aşırı büyük bir kısmını oluşturmamasını ister (ör. hiçbir bant tüm portföyün %50’sinden fazlasını içermesin, ya da %1’den azını içeren bant anlamsızdır). Kodda bu sınırlar min_weight=0.05 (%5) ve max_weight=0.30 (%30) olarak belirlenmiş
+[133]
+. Her bant için ağırlık bu aralığın dışındaysa ceza puanı ekleniyor. 
+weight_violations
+ = bu şekilde kural dışı bant sayısı; her biri için 50*100=5000 ceza geliyor
+[134]
+. Bu da, bant dağılımını olabildiğince dengeli tutmaya zorluyor (çok uçuk küçük bant kalırsa optimize onları birleştirmeye çalışacak).
+Tüm bu bileşenler toplanarak bir 
+toplam ceza puanı
+ elde ediliyor
+[135]
+[136]
+. Optimizasyonun hedefi bu puanı minimize eden bant eşiklerini bulmak. Kod, bir 
+iteratif arama
+ stratejisi uyguluyor: Önce geniş aralıkta eşikleri hareket ettirerek global optimumu arıyor, sonra ince ayar için küçük adımlarla değiştirerek lokal optimumu iyileştirmeye çalışıyor
+[137]
+[138]
+. Özellikle bir bant eşiklerini birer birer artırıp azaltarak lokal iyileştirme yapılıyor (delta=0.0002 adımlarla)
+[139]
+[140]
+. Her iterasyonda ceza azalırsa o eşik değişikliği kabul ediliyor, yoksa eski haline dönülüyor. Bir süre iyileşme olmazsa duruluyor (early_stop_count=10 kullanılmış)
+[141]
+[142]
+. Bu süreç sonunda en iyi ceza değerine sahip bant seti bulunuyor ve sonuç olarak bant aralıkları (PD threshold’ları) ve özet istatistikler elde ediliyor. Kod bu sonuçları 
+best_bins
+ ve 
+best_summary
+ olarak çıkartıyor
+[143]
+. Summary içindeki her bant için PD, default rate, binomial test sonucu, HHI, vs. bilgileri var
+[144]
+[145]
+. Bu bilgiler raporda “Risk_Bands” sayfasında yer alacak muhtemelen.
+Binomial Test, HHI, HL Test:
+ Soruda özellikle bunlar sorulmuş. Kodun yaklaşımı, binomial testleri bant bazında yapıp bunu ceza fonksiyonuna entegre etmek. Ayrıca HL (Hosmer-Lemeshow) testi bantların genel kalibrasyonunu değerlendirir; pipeline doğrudan HL test istatistiği hesaplamıyor ama benzerini yapıyor: HL testi de 10 bantta beklenen vs gözlenen default sayısını ki-kare ile kıyaslar. Pipeline, her banttaki “observed DR within PD CI” kontrolüyle bu kıyasın p-değerini içeriyor sayılır. 
+HL testinin geçmesi demek tüm bantlarda binomial testin geçmesi demektir; pipeline bunu ceza ile zorluyor. Yani eğer HL testine göre kötü bir bant varsa ceza yüksek çıkacak. HHI ise yukarıda anlatıldığı gibi bant sayısı ve dağılımına dair bir metrik, pipeline bunu direkt cezaya koymuş. Kısaca, 
+HL testi
+ başarısız olmasın, 
+binomial testler
+ mümkün olduğunca geçsin, 
+HHI
+ makul seviyede kalsın, 
+bant sayısı
+ makul aralıkta olsun gibi kriterler hepsi birleşik optimize ediliyor.
+Sonuçta pipeline otomatik olarak kaç bant olacağına ve bant sınırlarının ne olacağına karar verirken hem istatistiksel uygunluk hem de iş kuralı kısıtlarını dikkate alıyor. Bu, manuel bantlama sürecini ciddi anlamda otomasyona döküyor.
+Önerilen İyileştirmeler:
+ Risk band optimizasyon kodu oldukça kapsamlı. İyileştirme olarak akla gelen: Bazı ağırlıklar (ceza katsayıları) kodda sabit verilmiş
+[146]
+[130]
+. Bunların config’e alınması ve gerektiğinde ayarlanabilmesi iyi olabilir, çünkü farklı durumlarda önem dereceleri değişebilir. Örneğin bir bankanın politikası HHI konusunda katıysa w_hhi artırılabilir. Ayrıca optimize fonksiyonu yerel optimuma takılabilir – belki farklı başlangıç noktaları deneyip en iyisini seçmek (multi-start) iyileştirebilir. Bant sayısı aralığı da esnek olabilir; şu an 7-10 sabit, bunu parametre yapmak veya 
+“belirli bir band sayısı”
+ opsiyonu sunmak gerekir (bazı kullanıcı kesin 10 ister). 
+HL test istatistiği
+ raporda hesaplanıp verilebilir; örneğin final bantlar için HL \chi^2 ve p-değeri sunulabilir ki modelciler bakar. HL testini direkt optimize etmeye çalışmak da bir yöntem ama HL’ın kendisi birden çok bant bir arada anlamlı mı diye baktığı için onu bölüp ceza fonksiyonuna katmak zor; pipeline’ın yaptığı parça parça kontrol mantıklı ve fiilen HL’i sağlamaya yönelik. 
+Binomial test
+ sonuçları raporda her bant için belirtilmeli (kod zaten “Binomial_Pass_Weight” vb. hesaplıyor). Bunun yanında belki 
+Kolmogorov-Smirnov (KS) band
+ optimizasyonu da bir alternatif yaklaşımdır (score’u basitçe decile’leyip KS maximumuna göre bantlamak), ama bu istatistiksel tutarlılığı sağlamaz. Pipeline’ın yöntemi daha sofistike ve literatürde 
+“predicted risk grouping”
+ konusunda bulabileceğimiz çoğu kriteri içeriyor. Son olarak bant isimlendirme (AAA, AA vs.) şu an yapılmıyor, ancak dokümanda 
+create_business_bands
+ fonksiyonu görülüyor
+[147]
+ – belirlenen eşiklere göre etiket ataması yapılabilir. Pipeline’da risk band optimizasyonunun sonuçları rapora net yansıtılmalı ve kullanıcıya bant sayısı, sınırlar, her bandın PD, default rate, popülasyon payı gibi bilgiler verilmelidir. Bu, 
+model kartı
+ ve 
+rating skala dokümantasyonu
+ açısından kritiktir. Genel olarak yaklaşım literatürdeki en önemli kriterleri kapsıyor, geliştirme olarak belki daha kullanıcı dostu parametreleştirme ve hesaplama optimizasyonu (performansı) düşünülebilir.
+11. Raporlama ve Çıktılar
+Pipeline, eğitim tamamlandıktan sonra kapsamlı bir 
+Excel raporu
+ üreterek model sonuçlarını ve diagnostic metriklerini sunmayı amaçlar. Raporun içeriği çok zengin tutulmuş: model performans ölçütleri, değişken önemleri, WOE detayları, PSI analizi, kalibrasyon ve risk bantları gibi bölümler mevcut. Ayrıca model skoru çıktısının kendisi de (her başvuru için skor) pipeline tarafından üretilebilir ancak rapora tüm skoru dahil etmek pratik olmadığından genelde toplu metrikler verilir. İşte rapor içeriğinin maddeleri:
+Model Özet Metrikleri:
+ 
+Model_Summary
+ sayfasında, eğitilen her modelin temel performansı ve seçilen en iyi modelin özellikleri sunulur. Örneğin her modelin Train, Test, OOT AUC/Gini değerleri, KS skoru, Gini düşüşü (eğitimden OOT’a), model tipi ve temel hiperparametreleri tablolanır. Kodda 
+scores_
+ sözlüğüyle her modelin AUC’leri bulunduğundan, bu tablo kolayca oluşturulabilir. En iyi model vurgulanarak belirtilir. Ayrıca bu sayfada veri seti büyüklükleri (Train kaç gözlem, default oranı vs.) de yer alabilir. Bu bilgiler kullanıcıya modelin genel başarısını ve overfit olup olmadığını gösterir. Örneğin, raporda “Train Gini: 0.45, OOT Gini: 0.42” gibi satırlar bulunması beklenir.
+Feature Importance (Değişken Önemi) Analizi:
+ 
+Feature_Importance
+ sayfasında, seçilen nihai değişkenlerin önem dereceleri listelenir. Bu genelde iki şekilde yapılabilir: (1) Modelin kendi importance metriği (ör. ağaç modellerinde gain veya split önemleri, lojistikte katsayı büyüklüğü gibi), (2) SHAP değerlerine dayalı önem. Pipeline 
+shap
+ kütüphanesini opsiyonel kullanıma sokmuş (kuruluysa shap değerleri hesaplanabilir). Dolayısıyla muhtemelen raporda her değişkenin SHAP ortalama etkisi de verilebilir. 
+SHAP analizi
+, her bir özelliğin skora pozitif mi negatif mi ne kadar katkı yaptığını gösterdiğinden, model açıklanabilirliği için kritiktir. Rapor, önemli ilk 10 değişkenin belki shap summary grafiğini de içerebilir (yalnız Excel raporda grafikler kısıtlı). En azından numeric tablo olarak “Feature | Model Importance | SHAP Importance | Direction” gibi bilgiler verilir. Kod tarafında shap hesaplamaları yapılmış ise 
+reporting/shap_utils.py
+ içinde fonksiyonlar olabilir. Bu sayfada ayrıca, isteklerde belirtildiği gibi 
+univariate gini
+ değerleri de listelenebilir: Yani her değişkenin tek başına modele konduğundaki Gini’si (ya da IV’si). Bu, modeldeki katkısını anlamaya yarar. Geliştirme isteğinde “hem woeli hem woesiz uni giniler” rapora konsun denmişti
+[148]
+. Yani bir değişken WOE dönüşmüş haliyle modelde kullanıldıysa onun WOE’siz hali tek başına ne kadarlık bir Gini veriyordu, WOE’li hali ne veriyor – bu bir kontrol noktası. Pipeline’da bu spesifik hesaplamayı yapan bir kod yok ama raporda sunmak mümkün. Böylece eğer WOE transformu bir değişkenin gücünü çok düşürmüşse fark edilir (belki WOE yapmamak daha iyi diye karar verilebilir).
+WOE Bin Detayları (Variable Dictionary ile):
+ 
+WOE_Bins
+ sayfası, her bir modelde kullanılan değişkenin WOE dönüşüm kurallarını içerir. VariableWOE mapping’leri rapora dökülebilir. Örneğin: 
+Değişken Adı
+, 
+Tipi (numeric/categorical)
+, 
+IV değeri
+, ardından alt satırlarda her bin/grup için 
+aralık veya kategori üyeleri
+, 
+WOE
+, 
+event rate
+, 
+IV katkısı
+, 
+bin nüfusu
+ gibi kolonlar. Kodda 
+VariableWOE.to_dict()
+ bunu kolaylaştıracak şekilde tasarlanmış
+[48]
+[49]
+. Numeric değişken için her satır “[X, Y)” aralığı ve WOE’si, kategorik için grup adı (“Group1” vs.), üyeleri listesi ve WOE’si gösterilir. Eksik ve “OTHER” kategorileri de ayrı satırlarla belirtilir. Bu sayfa, modelin her değişkeni için 
+skoring sözlüğü
+ gibidir – uygulamada yeni bir kaydı skorlamak için mesela bakılır: değişken X değeri hangi aralığa giriyor, o aralığın WOE’si alınıp logit skorlamada kullanılıyor. Bu yüzden bu sayfa modelin dokümantasyonu için kritik ve genelde risk modellerinde raporlanır. Eğer bir 
+variable dictionary
+ (yani değişken açıklama sözlüğü) kullanıcı tarafından sağlanmışsa, bu sayfada her değişkenin 
+yanında bir “Açıklama” kolonu da eklenebilir. İsteklerde “veri sözlüğü varsa raporlara değişken açıklamaları gelmeli” denmişti
+[149]
+. Pipeline henüz bu entegrasyonu yapmamış ama geliştirme kolay: bir dict verilirse oradan eşleştirip ekleyebilir.
+PSI Analizi:
+ 
+PSI_Analysis
+ sayfasında, her değişkenin train vs test ve train vs oot PSI değerleri listelenir. Kodda hesaplanan 
+psi_scores
+ sözlüğünden bu direkt alınabilir
+[57]
+[63]
+. Muhtemelen tablo şöyle: 
+Değişken Adı
+ | 
+Test PSI
+ | 
+OOT PSI
+. Eşik üstünde olanlar kırmızı ile vurgulanabilir. Bu sayfa, modelde kalan değişkenlerin stabilitesini bir kez daha özetler. Ayrıca total model skorunun PSI’si de hesaplanıp buraya eklenebilir (score’un kendisinin train vs oot PSI’si). Nitekim 
+monitoring.compute_score_psi
+ fonksiyonu var kodda
+[150]
+, bunu train vs oot skor dağılımına uygularak belki raporda “Model Score PSI” olarak verir. Eğer model skoru aşırı drift ediyorsa bu da uyarıdır.
+Kalibrasyon Sonuçları:
+ 
+Calibration
+ sayfası, modelin kalibrasyon eğrisini ve metriklerini içerir. Muhtemelen 10 aralıklı bir tablo: 
+PD Range
+, 
+Actual Default Rate
+, 
+Difference
+, 
+Band Coverage (%)
+, 
+Binomial Test Result
+. Bu, bir nevi Hosmer-Lemeshow testi tablosudur. Kod banding yapıp her decile’de vs. bakmamış ama calibration analyzer belki decile bazlı analiz yapmıştır (n_bins=10 parametresiyle)
+[151]
+. ECE, MCE, Brier gibi tek değerlik metrikler de bu sayfaya yazılır (“ECE = 0.02 (2%)” gibi)
+[104]
+. Ayrıca calibrator yöntemi belirtilir (Isotonic vs Sigmoid). Stage2 yapılmışsa, “Calibration adjusted to target default = X%” gibi bir not düşülebilir. Grafikler olarak, 
+Calibration curve
+ (predicted probability vs actual probability) çizilebilir – Excel’de belki değil ama en azından bu verilerle kullanıcı isterse çizebilir.
+Risk Bantları:
+ 
+Risk_Bands
+ sayfası, optimize edilen bant sonuçlarını sunar. Her bant bir satır olacak şekilde: 
+Bant Adı
+ (ör. 1,2,3... veya AAA,AA,...), 
+PD Aralığı
+ (alt-üst eşiklerle), 
+Gözlem Sayısı
+, 
+Ağırlık (%)
+, 
+Band Default Rate (%)
+, 
+Ortalama PD (%)
+, 
+Fark (pp)
+, 
+Binomial Test (Pass/Fail)
+, 
+95% Güven Aralığı (alt-üst)
+, 
+HHI katkısı
+. Kodda 
+best_summary
+ bu bilgileri içeriyor
+[152]
+[153]
+. Örneğin: Band1: PD [0.0000–0.0025), Count=500, Weight=10%, Observed DR=0.2%, PD=0.15%, DR_PD_Diff=+0.05pp, Binomial=Pass, CI=[0.1–0.3%], HHI Cont.=0.01. Böyle bir tablo, yönetimin risk bandlarını onaylaması için gerekir. Ayrıca 
+band skoru aralıkları
+ da istenebilir – PD yerine skora çevrilmiş aralık. Pipeline skorun log-odds ile ilişkisini biliyorsa (lojistik model intercept vs) belki skor aralığı da verebilir. Bunu şu an yapmıyor ama teorik olarak modele bağlı. Rapor en azından PD bazlı band sınırlarını veriyor. Eğer 
+create_business_bands
+ fonksiyonu kullanıldıysa, bantlara AAA, AA gibi label’lar burada listelenir (soru dokümanında öyle etiket listesi görülüyor
+[154]
+).
+Karışıklık Matrisi ve Eşik Analizi:
+ 
+Confusion_Matrix
+ sayfası muhtemelen “%5 default olasılık cut-off alırsak kaç good/bad doğru/yanlış” gibi bir tablo içerir. Genelde PD modellerinde net bir threshold olmaz (skor bandı yerine PD bandı kullanılır), ama iş ihtiyaçları için bir referans cut-off verilebilir. Örneğin “En optimum cutoff = %X ile TPR=%, TNR=%” gibi. Veya her decile için kümülatif dağılım (Capturen rate) vs. verilebilir. Kodda confusion_matrix_df üretildiği not edilmiş
+[155]
+. 
+Bu muhtemelen en iyi F1 skoru veren cut-off’u bulup bir matriks oluşturmuş olabilir. Performans izlemek için bazen bu konur.
+Performans Metrikleri:
+ 
+Performance_Metrics
+ sayfasında, belki farklı threshold’larda metrikler (Accuracy, Precision, Recall, F1, AUC, Gini, KS, LogLoss vs.) listelenir. Kredi skorlama odaklı, AUC/Gini zaten verildi. KS istatistiği önemli bir metriktir – pipeline utils’de KS hesaplayan fonksiyon var (ks_statistic)
+[156]
+[157]
+, belki raporda “Max KS = %X at threshold Y” şeklinde yer alır. Hatta KS tablosu (decile bazında Cumulative good/bad) verilebilir. Gini zaten AUC’den hesaplanıp sunuluyor (Train/Test/OOT Gini). Belki Brier Score da eklenebilir performans sayfasına (kalibrasyon sayfasında da olabilir).
+Skorlayıcı ve Çıktı:
+ Pipeline’ın 
+predict
+ metodu, yeni veri için skor üretir ve sonuç DataFrame’ine bir 
+"score"
+ kolonu ekler
+[158]
+. Bu skor default olasılığıdır (0-1 arası). Kullanıcı isterse bunu 0-1000 arası puan gibi dönüştürebilir ama pipeline bunu yapmamış. Raporlama açısından, 
+skor dağılımı
+ grafiği konulabilir (tüm dataset skoru histogramı). Ayrıca out-of-time dataset için model performansı eğer elde varsa raporda ayrı gösterilebilir (belki performance_metrics içinde). Veri sözlüğü ve skor çıktısı konusunda: skor çıktısının rapora dahil edilmesi genelde yapılmaz (her gözlemin skorunu rapora koymak pratik değil). Ancak belki belirli eşiklerde örnek müşteri profilleri verilebilir (örnek olması için).
+Özetle raporlama modülü, modelle ilgili hemen her detayı kapsayacak şekilde tasarlanmış. Kodda 
+Reporter.generate_reports
+ çağrısı ile bu Excel oluşturuluyor
+[159]
+. Orada 
+sheets = {...}
+ şeklinde dictionary hazırlanıp 
+save_excel_report
+ ile tek bir Excel’e yazılıyor
+[160]
+[161]
+. Yukarıdaki her bölüm bir sheet olarak bu dict’te yer alıyor.
+Önerilen İyileştirmeler:
+ Raporlama içeriği oldukça iyi planlanmış, ancak dikkat edilmesi gereken: 
+Kullanıcı dostu format
+. Excel’de sayı formatları (% ler, ondalık vs.), önemli hücrelerin renklendirilmesi (conditional formatting) gibi iyileştirmeler eklenebilir. Ayrıca eğer veri sözlüğü (değişken açıklamaları) sağlanmışsa bunlar WOE_Bins veya Feature_Importance sayfasında gösterilmeli. 
+SHAP değerleri
+ için belki en önemli 5 değişkenin shap summary grafiği bir görüntü olarak rapora eklenebilir (OpenPyXL grafikleriyle uğraşmak gerekebilir). Raporun kapak sayfasına belki model adı, versiyonu, tarih, eğitimi yapan kişi vb. özet bilgiler eklemek kurumsal kullanımda faydalı olur. Ayrıca pipeline’ın çıktıları arasında eğitilmiş model objesi (
+best_model
+), WOE mapping (
+woe_mapping
+), calibrator vs. zaten Python nesneleri olarak duruyor; bunların da ayrıca kaydedilip raporda path olarak referans verilmesi düşünülebilir. Skorlama çıktısı genelde rapor yerine ayrı bir skor dosyası olur. Pipeline, 
+pipeline.predict
+ ile skorları DataFrame olarak veriyor – isterse bunu CSV’ye yazabilir. Raporlama modülü belki “Scored Dataset”i CSV olarak output klasörüne koyuyor olabilir (şu an yok ama eklenebilir). 
+Metriklerin doğrulanması
+: Raporun her sayfası test edilmeli, özellikle ileri aşamalarda. Son olarak, isteklerde “variable dictionary, scoring çıktısı dahil mi” diye sorulmuş – pipeline henüz variable dictionary’i kullanmıyor (bunu eklemeli), scoring çıktısı ise predict fonksiyonuyla alınabiliyor, raporda sadece özet dağılımlar var. Bu da cevapta belirtilmeli. Genel anlamda 
+raporlama bölümü, bir risk modelinin tüm önemli yönlerini (discrimination, calibration, stability, interpretability) kapsamasıyla literatüre uygun ve pratik bir çözüm sunuyor.
+12. Skor Üretimi ve Yeni Veri ile Prediction (PSI / Performans Değerlendirme)
+Eğitim tamamlandıktan sonra pipeline, yeni gelecek veriler üzerinde skor hesaplama ve model izleme fonksiyonlarına da sahiptir. 
+Skor üretimi (prediction)
+, eğitilmiş pipeline nesnesi kullanılarak kolayca yapılır:
+Skor Üretimi:
+ 
+RiskModelPipeline.predict(df)
+ fonksiyonu, verilen yeni bir DataFrame için model olasılık tahminlerini döndürür
+[162]
+[163]
+. İçerisinde, önce 
+DataProcessor.process
+ çağrısıyla yeni veri aynı eğitimdeki gibi temizlenir ve ön işlemden geçer
+[164]
+. Ardından, eğer WOE mapping mevcutsa (pipeline WOE kullandıysa) yeni veriye de aynı WOE dönüşümü uygulanır – kod 
+WOETransformer.transform
+ ile her değişkene ilgili WOE değerini atıyor
+[165]
+. Bu sayede yeni veri modelin beklediği formatta (ör. WOE’li) hazırlanır. Sonra seçilmiş değişken kolonları alınıp (
+X = df_woe[self.final_vars_]
+), eğitimdeki en iyi model (
+best_model_
+) kullanılarak olasılık tahminleri hesaplanır
+[166]
+. Scikit-learn API’sine uygun olarak 
+model.predict_proba(X)[:,1]
+ şeklinde pozitif sınıf (default) olasılığı alınır. Sonuç, input DataFrame’in bir kopyasına yeni bir “score” kolonu eklenerek döndürülür
+[158]
+. Böylece her kayıt için 0-1 arası PD skoru elde edilmiş olur. Bu işlev, pipeline’ı eğittikten sonra gerçek hayat uygulamasına sokmak için kritik. Model objesi ve WOE mapping pipeline içinde gömülü olduğundan, kullanıcı sadece pipeline nesnesini yükleyip 
+.predict
+ yaparak skorları alabilir – tüm ön işleme adımları da otomatik uygulanır.
+Kalibrasyon Uygulaması:
+ Eğer model stage1 veya stage2 kalibrasyonu içeriyorsa, yeni veri tahminlerini de kalibratörden geçirmek gerekebilir. Pipeline kodunda predict fonksiyonu kalibrasyonu uygulamıyor – bu bir eksik olabilir. Ancak 
+monitor_scores
+ fonksiyonu calibrator’ı yükleyip skorlara uygulama özelliğine sahip
+[113]
+. Demek ki istenirse kullanıcı 
+calibrator_path
+ belirterek predict sonrası bir adımda bunu yapabilir. Bunu pipeline entegre edebilir: örneğin 
+pipeline.predict(new_df, calibrated=True)
+ gibi bir opsiyon ileride eklenebilir. Şimdilik ham skorlar veriliyor, raporlama calibrasyonu gösteriyor.
+Yeni Veri Performans Takibi (Monitoring):
+ Model devreye alındıktan sonra zaman içinde performansı ve veri dağılımı değişebilir. Pipeline, 
+PSI bazlı
+ bir monitoring aracı içeriyor. 
+monitor_scores(baseline_path, new_path, ...)
+ fonksiyonu, eğitim (veya önceki referans dönem) verisi ile yeni gelen veri skor dağılımlarını karşılaştırıp 
+score PSI
+ ve 
+feature PSI
+ hesaplıyor
+[167]
+[168]
+. Yukarıda anlatıldığı gibi PSI, dağılımların değişimini gösterir. Monitor fonksiyonu önce her iki veri setine WOE transform ve model skoru uygular (model objesiyle)
+[169]
+[170]
+, sonra train skor vs yeni skor arasında PSI hesaplar
+[167]
+. Ayrıca tek tek modelde kullanılan her özellik için de PSI bakar (WOE dönüşmüş halleriyle)
+[167]
+. Sonucu JSON veya dict olarak kaydediyor. Bu sayede model izleme raporları üretilebilir. Örneğin 3 ay sonra 
+modelin skor dağılım PSI’si 0.2 geçtiyse, “popülasyon değişti” alarmı alınır. Feature PSI’lardan hangilerinin drifte uğradığı görülür. Bunlar, 
+Model Validation/Monitoring
+ kapsamında önemli göstergeler. Pipeline bu imkanı sağlıyor.
+Yeni Veri Performans Değerlendirmesi:
+ Eğer yeni verinin gerçek sonuçları (default gerçekleşmeleri) elde varsa, modelin o veri üzerindeki AUC, Gini, KS gibi metrikleri de hesaplanabilir. Pipeline’da buna dair spesifik bir fonksiyon yok, ancak kullanıcı pipeline’ın dahili fonksiyonlarını kullanarak (ModelBuilder.evaluate_model gibi, eğer erişim olsa) bunu yapabilir. Raporlama modülü belki periyodik izleme kısmı yok – bu daha çok ayrı bir süreç (ör. her ay scoring + psi hesaplama). Belki future work olarak, pipeline devreye alındıktan sonra her batch’te otomatik PSI ve performans loglaması yapacak bir yardımcı modül entegre edilebilir.
+Skor Kartı ve Ölçekleme:
+ Şu an model skoru olasılık (0-1) olarak veriliyor. Bazı kurumlar bir 
+skor puanı
+ ister (mesela 300-850 arasında). Pipeline bunu yapmıyor, ama logistic model varsa bir linear transformation ile yapılabilir. Bu belki ileride 
+scorecard=True
+ opsiyonu ile entegre edilebilir.
+Yeni veriyle prediction yapıldığında, önemli bir adım da 
+çıktıların kalitesini doğrulamak
+. Örneğin pipeline, 
+predict
+ sonucu eldeki modelin ismini ve versiyonunu da belki log’a yazmalı, böylece hangi modelle skorlandığı belli olur.
+PSI/performance değerlendirme açısından: Diyelim model 6 ay kullanıldı, bu sürede default oranı değişti. Yukarıda Stage2 kalibrasyonun bunun için kullanılabileceği anlatıldı. Yani performans izleme sadece metriklerle değil, gerekiyorsa modelin güncellenmesi veya yeniden kalibrasyonu adımlarını tetiklemelidir. Pipeline bu konuda tam otomatik değil, ancak gerekli araçları sunuyor: PSI izleyin, düşüş varsa belki yeniden eğitin veya kalibre edin.
+Önerilen İyileştirmeler:
+ 
+Predict fonksiyonuna kalibrasyon
+ seçeneği eklemek iyi olur – aksi halde kullanıcıya “ham PD skorunu aldınız, eğer calibrator varsa siz uygulayın” demek gerekiyor. Bunu pipeline içi halledebilir. Ayrıca 
+predict
+ çıktısına modelin band sınıfını eklemek de istenebilir (örn. her satıra skor yanı sıra risk band etiketi). Bu yapılabilir çünkü risk band eşiklerini biliyoruz. Pipeline şu an bunu yapmıyor ama bir fonksiyon eklenebilir: 
+pipeline.assign_risk_band(df)
+ gibi, her satıra bandını yazar. 
+Performans izleme
+ tarafında, pipeline belki bir 
+pipeline.monitor(new_df, new_df_actuals)
+ metodu sunabilir ki bu AUC, PSI vs. hepsini hesaplayıp döndürür. Şu an bunlar dağınık (monitoring.py’de bazı parçalar var). Metrik olarak, out-of-time dönem geldiğinde AUC düşüşü izlenmeli; bunu belki raporlama modülü ileride “Model Performance Over Time” şeklinde trend gösterebilir. Son olarak, skor dağılımında kayma varsa (score PSI yüksek), bu sadece dağılım değişimine işaret eder, model kalibrasyonu da bozulmuş olabilir – pipeline belki uyarı üretebilir.
+Genel olarak, pipeline yeni veri skorlama işini oldukça otomatik hale getiriyor ve 
+MLflow
+ gibi bir araç kullanılmasa bile kendi başına temel izleme metriklerini hesaplayabiliyor. Bu, literatürde 
+“model monitoring”
+ denen alanın önemli bir parçasıdır ve pipeline buna yönelik 
+altyapı sunuyor. İleride entegre bir dashboard ya da otomatik rapor üretimi (aylık) eklenirse tam bir MLOps döngüsü sağlanmış olur.
+13. Development Branch’teki Eksik / Hatalı Kısımlar
+Development sürüm incelendiğinde, yukarıda anlatılan birçok yapının planlandığı ancak tam olarak uygulanmadığı veya uyumsuz kaldığı noktalar tespit edilmiştir. Önemli eksik/hata noktaları şunlardır:
+Dual Pipeline Uygulamasının Tamamlanmamış Olması:
+ 
+enable_dual_pipeline
+ flag’i ve 
+DualRiskModelPipeline
+ sınıfı tanımlı olsa da, şu an kod sadece WOE pipeline’ını yürütüyor. Ham verilerle paralel model kurma ve karşılaştırma işlevi eksik kalmış durumda. Örneğin ModelBuilder’da ham vs woe ayrımı yapılmıyor, best_pipeline türü belirlenmiyor. Bu, dual mod özelliğinin dev branch’te henüz bitmediğini gösteriyor.
+Model Seçim Stratejisi Parametrelerinin Kullanılmaması:
+ Config’de 
+model_selection_method
+, 
+model_stability_weight
+, 
+min_gini_threshold
+ gibi parametreler tanımlı ancak ModelBuilder.select_best_model bunları dikkate almadan daima en yüksek AUC’ye bakıyor
+[171]
+[101]
+. Örneğin stable veya balanced seçiminin bir etkisi yok – bu bir uyumsuzluk. Bu parametreler ya uygulanmalı ya da config’ten kaldırılmalı.
+Test Split Parametresi Tutarsızlığı:
+ Kodun bir kısmı (
+DataSplitter
+) 
+config.test_size
+ kullanırken, config yapısında train/test oranları 
+train_ratio
+, 
+test_ratio
+ olarak tanımlanmış ve 
+test_size
+ yok
+[172]
+. README örnekleri 
+test_size=0.2
+ veriyor. Bu tutarsızlık development’ta dikkat çekiyor. Muhtemelen config eski sürümde 
+test_size
+ iken sonra ratio’lara geçilmiş ama DataSplitter güncellenmemiş. Bu durum, test bölmesinin beklenmedik şekilde tüm datayı train’e almasına veya hatalı oranda bölmesine yol açabilir.
+İsimlendirme ve Kullanım Tutarsızlıkları:
+ Benzer bir sorun imputation için var – config’de 
+imputation_strategy
+ tanımlanmış (varsayılan “median”), ama DataProcessor’da 
+raw_imputation_strategy = getattr(cfg, "raw_imputation_strategy", "median")
+ kullanılıyor
+[173]
+. Yani config’te olmayan 
+raw_imputation_strategy
+ aranıyor. Bu da gösteriyor ki isimlendirmede bir refactor olmuş ama tam oturmamış. Bu, imputation’ın multiple modunun çalışmamasına bile neden olabilir. Aynı şekilde 
+raw_scaler_type
+ parametresi config’de var ama kullanılmıyor.
+ExtraTrees, GAM, gibi Modellerin Eksikliği:
+ İstek listesinde olmasına rağmen ExtraTrees modeli, import edilmesine rağmen model listesine eklenmemiş. GAM modeli ise hiç entegre edilmemiş. Bu, development branch’te henüz tamamlanmamış bir durum. Özellikle GAM bahsi geçtiği için eksik sayılır.
+Boruta Sonrası Forward vs Stepwise Karışıklığı:
+ İsteklerde forward/stepwise tüm yöntemler olsun denmişti
+[74]
+, fakat kod sadece forward’ı içeriyor (
+forward_selection=True/False
+). Yani backward/stepwise yöntemler eksik. Ayrıca config’de 
+forward_1se=True
+ parametresi var ama 
+forward_selection
+ anahtarının 
+adı config_old ve yeni config tanımlarında biraz farklılık gösteriyor (config_old’da sadece forward_1se, config.py’de hem forward_selection hem forward_1se var). Bu küçük bir tutarsızlık ama neticede backward_selection parametresi yok, dolayısıyla bu özellik eksik.
+Calibration Stage2 Uygulamasının Olmaması:
+ Stage2 için notebooklarda hesaplamalar yapılmış fakat pipeline koduna entegre edilmemiş. Yani calibrasyonun ikinci aşaması (ortalamaya çekme vs) otomatize değil. Kullanıcıya bunun nasıl yapılacağı konusunda net bir arayüz yok. Bu da planlanan yapının eksik kalan bir parçası.
+Değişken Açıklamaları (Data Dictionary) Kullanımının Olmaması:
+ Config veya pipeline hiçbir yerde değişken açıklaması alıp rapora koymuyor. İsteklerde bu belirtilmişti, demek ki bu da henüz eklenmemiş.
+Hata ve Uyarılar (Error Handling) Eksikleri:
+ Kod içinde bazı bölümlerde placeholder veya eksik import kaynaklı hatalar var. Örneğin CLI’da 
+os
+ import edilmemiş, flake8 hatası listesinde bu görünüyor
+[174]
+. Bazı fonksiyonlar (DataProcessor._log) BasePipeline’dan log açmayı bekliyor ama DataProcessor BasePipeline’dan türetilmemiş, vs. Bu tip ufak hatalar dev branch’te mevcut. Muhtemelen henüz refactor aşamasında.
+Korelasyon Kümesi Seçiminde cluster_top_k Kullanılmaması:
+ Config’de 
+cluster_top_k=2
+ parametresi var, ima ettiği şey yüksek korelasyon kümesinden sadece top 2’sini tut gibi bir şey olabilir ama kodda korelasyon filtresi direkt her corr>threshold grubundan en yüksek IV’li bir taneyi bırakıp diğerlerini atıyor
+[65]
+[175]
+. Yani cluster_top_k parametresi kullanılmıyor. Bu bir tutarsızlık veya gereksiz parametre durumu.
+Logging/Output Konularında Eksiklik:
+ pipeline her çalışmada bir run_id oluşturuyor ve eğer log_to_file True ise log yazıyor gibi görünüyor, fakat config’de log_to_file yok dedik. Bu da debug aşamasından kalma bir tutarsızlık. Ayrıca output_folder kullanımı tutarlı mı bakmak lazım – bazı yerlerde “output” string olarak geçiyor ama mesela reporter default output klasörüne yazıyor. Ufak bir eksik: output_excel_path verilmezse, kod generatereports’te büyük ihtimal output_folder altında default bir isimle kaydediyor (muhtemelen 
+model_report.xlsx
+). Bu tür varsayılanların dokümante edilmesi gerek.
+Test Kapsamı ve CI Durumu:
+ Repo’da tests/ klasörü var ancak stable bir test çıktısı konusunda emin değiliz. Flake8 hatalarından bazı testler fail olabilir. Özellikle pipeline bütünleşik test edilmemiş olabilir (bazı param kombinasyonları vs.). CI badge’i %99 cover diyor ama flake8 hataları olduğuna göre testler bu kısımları yakalamamış veya CI tam çalışmamış olabilir. Bu bir kalite kontrol eksiği.
+TSFresh Entegrasyonunun Olmaması:
+ Yukarıda bahsettik, TSFresh hiç yok. Eğer bu bir plan olarak eklendiyse mention edilip eklenmemiş olması, dokümantasyon ile kodun uyumsuzluğuna örnek.
+Documentation vs Implementation Uyumsuzlukları:
+ Risk model pipeline dokümantasyonunda (development versiyonu için hazırlanmış kapsamlı 
+dokümanda) bazı özellikler var ama kod karşılığı yok. Örneğin AdvancedRiskPipeline, CompletePipeline sınıfları dokümanda anlatılmış
+[176]
+ fakat kodda bu dosyalar yok. Yine model karşılaştırma (
+model_comparison_
+) dokümanda var ama kodda yok. Bu gibi tutarsızlıklar development aşamasında beklenir, ancak raporda bunları belirtmek gerekir ki sonraki adımlarda düzeltilebilsin.
+Kısaca, development branch henüz bir “tamamlanmış ürün” değil, bir 
+çalışma halinde
+. Çekirdek fonksiyonların çoğu mevcut ancak ince ayarlar, parametre tutarlılıkları ve birkaç önemli özellik (dual pipeline, calibration stage2, GAM vs.) henüz bitmemiş. Bu eksik/hatalı noktalar giderildiğinde pipeline daha güvenilir ve tutarlı olacak. Şu an için en kritik eksiklik bence dual pipeline ve model_selection_method’un uygulanmaması – zira bunlar yanlış beklenitler yaratabilir.
+14. Geliştirme Önerileri (Notebook Örnekleri, Parametrizasyon İyileştirmeleri, Modülerlik, Test Kapsamı)
+Son olarak, pipeline’ın geliştirilmesine yönelik bazı öneriler ve literatürle uyumluluk değerlendirmeleri:
+Notebook Örnekleri:
+ Kullanıcıların pipeline’ı doğru anlayıp kullanabilmesi için kapsamlı 
+örnek notebook’lar
+ hazırlanmalı. Repo’daki 
+complete_risk_pipeline.ipynb
+ ve 
+end_to_end_pipeline.ipynb
+ bunun için var görünüyor. Bu notebook’larda adım adım veri hazırlama, config oluşturma, pipeline çalıştırma, sonuçları inceleme gösterilmeli. Özellikle risk band optimizasyonu ve kalibrasyon gibi ileri konular için örnekler çok değerli olacaktır. Notebook’lar, pipeline’ın her önemli niteliğini (WOE transformu nasıl etkiledi, feature selection sonrasında kaç değişken kaldı, rapor nasıl yorumlanır vs.) anlatmalı. Ayrıca bir 
+skoring
+ notebook’u (yeni veriye nasıl skor uygulanır) eklenmesi de faydalı olur. Bu, modeli devreye alacak ekibin işini kolaylaştırır.
+Parametrizasyon İyileştirmeleri:
+ Bazı sabitler kod içine gömülü kalmış, bunları config’e çıkarmak iyi olur. Örneğin risk band optimizasyonundaki 
+min_final_bins
+, 
+max_final_bins
+, 
+min_weight
+, 
+max_weight
+, 
+early_stop_count
+ vs. parametreleştirilebilir. Yine WOE optimizasyonundaki 
+woe_threshold
+ (benzer WOE birleştime eşiği) sabit 0.1, config’de yer alabilir. Bu sayede pipeline farklı veri setleri veya farklı domain’ler için esnek hale gelir. Parametre isimlerinde de tutarlılık ve anlaşılabilirlik önemli: Örneğin 
+rho_threshold
+ yerine 
+corr_threshold
+ denebilir (daha açık). 
+iv_min
+ belki 
+min_iv
+ olarak ifade edilebilir. Küçük ama bütünlük açısından önemli noktalar.
+Modülerlik ve Genişletilebilirlik:
+ Pipeline zaten core modüllere ayrılmış (data_processor, feature_selector, model_builder vs.), bu iyi bir tasarım. Bunu daha da modüler yapmak mümkün: Örneğin ileride yeni bir feature selection yöntemi eklemek istersek (mesela genetic algorithm ile seçme), 
+feature_selector
+ içine bunu ekleyip config opsiyonuyla kontrol edebiliriz. Modülerliği artırmak için belki 
+“Hook”
+ mekanizması düşünülebilir – kullanıcı pipeline akışına kendi adımını ekleyebilsin (ör. 
+custom feature transformation). Bu tabii advanced bir özellik ama pipeline’ı bir çerçeve (framework) olarak konumlar. Şu aşamada en azından pipeline akışındaki her aşama fonksiyonlarına erişilebilir ve override edilebilir olmalı. Mesela bir developer, WOETransformer’ı kendi yöntemine göre değiştirmek isterse risk_pipeline.core.woe_transformer’ı forklayıp takabilir. Bunlar sağlanmalı.
+Performans ve Skalabilite:
+ Bu pipeline Python/pandas tabanlı, orta boy veriler için yeterli ama büyük veri için yavaş olabilir. Geliştirme olarak, paralel hesaplama veya vektörizasyon iyileştirmeleri yapılabilir. Örneğin WOE binleme şu an Python döngüleriyle yazılmış, büyük veri için numpy ile hızlandırma ihtiyacı doğabilir. Yine Optuna çok trial yaparsa süre uzun olabilir, belki GPU kullanımı (XGBoost, LightGBM zaten destekler) etkinleştirilebilir. Gelecekte 
+dask, ray
+ gibi dağıtık çerçevelerle entegrasyon düşünülürse, pipeline yapısı bunu kaldırabilecek şekilde (ör. DataFrame yerine dask DataFrame opsiyonel kullanımı) modifiye edilebilir.
+MLOps Entegrasyonu:
+ Model eğitim sonucu, raporu ve model objelerini bir arada versiyonlamak için MLflow gibi araçlar entegre edilebilir. Örneğin pipeline sonu, eğer MLflow aktifse metrics, params, artifacts (Excel rapor, model.pkl, calibrator.pkl) oraya loglanabilir. Bu, enterprise kullanımda büyük artı olur. İyileştirme olarak config’e 
+mlflow_tracking_uri
+ vs. eklenebilir.
+Adalet/Fairness ve Regülasyon Uyumluluğu:
+ Literatürde giderek önemli hale gelen model adaleti (fairness) konusunda pipeline bir şey yapmıyor. Belki ileride sensitive attribute’ler verilirse, modelin o segmentlerdeki performansı, bias indikatörleri (SPD, DI, etc.) raporlanabilir. Kredi riskinde bu kritik olabilir (örn. cinsiyet, yaş grubu bazında PD dağılımı kontrolü). Bu pipeline’a ekstra modül olarak eklenebilir.
+Test Kapsamını Artırma:
+ Development branch’te birim testler ve entegre testler eklenmeli. Özellikle her ana fonksiyonun (process, select_features, fit_transform, build_models, optimize_bands vs.) bir örnek dataset ile doğru çalıştığı doğrulanmalı. Halihazırda bazı testler var ama parametre edge caseleri de test edilmeli (mesela imputation_strategy='knn' çalışıyor mu, enable_dual_pipeline hata vermeden geçiyor mu vs.). Kalibrasyon ve risk band gibi parçalar oldukça karmaşık, bunlar için belki ufak sentetik veri testleri yazılabilir. Ayrıca sonuç raporunun beklenen sheet’leri içerip içermediği, boyutlarının doğru olduğu da otomatik kontrol edilebilir (en azından bir rapor üretip dosya var mı diye bakılabilir). CI süreçleri bu testleri çalıştırarak güvence sağlamalı.
+Dokümantasyon ve Kullanıcı Eğitimi:
+ Kodun kapsamlı bir README’si var ancak fonksiyon bazlı detay doküman (docstring) her yerde yok veya güncel değil. Örneğin config parametrelerinin tam listesini ve anlamlarını bir tabloda README’de vermek çok iyi olur. Aynı şekilde “Nasıl yapılır” rehberleri (how-to) eklenebilir. Özellikle risk band ve kalibrasyon gibi daha az bilinen kısımların mantığı, raporda nasıl yorumlanacağı gibi bilgiler dokümanlara eklenmeli. Bu, pipeline’ın literatürle uyumluluğunu da ortaya koyar.
+Literatür Uyumluluğu:
+ Genel olarak pipeline’da kullanılan metodlar modern kredi risk modelleme uygulamalarıyla uyumlu gözüküyor. WOE transform, IV ile değişken seçimi, PSI 
+ile drift analizi, Boruta, CV forward selection, calibrasyon, risk band optimizasyonu – bunlar bir çok finansal kurumun manual yaptığı işleri otomasyona dökmüş. Literatürde her biri önerilen pratikler. Örneğin 
+Siddiqi (Credit Risk Scorecards)
+ kitabında WOE ve IV kullanımı, 
+Anderson
+’da PSI ve kalibrasyon, 
+Hosmer-Lemeshow (1980s)
+’da calibration testleri, 
+Breiman
+’da (Random Forest) Boruta mantığı hep var. Pipeline bu teknikleri entegre ederek literatürle tutarlı bir bütün oluşturuyor. Yapısal olarak da scikit-learn benzeri modüler tasarım, configuration ile esneklik gibi iyi yazılım pratikleri gözetilmiş. Kalan eksiklerin giderilmesiyle, pipeline endüstriyel kullanım için güçlü ve güvenilir hale gelecektir.
+Sonuç olarak, 
+Risk Model Pipeline
+ projesi geniş kapsamlı ve fonksiyonel bir çerçeve sunuyor. Development branch’te bazı eksikleri olsa da, yapılacak iyileştirmelerle tamamen production hazır bir hale gelmesi mümkün. Yukarıdaki öneriler doğrultusunda geliştirildiğinde, pipeline hem kullanıcı dostu olur hem de risk modelleme literatüründeki en iyi uygulamaları tam anlamıyla karşılar.
+[1]
+ 
+[3]
+ 
+[4]
+ 
+[9]
+ 
+[11]
+ 
+[13]
+ 
+[14]
+ 
+[15]
+ 
+[16]
+ 
+[19]
+ 
+[20]
+ config.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/config.py
+[2]
+ 
+[21]
+ 
+[22]
+ 
+[23]
+ 
+[24]
+ 
+[25]
+ 
+[26]
+ 
+[27]
+ 
+[28]
+ 
+[29]
+ 
+[30]
+ 
+[31]
+ 
+[32]
+ 
+[34]
+ 
+[35]
+ 
+[36]
+ 
+[37]
+ 
+[38]
+ 
+[173]
+ data_processor.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/data_processor.py
+[5]
+ 
+[6]
+ splitter.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/splitter.py
+[7]
+ 
+[12]
+ 
+[33]
+ 
+[171]
+ 
+[172]
+ config_old.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/config_old.py
+[8]
+ 
+[10]
+ 
+[39]
+ 
+[40]
+ 
+[50]
+ 
+[69]
+ 
+[70]
+ 
+[71]
+ 
+[72]
+ 
+[73]
+ 
+[77]
+ 
+[78]
+ 
+[79]
+ 
+[80]
+ 
+[81]
+ 
+[82]
+ 
+[83]
+ 
+[84]
+ 
+[85]
+ 
+[86]
+ 
+[87]
+ feature_engineer.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/feature_engineer.py
+[17]
+ README.md
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/README.md
+[18]
+ 
+[103]
+ 
+[104]
+ 
+[105]
+ 
+[147]
+ 
+[151]
+ 
+[154]
+ 
+[155]
+ 
+[160]
+ 
+[161]
+ 
+[176]
+ risk_model_pipeline_complete_documentation.md
+file://file-G2cwDt2kF8WSt7JyLzbSpu
+[41]
+ 
+[42]
+ 
+[43]
+ 
+[48]
+ 
+[49]
+ 
+[51]
+ 
+[156]
+ 
+[157]
+ utils.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/utils.py
+[44]
+ 
+[45]
+ 
+[46]
+ 
+[47]
+ 
+[53]
+ 
+[54]
+ 
+[55]
+ 
+[56]
+ 
+[57]
+ 
+[58]
+ 
+[59]
+ 
+[60]
+ 
+[61]
+ 
+[62]
+ 
+[63]
+ 
+[64]
+ 
+[65]
+ 
+[66]
+ 
+[67]
+ 
+[68]
+ 
+[76]
+ 
+[88]
+ 
+[89]
+ 
+[90]
+ 
+[91]
+ 
+[175]
+ feature_selector.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/feature_selector.py
+[52]
+ 
+[74]
+ 
+[75]
+ 
+[96]
+ 
+[108]
+ 
+[114]
+ 
+[148]
+ 
+[149]
+ model_istek.txt
+file://file-NoSNujd4jnW9y5Br6m2ta1
+[92]
+ 
+[93]
+ 
+[94]
+ 
+[95]
+ 
+[158]
+ 
+[159]
+ 
+[162]
+ 
+[163]
+ 
+[164]
+ 
+[165]
+ 
+[166]
+ pipeline.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/pipeline.py
+[97]
+ 
+[98]
+ 
+[99]
+ 
+[100]
+ 
+[101]
+ 
+[102]
+ model_builder.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/core/model_builder.py
+[106]
+ 
+[107]
+ calibrate.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/model/calibrate.py
+[109]
+ 
+[110]
+ 
+[111]
+ 
+[112]
+ kalibrasyon_stage.txt
+file://file-ETNBY8HptmXmB9QgyHTQw4
+[113]
+ 
+[150]
+ 
+[167]
+ 
+[168]
+ 
+[169]
+ 
+[170]
+ monitoring.py
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/src/risk_pipeline/monitoring.py
+[115]
+ 
+[116]
+ 
+[117]
+ 
+[118]
+ 
+[119]
+ 
+[120]
+ 
+[121]
+ 
+[122]
+ 
+[123]
+ 
+[124]
+ 
+[125]
+ 
+[126]
+ 
+[127]
+ 
+[128]
+ 
+[129]
+ 
+[130]
+ 
+[131]
+ 
+[132]
+ 
+[133]
+ 
+[134]
+ 
+[135]
+ 
+[136]
+ 
+[137]
+ 
+[138]
+ 
+[139]
+ 
+[140]
+ 
+[141]
+ 
+[142]
+ 
+[143]
+ 
+[144]
+ 
+[145]
+ 
+[146]
+ 
+[152]
+ 
+[153]
+ scoreband.txt
+file://file-SzHKA1mxYysog8HjPaeqdy
+[174]
+ all_errors.txt
+https://github.com/selimoksuz/risk-model-pipeline/blob/59b6c45158e5aaf770c873191331587c52dc9186/docs/errors/all_errors.txt

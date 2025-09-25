@@ -1,4 +1,4 @@
-"""Version information for risk-model-pipeline package"""
+__all__ = ["__version__", "__version_info__"]
 
-__version__ = "0.3.0"
-__version_info__ = tuple(int(i) for i in __version__.split("."))
+__version__ = "0.4.0"
+__version_info__ = tuple(int(part) for part in __version__.split("."))

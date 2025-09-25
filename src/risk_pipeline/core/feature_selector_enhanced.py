@@ -6,7 +6,7 @@ PSI -> VIF -> Correlation -> IV -> Boruta -> Forward/Backward/Stepwise
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype, is_categorical_dtype, is_object_dtype
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set, Any
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from statsmodels.stats.outliers_influence import variance_inflation_factor
@@ -53,21 +53,116 @@ class AdvancedFeatureSelector:
 
         return X_prepared
 
-    def select_by_psi(self, X_train: pd.DataFrame, X_test: pd.DataFrame,
-                      threshold: float = 0.25) -> List[str]:
-        """Select features with stable PSI."""
+    def select_by_psi(
+        self,
+        X_train: pd.DataFrame,
+        X_test: Optional[pd.DataFrame] = None,
+        threshold: float = 0.25,
+        oot_df: Optional[pd.DataFrame] = None,
+        monthly_frames: Optional[Dict[str, pd.DataFrame]] = None,
+        monthly_threshold: Optional[float] = None,
+        oot_threshold: Optional[float] = None,
+    ) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
+        """Select features with stable PSI across test, OOT, and monthly splits."""
 
-        stable_features = []
+        if monthly_frames is None:
+            monthly_frames = {}
+
+        base_threshold = threshold if threshold is not None else 0.25
+        oot_threshold = oot_threshold if oot_threshold is not None else base_threshold
+        monthly_threshold = (
+            monthly_threshold if monthly_threshold is not None else max(0.05, base_threshold / 2)
+        )
+
+        selected = []
+        psi_details: Dict[str, Dict[str, Any]] = {}
+
+        comparators: Dict[str, Tuple[pd.DataFrame, float]] = {}
+        if X_test is not None and not X_test.empty:
+            comparators['test'] = (X_test, base_threshold)
+        if oot_df is not None and not oot_df.empty:
+            comparators['oot'] = (oot_df, oot_threshold)
+
+        valid_monthly = {
+            str(label): frame
+            for label, frame in monthly_frames.items()
+            if frame is not None and not frame.empty
+        }
 
         for col in X_train.columns:
-            psi = self._calculate_psi(X_train[col], X_test[col])
+            base_series = X_train[col].dropna()
+            col_detail: Dict[str, Any] = {
+                'status': 'kept',
+                'comparisons': {},
+                'drop_reasons': []
+            }
 
-            if psi < threshold:
-                stable_features.append(col)
+            # Compare against test and OOT frames
+            for name, (frame, cmp_threshold) in comparators.items():
+                if col not in frame.columns:
+                    continue
+                psi_value = self._calculate_series_psi(base_series, frame[col].dropna())
+                col_detail['comparisons'][name] = {
+                    'psi': float(psi_value),
+                    'threshold': float(cmp_threshold),
+                }
+                if psi_value > cmp_threshold:
+                    col_detail['status'] = 'dropped'
+                    col_detail['drop_reasons'].append(
+                        f"{name} psi {psi_value:.3f} > {cmp_threshold:.3f}"
+                    )
+
+            # Compare against monthly slices
+            monthly_results: Dict[str, float] = {}
+            for label, frame in valid_monthly.items():
+                if col not in frame.columns:
+                    continue
+                month_series = frame[col].dropna()
+                psi_value = self._calculate_series_psi(base_series, month_series)
+                monthly_results[label] = float(psi_value)
+                if psi_value > monthly_threshold:
+                    col_detail['status'] = 'dropped'
+                    col_detail['drop_reasons'].append(
+                        f"monthly({label}) psi {psi_value:.3f} > {monthly_threshold:.3f}"
+                    )
+
+            if monthly_results:
+                col_detail['comparisons']['monthly'] = {
+                    'psi_by_month': monthly_results,
+                    'threshold': float(monthly_threshold),
+                }
+
+            if col_detail['status'] == 'kept':
+                selected.append(col)
             else:
-                print(f"    Removing {col}: PSI={psi:.3f}")
+                reason_text = '; '.join(col_detail['drop_reasons'])
+                if reason_text:
+                    print(f"    Removing {col}: {reason_text}")
 
-        return stable_features
+            psi_details[col] = col_detail
+
+        return selected, psi_details
+
+    def _calculate_series_psi(self, base: pd.Series, compare: pd.Series) -> float:
+        """Calculate PSI between two series treating values as discrete buckets."""
+
+        if base.empty or compare.empty:
+            return 0.0
+
+        eps = 1e-4
+        base_dist = base.value_counts(normalize=True)
+        compare_dist = compare.value_counts(normalize=True)
+        categories = set(base_dist.index).union(compare_dist.index)
+
+        psi = 0.0
+        for val in categories:
+            base_pct = float(base_dist.get(val, eps))
+            compare_pct = float(compare_dist.get(val, eps))
+            base_pct = max(base_pct, eps)
+            compare_pct = max(compare_pct, eps)
+            psi += (compare_pct - base_pct) * np.log(compare_pct / base_pct)
+
+        return float(psi)
 
     def select_by_vif(self, X: pd.DataFrame, threshold: float = 10) -> List[str]:
         """Select features with low multicollinearity."""
@@ -75,20 +170,24 @@ class AdvancedFeatureSelector:
         features = list(X.columns)
         removed = set()
 
-        while True:
-            # Calculate VIF for remaining features
-            vif_data = pd.DataFrame()
-            vif_data["Feature"] = features
-            vif_data["VIF"] = [self._calculate_vif(X[features], i)
-                              for i in range(len(features))]
+        sample_size = getattr(self.config, 'vif_sample_size', None)
+        X_work = X.copy()
+        if sample_size and len(X_work) > sample_size:
+            X_work = X_work.sample(sample_size, random_state=getattr(self.config, 'random_state', None))
+            print(f"    VIF subsample: using {len(X_work)} of {len(X)} rows")
+        X_work = X_work.reset_index(drop=True).apply(pd.to_numeric, errors='coerce').fillna(0.0)
 
-            # Find max VIF
+        while len(features) > 1:
+            subset = X_work[features]
+            values = subset.values
+            vif_scores = [variance_inflation_factor(values, i) for i in range(values.shape[1])]
+
+            vif_data = pd.DataFrame({'Feature': features, 'VIF': vif_scores})
             max_vif = vif_data["VIF"].max()
 
-            if max_vif < threshold:
+            if np.isnan(max_vif) or max_vif < threshold:
                 break
 
-            # Remove feature with highest VIF
             worst_feature = vif_data.loc[vif_data["VIF"].idxmax(), "Feature"]
             features.remove(worst_feature)
             removed.add(worst_feature)
@@ -97,38 +196,45 @@ class AdvancedFeatureSelector:
         return features
 
     def select_by_correlation(self, X: pd.DataFrame, y: pd.Series,
-                             threshold: float = 0.9) -> List[str]:
+                             threshold: float = 0.9, max_per_cluster: int = 1) -> List[str]:
         """Select best features from correlated clusters."""
 
-        # Calculate correlation matrix
         corr_matrix = X.corr().abs()
-
-        # Find highly correlated pairs
         upper_tri = corr_matrix.where(
             np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
         )
 
-        # Find features to remove
-        to_remove = set()
+        to_remove: Set[str] = set()
+        processed: Set[str] = set()
+        keep_count = max(1, int(max_per_cluster))
 
         for column in upper_tri.columns:
-            # Find correlated features
+            if column in processed:
+                continue
+
             correlated = list(upper_tri.index[upper_tri[column] > threshold])
+            if not correlated:
+                continue
 
-            if correlated and column not in to_remove:
-                # Keep the one with highest correlation with target
-                cluster = [column] + correlated
-                target_corrs = {feat: abs(X[feat].corr(y)) for feat in cluster}
-                best = max(target_corrs, key=target_corrs.get)
+            cluster = {column, *correlated}
+            processed.update(cluster)
 
-                # Remove others
-                for feat in cluster:
-                    if feat != best:
-                        to_remove.add(feat)
-                        print(f"    Removing {feat}: Correlated with {best}")
+            target_corrs = {
+                feat: abs(X[feat].corr(y))
+                for feat in cluster
+            }
+            ordered = sorted(target_corrs.items(), key=lambda item: item[1], reverse=True)
+            keep_features = {feat for feat, _ in ordered[:keep_count]}
+
+            for feat in cluster:
+                if feat not in keep_features:
+                    to_remove.add(feat)
+                    leader = next(iter(keep_features))
+                    print(
+                        f"    Removing {feat}: Correlated with {leader} (|corr|>{threshold})"
+                    )
 
         return [col for col in X.columns if col not in to_remove]
-
     def select_by_iv(self, woe_values: Dict, features: List[str],
                      threshold: float = 0.02) -> List[str]:
         """Select features with high Information Value."""

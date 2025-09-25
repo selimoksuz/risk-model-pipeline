@@ -1,9 +1,15 @@
+﻿import os
 import numpy as np
 
-try:
-    import shap
-except ImportError:
-    shap = None  # Optional dependency
+_SHAP_DISABLED = os.getenv("RISK_PIPELINE_DISABLE_SHAP") == "1"
+
+if not _SHAP_DISABLED:
+    try:
+        import shap  # type: ignore
+    except Exception:
+        shap = None  # Optional dependency could not be loaded
+else:
+    shap = None
 
 
 def compute_shap_values(model, X, shap_sample=25000, random_state=42):

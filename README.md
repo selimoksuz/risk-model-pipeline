@@ -10,11 +10,12 @@ Production-ready risk modeling pipeline with WOE transformation and advanced ML 
 ## Features
 
 - **WOE Transformation**: Automatic Weight of Evidence binning and transformation
-- **Advanced ML Models**: XGBoost, LightGBM, CatBoost, Random Forest, and more
+- **Advanced ML Models**: XGBoost, LightGBM, CatBoost, Random Forest, WoE-LI interactions, Shao penalised logistic, and more
 - **Dual Pipeline**: Simultaneous raw and WOE-transformed feature processing
 - **Hyperparameter Optimization**: Optuna integration for automated tuning
 - **Model Interpretability**: SHAP values and feature importance analysis
 - **Comprehensive Reporting**: Excel reports with model metrics, WOE bins, and visualizations
+- **Bundled Sample Dataset**: Synthetic credit risk data shipped under `risk_pipeline.data.sample` for reproducible quickstarts
 - **Production Ready**: Modular design with proper error handling and logging
 
 ## Installation
@@ -26,79 +27,101 @@ pip install risk-model-pipeline
 
 ### From GitHub (Latest Development Version)
 ```bash
-pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@main
-```
-
-### With Optional Dependencies
-```bash
-# Full installation with all features
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@main#egg=risk-model-pipeline[all]"
-
-# Only visualization tools
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@main#egg=risk-model-pipeline[viz]"
-
-# Only advanced ML models
-pip install "git+https://github.com/selimoksuz/risk-model-pipeline.git@main#egg=risk-model-pipeline[ml]"
+pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@development
 ```
 
 ## Quick Start
 
+```bash
+pip install --no-cache-dir --upgrade --force-reinstall "risk-pipeline @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
+```
+
+> Not: Python 3.8/3.9 ortamlarında pip otomatik olarak `pandas==2.0.3`, `numpy==1.26.0`, `xgboost==2.0.3` ve `xbooster==0.2.2` sürümlerini seçer; Python 3.10+ için sırasıyla `pandas==2.3.2`, `numpy==1.26.4`, `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktır.
+
 ```python
-from risk_pipeline import Config, RiskModelPipeline
 import pandas as pd
+from risk_pipeline.core.config import Config
+from risk_pipeline.unified_pipeline import UnifiedRiskPipeline
 
 # Load your data
 df = pd.read_csv("your_data.csv")
 
-# Configure pipeline
+# Configure the unified pipeline
 config = Config(
-    target_col='target',
-    enable_dual_pipeline=True,
+    target_column="target",
+    id_column="app_id",
+    time_column="app_dt",
+    create_test_split=True,
+    use_test_split=True,
+    train_ratio=0.6,
+    test_ratio=0.2,
+    oot_ratio=0.2,
+    enable_dual=True,
+    selection_steps=["psi", "univariate", "iv", "correlation", "boruta", "stepwise"],
+    algorithms=[
+        "logistic", "gam", "catboost", "lightgbm", "xgboost",
+        "randomforest", "extratrees", "woe_boost", "woe_li", "shao", "xbooster",
+    ],
     use_optuna=True,
-    n_trials=50
+    n_trials=10,
+    model_selection_method="balanced",
+    model_stability_weight=0.25,
+    risk_band_method="pd_constraints",
+    n_risk_bands=8,
+    random_state=42,
 )
+config.model_type = 'all'
 
-# Run pipeline
-pipeline = RiskModelPipeline(config)
-pipeline.run(df)
 
-# Get predictions
-predictions = pipeline.predict(df)
+# Train and optionally score
+demo = UnifiedRiskPipeline(config)
+results = demo.fit(df=df, score_df=df)
 
-# Access results
-print(f"Best model: {pipeline.best_model_name_}")
-print(f"Best score: {pipeline.best_score_}")
+print("Best model:", results.get("best_model_name"))
+print("Selected features:", results.get("selected_features"))
 ```
 
 ## Advanced Configuration
 
 ```python
 config = Config(
-    # Data columns
-    id_col='app_id',
-    time_col='app_dt',
-    target_col='target',
-    
-    # Feature Engineering
-    rare_threshold=0.01,       # Rare category threshold
-    psi_threshold=0.25,        # PSI stability threshold  
-    iv_min=0.02,              # Minimum Information Value
-    rho_threshold=0.90,       # Correlation threshold
-    
-    # Model Training
+    # Core columns
+    target_column="target",
+    id_column="app_id",
+    time_column="app_dt",
+
+    # Dataset splitting
+    create_test_split=True,
+    use_test_split=True,
+    train_ratio=0.6,
+    test_ratio=0.2,
+    oot_ratio=0.2,
+    stratify_test=True,
+
+    # Feature engineering safeguards
+    rare_category_threshold=0.01,
+    psi_threshold=0.25,
+    iv_threshold=0.02,
+    correlation_threshold=0.95,
+    vif_threshold=5.0,
+
+    # Model training
+    algorithms=["lightgbm", "xgboost", "catboost", "woe_boost"],
+    model_type='all',
     cv_folds=5,
     use_optuna=True,
-    n_trials=100,
-    
-    # Model Selection
-    model_selection_method='balanced',
+    n_trials=50,
+
+    # Model selection
+    model_selection_method="balanced",
     model_stability_weight=0.3,
-    
-    # Output
-    output_folder='outputs',
-    random_state=42
+    max_train_oot_gap=0.08,
+
+    # Outputs
+    output_folder="output_reports",
+    random_state=42,
 )
-```
+
 
 ## Model Selection Strategies
 
@@ -128,6 +151,7 @@ config = Config(
 - [Installation Guide](INSTALL_GUIDE.md)
 - [Publishing to PyPI](PUBLISH_TO_PYPI.md)
 - [Example Notebooks](notebooks/)
+- [End-to-End Demo Notebook](notebooks/Risk_Model_Pipeline_End_to_End.ipynb)
 
 ## Development
 
@@ -173,7 +197,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Author
 
-**Selim Öksüz**
+**Selim Oksuz
 - GitHub: [@selimoksuz](https://github.com/selimoksuz)
 
 ## Support
@@ -185,3 +209,4 @@ For bugs and feature requests, please use the [GitHub Issues](https://github.com
 - Built with scikit-learn, XGBoost, LightGBM, and CatBoost
 - SHAP for model interpretability
 - Optuna for hyperparameter optimization
+

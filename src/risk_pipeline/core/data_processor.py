@@ -17,6 +17,7 @@ class DataProcessor:
         self.cfg = config
         self.var_catalog_ = None
         self.imputation_stats_ = {}  # Store imputation statistics
+        self.tsfresh_metadata_ = pd.DataFrame()
 
     def validate_and_freeze(self, df: pd.DataFrame):
         """Validate input data and freeze time column"""
@@ -42,6 +43,40 @@ class DataProcessor:
             df["snapshot_month"] = df[self.cfg.time_col].apply(month_floor)
         
         return df
+
+    def generate_tsfresh_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        '''Derive simple time-based features; falls back to empty frame if disabled.'''
+        if not getattr(self.cfg, 'enable_tsfresh_features', False):
+            return pd.DataFrame()
+        self.tsfresh_metadata_ = pd.DataFrame()
+        id_col = getattr(self.cfg, 'id_col', None)
+        if not id_col or id_col not in df.columns:
+            return pd.DataFrame()
+        numeric_cols = [
+            c for c in df.select_dtypes(include=['number']).columns
+            if c not in {self.cfg.target_col, id_col}
+        ]
+        if not numeric_cols:
+            return pd.DataFrame()
+        grouped = df.groupby(id_col, dropna=False)[numeric_cols].agg(['mean', 'std', 'min', 'max'])
+        metadata_rows = []
+        renamed_cols = []
+        for base_col, stat in grouped.columns:
+            feature_name = f"{base_col}_{stat}_tsfresh"
+            renamed_cols.append(feature_name)
+            metadata_rows.append({
+                'feature': feature_name,
+                'source_variable': base_col,
+                'statistic': stat,
+                'generator': 'tsfresh_window' if getattr(self.cfg, 'tsfresh_window', None) else 'tsfresh_simple',
+            })
+        grouped.columns = renamed_cols
+        grouped = grouped.fillna(0.0)
+        grouped.index = grouped.index.astype(str)
+        grouped.index.name = id_col
+        if metadata_rows:
+            self.tsfresh_metadata_ = pd.DataFrame(metadata_rows)
+        return grouped
 
     def downcast_inplace(self, df: pd.DataFrame):
         """Downcast numeric types to save memory"""

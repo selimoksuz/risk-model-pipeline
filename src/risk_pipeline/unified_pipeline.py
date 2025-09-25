@@ -384,7 +384,7 @@ class UnifiedRiskPipeline:
                 right_index=True,
             )
             df_processed.drop(columns='__tsfresh_id__', inplace=True)
-            print(f"  Added {tsfresh_features.shape[1]} tsfresh Ã¶zelliÄŸi")
+            print(f"  Added {tsfresh_features.shape[1]} tsfresh features")
 
         # Identify variable types
         numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
@@ -763,21 +763,38 @@ class UnifiedRiskPipeline:
 
         selected_features = selection_results['selected_features']
 
-        # Prepare training data
         if self.config.enable_woe:
             X_train = splits['train_woe'][selected_features]
             y_train = splits['train'][self.config.target_col]
             X_test = splits.get('test_woe', pd.DataFrame())[selected_features] if 'test_woe' in splits else None
             y_test = splits.get('test', pd.DataFrame())[self.config.target_col] if 'test' in splits else None
+            oot_source = splits.get('oot_woe')
         else:
             X_train = splits['train'][selected_features]
             y_train = splits['train'][self.config.target_col]
             X_test = splits.get('test', pd.DataFrame())[selected_features] if 'test' in splits else None
             y_test = splits.get('test', pd.DataFrame())[self.config.target_col] if 'test' in splits else None
+            oot_source = splits.get('oot')
 
-        # Train models
+        X_oot = None
+        if oot_source is not None and not oot_source.empty:
+            missing_cols = [col for col in selected_features if col not in oot_source.columns]
+            if missing_cols:
+                print(f"  Warning: OOT data missing {len(missing_cols)} selected features; skipping OOT evaluation.")
+            else:
+                X_oot = oot_source[selected_features].copy()
+
+        y_oot = None
+        oot_raw = splits.get('oot')
+        if oot_raw is not None and not oot_raw.empty:
+            target_col = self.config.target_col
+            if target_col in oot_raw.columns:
+                y_oot = oot_raw[target_col]
+            else:
+                print("  Warning: OOT dataset missing target column; skipping OOT evaluation.")
+
         model_results = self.model_builder.train_all_models(
-            X_train, y_train, X_test, y_test
+            X_train, y_train, X_test, y_test, X_oot, y_oot
         )
 
         # Check noise sentinel if enabled

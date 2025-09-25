@@ -14,6 +14,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.feature_selection import mutual_info_classif
 import warnings
 
+from .utils import gini_from_auc
+
 warnings.filterwarnings('ignore')
 
 
@@ -443,20 +445,26 @@ class ComprehensiveModelBuilder:
         self.scores_ = {}
         self.feature_importance_ = {}
         self.interpretability_ = {}
+        self.n_features_in_ = None
+        self.feature_names_in_: List[str] = []
 
     def train_all_models(self, X_train: pd.DataFrame, y_train: pd.Series,
-                        X_test: Optional[pd.DataFrame] = None,
-                        y_test: Optional[pd.Series] = None) -> Dict:
-        """
-        Train all configured models and select the best.
-        """
+                         X_test: Optional[pd.DataFrame] = None,
+                         y_test: Optional[pd.Series] = None,
+                         X_oot: Optional[pd.DataFrame] = None,
+                         y_oot: Optional[pd.Series] = None) -> Dict:
+        """Train all configured models and select the best."""
 
         print(f"  Training models on {X_train.shape[1]} features...")
 
         self.interpretability_ = {}
+        self.n_features_in_ = X_train.shape[1]
+        if hasattr(X_train, 'columns'):
+            self.feature_names_in_ = list(X_train.columns)
+        else:
+            self.feature_names_in_ = [f'feature_{idx}' for idx in range(self.n_features_in_)]
 
-        # Check if we have any features
-        if X_train.shape[1] == 0:
+        if self.n_features_in_ == 0:
             print("    WARNING: No features available for training. Skipping model training.")
             return {
                 'models': {},
@@ -468,10 +476,8 @@ class ComprehensiveModelBuilder:
                 'selected_features': []
             }
 
-        # Determine which models to train
         models_to_train = self._get_models_to_train()
 
-        # Train each model
         for model_name in models_to_train:
             print(f"    Training {model_name}...")
 
@@ -485,19 +491,41 @@ class ComprehensiveModelBuilder:
                         model_name, X_train, y_train
                     )
 
-                # Store model
                 self.models_[model_name] = model
 
-                # Evaluate
                 train_score = self._evaluate_model(model, X_train, y_train)
-                test_score = self._evaluate_model(model, X_test, y_test) if X_test is not None else None
+                test_score = None
+                if X_test is not None and y_test is not None and len(X_test) > 0:
+                    test_score = self._evaluate_model(model, X_test, y_test)
+
+                oot_score = None
+                if X_oot is not None and y_oot is not None and len(X_oot) > 0:
+                    oot_score = self._evaluate_model(model, X_oot, y_oot)
+
+                def _safe_gini(value: Optional[float]) -> Optional[float]:
+                    if value is None:
+                        return None
+                    try:
+                        return gini_from_auc(value)
+                    except Exception:
+                        return None
+
+                train_gini = _safe_gini(train_score)
+                test_gini = _safe_gini(test_score)
+                oot_gini = _safe_gini(oot_score)
+                gap_reference = oot_gini if oot_gini is not None else test_gini
+                gap_value = abs(train_gini - gap_reference) if train_gini is not None and gap_reference is not None else None
 
                 self.scores_[model_name] = {
                     'train_auc': train_score,
-                    'test_auc': test_score
+                    'test_auc': test_score,
+                    'oot_auc': oot_score,
+                    'train_gini': train_gini,
+                    'test_gini': test_gini,
+                    'oot_gini': oot_gini,
+                    'train_oot_gap': gap_value,
                 }
 
-                # Get feature importance
                 self.feature_importance_[model_name] = self._get_feature_importance(
                     model, X_train.columns, model_name
                 )
@@ -505,20 +533,21 @@ class ComprehensiveModelBuilder:
                     model, model_name
                 )
 
-                print(f"      Train AUC: {train_score:.4f}", end="")
-                if test_score:
-                    print(f", Test AUC: {test_score:.4f}")
-                else:
-                    print()
+                metrics_to_show = [f"Train AUC: {train_score:.4f}"]
+                if oot_score is not None:
+                    metrics_to_show.append(f"OOT AUC: {oot_score:.4f}")
+                if test_score is not None:
+                    metrics_to_show.append(f"Test AUC: {test_score:.4f}")
+                if gap_value is not None and not np.isinf(gap_value):
+                    metrics_to_show.append(f"|Train-OOT Gini gap|: {gap_value:.4f}")
+                print("      " + ", ".join(metrics_to_show))
 
             except Exception as e:
                 print(f"      Failed: {str(e)[:50]}...")
                 continue
 
-        # Select best model
         best_model_name = self._select_best_model()
 
-        # Handle case when no models trained successfully
         if best_model_name is None or best_model_name not in self.models_:
             return {
                 'models': self.models_,
@@ -769,12 +798,11 @@ class ComprehensiveModelBuilder:
             return self._train_shao_logit(X_train, y_train)
 
         elif model_name == 'GAM':
-            from pygam import LogisticGAM, s
-            # Simple GAM with splines for each feature
-            n_features = X_train.shape[1]
-            model = LogisticGAM(s(0, n_splines=10))
-            for i in range(1, n_features):
-                model += s(i, n_splines=10)
+            model = self._build_gam_model(
+                X_train.shape[1],
+                n_splines=10,
+                lam=0.6,
+            )
 
         else:
             raise ValueError(f"Unknown model: {model_name}")
@@ -831,14 +859,14 @@ class ComprehensiveModelBuilder:
             from sklearn.model_selection import cross_val_score
 
             def objective(trial):
-                # Get hyperparameters based on model type
                 params = self._get_optuna_params(trial, model_name)
+                if model_name == 'GAM':
+                    params = dict(params)
+                    params['n_features'] = X_train.shape[1]
 
-                # Create model
                 model = self._create_model_with_params(model_name, params)
 
-                # Evaluate
-                if X_test is not None and y_test is not None:
+                if X_test is not None and y_test is not None and len(X_test) > 0:
                     model.fit(X_train, y_train)
                     y_pred = model.predict_proba(X_test)[:, 1]
                     score = roc_auc_score(y_test, y_pred)
@@ -848,7 +876,6 @@ class ComprehensiveModelBuilder:
 
                 return score
 
-            # Optimize
             study = optuna.create_study(direction='maximize',
                                        sampler=optuna.samplers.TPESampler(seed=self.config.random_state))
             n_trials = getattr(self.config, 'n_optuna_trials', getattr(self.config, 'n_trials', 20))
@@ -857,8 +884,9 @@ class ComprehensiveModelBuilder:
                 timeout = None
             study.optimize(objective, n_trials=n_trials, timeout=timeout)
 
-            # Train final model with best parameters
-            best_params = study.best_params
+            best_params = dict(study.best_params)
+            if model_name == 'GAM':
+                best_params['n_features'] = X_train.shape[1]
             model = self._create_model_with_params(model_name, best_params)
             model.fit(X_train, y_train)
 
@@ -937,6 +965,21 @@ class ComprehensiveModelBuilder:
 
         return {}
 
+
+    def _build_gam_model(self, n_features: int, *, n_splines: int, lam: float):
+        from pygam import LogisticGAM, s
+
+        n_features = int(n_features)
+        if n_features <= 0:
+            raise ValueError('GAM requires at least one feature for training.')
+
+        n_splines = int(n_splines)
+        lam = float(lam)
+        terms = s(0, n_splines=n_splines, lam=lam)
+        for idx in range(1, n_features):
+            terms = terms + s(idx, n_splines=n_splines, lam=lam)
+        return LogisticGAM(terms=terms, verbose=False)
+
     def _create_model_with_params(self, model_name: str, params: Dict):
         """Create model instance with given parameters."""
 
@@ -1000,16 +1043,13 @@ class ComprehensiveModelBuilder:
             return model
 
         elif model_name == 'GAM':
-            from pygam import LogisticGAM, s
-            # Create GAM with specified parameters
-            n_features = params.get('n_features', 10)  # This should be passed
+            params = dict(params or {})
+            n_features = params.get('n_features', self.n_features_in_)
+            if n_features is None:
+                raise ValueError("GAM requires the number of features to be provided via 'n_features'.")
             n_splines = params.get('n_splines', 10)
             lam = params.get('lam', 0.6)
-
-            model = LogisticGAM(s(0, n_splines=n_splines, lam=lam))
-            for i in range(1, n_features):
-                model += s(i, n_splines=n_splines, lam=lam)
-            return model
+            return self._build_gam_model(int(n_features), n_splines=int(n_splines), lam=float(lam))
 
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -1070,25 +1110,110 @@ class ComprehensiveModelBuilder:
 
         return artifacts
 
-    def _select_best_model(self) -> str:
-        """Select best model based on test performance."""
+    def _select_best_model(self) -> Optional[str]:
+        """Select best model using configurable stability-aware criteria."""
 
         if not self.scores_:
             return None
 
-        best_model = None
-        best_score = -np.inf
+        selection_method = str(getattr(self.config, 'model_selection_method', 'gini_oot') or 'gini_oot').lower()
+        max_gap = getattr(self.config, 'max_train_oot_gap', None)
+        stability_weight = float(getattr(self.config, 'model_stability_weight', 0.0) or 0.0)
+        min_gini = float(getattr(self.config, 'min_gini_threshold', 0.5) or 0.0)
 
-        for model_name, scores in self.scores_.items():
-            # Prioritize test score if available
-            score = scores.get('test_auc', scores.get('train_auc', 0))
+        def _effective_gini(entry):
+            for key in ('oot_gini', 'test_gini', 'train_gini'):
+                value = entry.get(key)
+                if value is not None:
+                    return value
+            return None
 
-            if score > best_score:
-                best_score = score
-                best_model = model_name
+        def _gap_value(entry):
+            gap = entry.get('train_oot_gap')
+            if gap is None:
+                return np.inf
+            return gap
 
-        print(f"    Best model: {best_model} (AUC: {best_score:.4f})")
-        return best_model
+        def _gini_key(entry):
+            value = _effective_gini(entry)
+            return value if value is not None else -np.inf
+
+        stats = []
+        for name, metrics in self.scores_.items():
+            record = dict(metrics)
+            if record.get('train_gini') is None and record.get('train_auc') is not None:
+                record['train_gini'] = gini_from_auc(record['train_auc'])
+            if record.get('test_gini') is None and record.get('test_auc') is not None:
+                record['test_gini'] = gini_from_auc(record['test_auc'])
+            if record.get('oot_gini') is None and record.get('oot_auc') is not None:
+                record['oot_gini'] = gini_from_auc(record['oot_auc'])
+            if record.get('train_oot_gap') is None:
+                ref = record.get('oot_gini')
+                if ref is None:
+                    ref = record.get('test_gini')
+                train_gini = record.get('train_gini')
+                if train_gini is not None and ref is not None:
+                    record['train_oot_gap'] = abs(train_gini - ref)
+            stats.append({'model_name': name, **record})
+
+        if not stats:
+            return None
+
+        candidates = stats
+        if max_gap is not None:
+            filtered = [rec for rec in stats if _gap_value(rec) <= max_gap]
+            if filtered:
+                candidates = filtered
+            else:
+                print(f"      Warning: No models satisfy stability gap <= {max_gap}. Using full set.")
+
+        if not candidates:
+            return None
+
+        selection = selection_method
+        if selection == 'balanced':
+            for rec in candidates:
+                gini_val = _effective_gini(rec)
+                gap_val = _gap_value(rec)
+                if gini_val is None:
+                    rec['balanced_score'] = -np.inf
+                else:
+                    penalty = gap_val
+                    if np.isinf(penalty):
+                        penalty = 0.0 if stability_weight == 0 else np.inf
+                    rec['balanced_score'] = (1 - stability_weight) * gini_val - stability_weight * penalty
+            best = max(candidates, key=lambda rec: rec.get('balanced_score', -np.inf))
+        elif selection == 'stable':
+            eligible = [rec for rec in candidates if (_effective_gini(rec) is not None and _effective_gini(rec) >= min_gini)]
+            if eligible:
+                best = min(eligible, key=lambda rec: (_gap_value(rec), -_gini_key(rec)))
+            else:
+                best = max(candidates, key=lambda rec: (_gini_key(rec), -_gap_value(rec)))
+        elif selection == 'conservative':
+            best = min(candidates, key=lambda rec: (_gap_value(rec), -_gini_key(rec)))
+        else:
+            best = max(candidates, key=lambda rec: (_gini_key(rec), -_gap_value(rec)))
+
+        metric_label = 'Train'
+        best_auc = best.get('train_auc')
+        if best.get('oot_auc') is not None:
+            metric_label = 'OOT'
+            best_auc = best['oot_auc']
+        elif best.get('test_auc') is not None:
+            metric_label = 'Test'
+            best_auc = best['test_auc']
+
+        if best_auc is not None:
+            auc_display = f"{best_auc:.4f}"
+        else:
+            auc_display = 'n/a'
+        gap_val = best.get('train_oot_gap')
+        gap_str = ''
+        if gap_val is not None and not np.isinf(gap_val):
+            gap_str = f", |train-{metric_label.lower()} gini gap|: {gap_val:.4f}"
+
+        print(f"    Best model: {best['model_name']} ({metric_label} AUC: {auc_display}, method: {selection_method}){gap_str}")
+        return best['model_name']
 
     def calculate_shap_importance(self, model, X: pd.DataFrame, max_samples: int = 1000) -> pd.DataFrame:
         """Calculate SHAP feature importance."""

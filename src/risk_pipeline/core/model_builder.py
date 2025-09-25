@@ -60,6 +60,98 @@ def _make_xgb_classifier(**kwargs):
     return _XGBClassifier(**params)
 
 
+class GAMWrapper(BaseEstimator, ClassifierMixin):
+    """Thin wrapper around pygam.LogisticGAM with pandas-friendly preprocessing."""
+
+    def __init__(
+        self,
+        n_splines: int = 10,
+        lam: float = 0.6,
+        max_iter: int = 500,
+        max_samples: int = 20000,
+        random_state: Optional[int] = None,
+        verbose: bool = False,
+    ):
+        self.n_splines = int(n_splines)
+        self.lam = float(lam)
+        self.max_iter = int(max_iter)
+        self.max_samples = int(max_samples) if max_samples else None
+        self.random_state = random_state
+        self.verbose = verbose
+        self.model_ = None
+        self.feature_names_in_: List[str] = []
+        self.fill_values_: Optional[pd.Series] = None
+        self.classes_ = np.array([0, 1])
+        self.n_features_in_: Optional[int] = None
+
+    def fit(self, X, y):
+        X_df = self._prepare_features(X)
+        y_series = pd.Series(y).astype(float)
+        y_series = y_series.reindex(X_df.index)
+        if self.max_samples and len(X_df) > self.max_samples:
+            sampled_idx = X_df.sample(self.max_samples, random_state=self.random_state).index
+            X_df = X_df.loc[sampled_idx]
+            y_series = y_series.loc[sampled_idx]
+        self.feature_names_in_ = list(X_df.columns)
+        self.fill_values_ = X_df.median().fillna(0.0)
+        X_matrix = X_df.fillna(self.fill_values_).to_numpy(dtype=float, copy=False)
+        y_array = y_series.fillna(y_series.median()).to_numpy(dtype=float, copy=False)
+        if X_matrix.shape[0] != y_array.shape[0]:
+            raise ValueError("GAMWrapper received misaligned feature and target lengths.")
+        self.n_features_in_ = X_matrix.shape[1]
+        self.model_ = self._build_model(self.n_features_in_)
+        self.model_.fit(X_matrix, y_array)
+        return self
+
+    def predict_proba(self, X):
+        if self.model_ is None:
+            raise ValueError('GAM model is not fitted yet.')
+        X_matrix = self._transform_features(X)
+        proba = np.asarray(self.model_.predict_proba(X_matrix))
+        if proba.ndim == 1:
+            return np.column_stack([1 - proba, proba])
+        return proba
+
+    def predict(self, X):
+        probs = self.predict_proba(X)
+        return (probs[:, 1] >= 0.5).astype(int)
+
+    def score(self, X, y):
+        from sklearn.metrics import roc_auc_score
+        probs = self.predict_proba(X)[:, 1]
+        return roc_auc_score(y, probs)
+
+    def _prepare_features(self, X: Any) -> pd.DataFrame:
+        X_df = pd.DataFrame(X).copy()
+        numeric_cols = [col for col in X_df.columns if pd.api.types.is_numeric_dtype(X_df[col])]
+        if not numeric_cols:
+            raise ValueError('GAM requires at least one numeric feature after preprocessing.')
+        X_df = X_df[numeric_cols]
+        X_df = X_df.apply(pd.to_numeric, errors='coerce')
+        X_df = X_df.replace([np.inf, -np.inf], np.nan)
+        return X_df
+
+    def _transform_features(self, X: Any) -> np.ndarray:
+        matrix = pd.DataFrame(X).copy()
+        for col in self.feature_names_in_:
+            if col not in matrix.columns:
+                matrix[col] = np.nan
+        matrix = matrix[self.feature_names_in_]
+        matrix = matrix.apply(pd.to_numeric, errors='coerce')
+        matrix = matrix.replace([np.inf, -np.inf], np.nan)
+        fill_values = self.fill_values_ if self.fill_values_ is not None else matrix.median().fillna(0.0)
+        matrix = matrix.fillna(fill_values)
+        return matrix.to_numpy(dtype=float, copy=False)
+
+    def _build_model(self, n_features: int):
+        from pygam import LogisticGAM, s
+
+        terms = s(0, n_splines=self.n_splines, lam=self.lam)
+        for idx in range(1, n_features):
+            terms = terms + s(idx, n_splines=self.n_splines, lam=self.lam)
+        return LogisticGAM(terms=terms, max_iter=self.max_iter, verbose=self.verbose)
+
+
 class WoeBoostClassifier(BaseEstimator, ClassifierMixin):
     """Gradient boosted model configured for WOE-transformed features."""
 
@@ -797,11 +889,14 @@ class ComprehensiveModelBuilder:
         elif model_name == 'ShaoLogit':
             return self._train_shao_logit(X_train, y_train)
 
+
         elif model_name == 'GAM':
-            model = self._build_gam_model(
-                X_train.shape[1],
+            model = GAMWrapper(
                 n_splines=10,
                 lam=0.6,
+                max_iter=getattr(self.config, 'gam_max_iter', 500),
+                max_samples=getattr(self.config, 'gam_sample_size', 20000),
+                random_state=getattr(self.config, 'random_state', None),
             )
 
         else:
@@ -860,10 +955,6 @@ class ComprehensiveModelBuilder:
 
             def objective(trial):
                 params = self._get_optuna_params(trial, model_name)
-                if model_name == 'GAM':
-                    params = dict(params)
-                    params['n_features'] = X_train.shape[1]
-
                 model = self._create_model_with_params(model_name, params)
 
                 if X_test is not None and y_test is not None and len(X_test) > 0:
@@ -885,8 +976,6 @@ class ComprehensiveModelBuilder:
             study.optimize(objective, n_trials=n_trials, timeout=timeout)
 
             best_params = dict(study.best_params)
-            if model_name == 'GAM':
-                best_params['n_features'] = X_train.shape[1]
             model = self._create_model_with_params(model_name, best_params)
             model.fit(X_train, y_train)
 
@@ -966,20 +1055,6 @@ class ComprehensiveModelBuilder:
         return {}
 
 
-    def _build_gam_model(self, n_features: int, *, n_splines: int, lam: float):
-        from pygam import LogisticGAM, s
-
-        n_features = int(n_features)
-        if n_features <= 0:
-            raise ValueError('GAM requires at least one feature for training.')
-
-        n_splines = int(n_splines)
-        lam = float(lam)
-        terms = s(0, n_splines=n_splines, lam=lam)
-        for idx in range(1, n_features):
-            terms = terms + s(idx, n_splines=n_splines, lam=lam)
-        return LogisticGAM(terms=terms, verbose=False)
-
     def _create_model_with_params(self, model_name: str, params: Dict):
         """Create model instance with given parameters."""
 
@@ -1042,14 +1117,18 @@ class ComprehensiveModelBuilder:
                 model = model.set_params(**params)
             return model
 
+
         elif model_name == 'GAM':
             params = dict(params or {})
-            n_features = params.get('n_features', self.n_features_in_)
-            if n_features is None:
-                raise ValueError("GAM requires the number of features to be provided via 'n_features'.")
-            n_splines = params.get('n_splines', 10)
-            lam = params.get('lam', 0.6)
-            return self._build_gam_model(int(n_features), n_splines=int(n_splines), lam=float(lam))
+            params.pop('n_features', None)
+            return GAMWrapper(
+                n_splines=int(params.get('n_splines', 10)),
+                lam=float(params.get('lam', 0.6)),
+                max_iter=int(params.get('max_iter', getattr(self.config, 'gam_max_iter', 500))),
+                max_samples=getattr(self.config, 'gam_sample_size', 20000),
+                random_state=getattr(self.config, 'random_state', None),
+                verbose=bool(params.get('verbose', False)),
+            )
 
         raise ValueError(f"Unknown model: {model_name}")
 

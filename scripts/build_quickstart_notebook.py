@@ -19,8 +19,7 @@ cells.append(nbf.v4.new_markdown_cell(
 Install the latest development build of the pipeline (latest development build) directly from GitHub.
 Re-run this cell if you refresh the kernel."""))
 
-cells.append(nbf.v4.new_code_cell("%pip uninstall -y risk-pipeline risk_pipeline risk-pipeline-ml risk-pipeline-notebook"))
-cells.append(nbf.v4.new_code_cell("%pip install --quiet --no-cache-dir --upgrade --force-reinstall \"risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development\""))
+cells.append(nbf.v4.new_code_cell("%pip install --quiet --no-cache-dir --upgrade --no-deps --force-reinstall \"risk-pipeline[ml,notebook] @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development\""))
 
 cells.append(nbf.v4.new_markdown_cell(
 """## 1. Imports and sample loader

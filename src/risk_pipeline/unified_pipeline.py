@@ -212,6 +212,8 @@ class UnifiedRiskPipeline:
                     'scoring_results': score_out.get('dataframe'),
                     'best_auc': best_auc,
                     'selected_features': getattr(self, 'selected_features_', []),
+                    'selection_history': sel_res.get('selection_history'),
+                    'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
                 }
 
                 # Restore state for the next flow
@@ -240,6 +242,11 @@ class UnifiedRiskPipeline:
                     'woe_results': best_flow['woe_results'],
                     'risk_bands': best_flow['risk_bands'],
                     'scoring_output': best_flow.get('scoring_output'),
+                    'model_results': best_flow['model_results'],
+                    'selection_results': best_flow['selection_results'],
+                    'calibration_stage1': best_flow['stage1'],
+                    'calibration_stage2': best_flow['stage2'],
+                    'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
                 }
                 reports = self._generate_reports()
 
@@ -256,6 +263,8 @@ class UnifiedRiskPipeline:
                     'stage2_details': best_flow['stage2'].get('stage2_details') if isinstance(best_flow['stage2'], dict) else None,
                     'scoring_output': best_flow.get('scoring_output'),
                     'scoring_results': best_flow.get('scoring_output', {}).get('dataframe') if best_flow.get('scoring_output') else None,
+                    'selection_history': best_flow['selection_results'].get('selection_history'),
+                    'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
                     'scoring_metrics': best_flow.get('scoring_output', {}).get('metrics') if best_flow.get('scoring_output') else None,
                     'scoring_reports': best_flow.get('scoring_output', {}).get('reports') if best_flow.get('scoring_output') else None,
                     'reports': reports,
@@ -330,6 +339,13 @@ class UnifiedRiskPipeline:
 
                 # Step 10: Generate Reports
                 print("\n[Step 10/10] Generating Reports...")
+                self.results_.update({
+                    'model_results': model_results,
+                    'selection_results': selection_results,
+                    'calibration_stage1': stage1_results,
+                    'calibration_stage2': stage2_results,
+                    'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
+                })
                 reports = self._generate_reports()
 
                 # Compile final results
@@ -351,7 +367,9 @@ class UnifiedRiskPipeline:
                     'config': self.config.__dict__,
                     'selected_features': self.selected_features_,
                     'best_model_name': model_results.get('best_model_name'),
-                    'scores': model_results.get('scores', {})
+                    'scores': model_results.get('scores', {}),
+                    'selection_history': selection_results.get('selection_history'),
+                    'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
                 }
 
                 self._persist_model_artifacts()
@@ -385,6 +403,10 @@ class UnifiedRiskPipeline:
             )
             df_processed.drop(columns='__tsfresh_id__', inplace=True)
             print(f"  Added {tsfresh_features.shape[1]} tsfresh features")
+
+        tsfresh_meta = getattr(self.data_processor, 'tsfresh_metadata_', None)
+        if tsfresh_meta is not None:
+            self.data_['tsfresh_metadata'] = tsfresh_meta.copy()
 
         # Identify variable types
         numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
@@ -486,7 +508,6 @@ class UnifiedRiskPipeline:
         univariate_gini = {}
 
         for col in feature_cols:
-            print(f"  Processing {col}...")
 
             # Calculate WOE
             woe_result = self.woe_transformer.fit_transform_single(
@@ -514,6 +535,8 @@ class UnifiedRiskPipeline:
             # Check WOE quality
             if gini_woe < gini_raw * 0.8:  # If WOE drops Gini by >20%
                 print(f"    WARNING: WOE significantly reduces Gini for {col}")
+
+        print(f"  WOE hesaplandi: {len(feature_cols)} degisken")
 
         results['woe_values'] = woe_values
         results['univariate_gini'] = univariate_gini
@@ -728,9 +751,9 @@ class UnifiedRiskPipeline:
                 'details': step_details
             })
 
-            selected_features = selected
-            print(f"    Remaining features: {len(selected_features)}")
+            print(f"    {method}: {len(removed)} degisken cikarildi, {len(selected)} kaldi")
 
+            selected_features = selected
         return {
             'selected_features': selected_features,
             'selection_history': selection_history
@@ -1180,6 +1203,9 @@ class UnifiedRiskPipeline:
 
         if getattr(self, 'data_dictionary', None) is not None:
             self.reporter.register_data_dictionary(self.data_dictionary)
+
+        self.reporter.register_tsfresh_metadata(self.results_.get('tsfresh_metadata'))
+        self.reporter.register_selection_history(self.results_.get('selection_results'))
 
         # Model performance report
         if model_results:

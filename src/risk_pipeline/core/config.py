@@ -392,6 +392,8 @@ class Config:
     calculate_shap: bool = True
 
     shap_sample_size: int = 1000
+    gam_sample_size: int = 20000
+    gam_max_iter: int = 500
 
     
 
@@ -723,6 +725,8 @@ class Config:
         else:
             self.univariate_gini_threshold = getattr(self, 'min_univariate_gini', getattr(self, 'gini_threshold', 0.05))
 
+        self.gam_sample_size = int(getattr(self, 'gam_sample_size', 20000))
+        self.gam_max_iter = int(getattr(self, 'gam_max_iter', 500))
         self.max_features = getattr(self, 'max_features', getattr(self, 'stepwise_max_features', 30))
         self.max_features_per_cluster = getattr(self, 'max_features_per_cluster', 1)
 

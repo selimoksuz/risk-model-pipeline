@@ -16,6 +16,8 @@ class EnhancedReporter:
         self.config = config
         self.reports_: Dict[str, Any] = {}
         self.data_dictionary: Optional[pd.DataFrame] = None
+        self.tsfresh_metadata: Optional[pd.DataFrame] = None
+        self.selection_history: Optional[pd.DataFrame] = None
 
     def register_data_dictionary(self, dictionary: Optional[pd.DataFrame]) -> None:
         '''Store a normalized data dictionary for later lookups.'''
@@ -23,8 +25,80 @@ class EnhancedReporter:
         if normalized is None:
             self.data_dictionary = None
             return
+
+
+
         self.data_dictionary = normalized
         self.reports_['data_dictionary'] = normalized
+
+
+    def register_tsfresh_metadata(self, metadata: Optional[pd.DataFrame]) -> None:
+        """Keep a copy of tsfresh-derived feature metadata for reporting."""
+
+        if metadata is None:
+            self.tsfresh_metadata = None
+            self.reports_.pop('tsfresh_metadata', None)
+            return
+
+        if not isinstance(metadata, pd.DataFrame):
+            metadata = pd.DataFrame(metadata)
+
+        meta = metadata.copy()
+        if meta.empty:
+            self.tsfresh_metadata = meta
+            self.reports_['tsfresh_metadata'] = meta
+            return
+
+        rename_map: Dict[str, str] = {}
+        for col in meta.columns:
+            key = str(col).strip().lower()
+            if key in {'base_variable', 'raw_feature', 'raw_variable', 'source', 'source_var'}:
+                rename_map[col] = 'source_variable'
+            elif key in {'stat', 'stats', 'aggregation'}:
+                rename_map[col] = 'statistic'
+            elif key in {'generator', 'method'}:
+                rename_map[col] = 'generator'
+        meta = meta.rename(columns=rename_map)
+        if 'feature' in meta.columns:
+            meta['feature'] = meta['feature'].astype(str)
+        self.tsfresh_metadata = meta
+        self.reports_['tsfresh_metadata'] = meta
+
+    def register_selection_history(self, selection_results: Optional[Dict[str, Any]]) -> None:
+        """Persist feature selection progression as a flat table."""
+
+        history = None
+        if isinstance(selection_results, dict):
+            history = selection_results.get('selection_history')
+        if not history:
+            self.selection_history = None
+            self.reports_.pop('selection_history', None)
+            return
+
+        rows: List[Dict[str, Any]] = []
+        for step in history:
+            if not isinstance(step, dict):
+                continue
+            removed = step.get('removed')
+            if isinstance(removed, set):
+                removed_list = sorted(str(item) for item in removed)
+            elif isinstance(removed, (list, tuple)):
+                removed_list = [str(item) for item in removed]
+            elif removed is None:
+                removed_list = []
+            else:
+                removed_list = [str(removed)]
+            rows.append({
+                'method': step.get('method'),
+                'before': step.get('before'),
+                'after': step.get('after'),
+                'removed_count': len(removed_list),
+                'removed_features': ', '.join(removed_list),
+                'details': step.get('details'),
+            })
+        df = pd.DataFrame(rows)
+        self.selection_history = df
+        self.reports_['selection_history'] = df
 
     def generate_model_report(
         self,
@@ -47,6 +121,7 @@ class EnhancedReporter:
         self.reports_["model_performance"] = report
         return report
 
+
     def generate_feature_report(
         self,
         models: Dict[str, Any],
@@ -57,8 +132,15 @@ class EnhancedReporter:
 
         dictionary = self._normalize_data_dictionary(data_dictionary)
         selected_features = models.get("selected_features", [])
-        woe_values = woe_results.get("woe_values", {})
-        gini_values = woe_results.get("univariate_gini", {})
+        woe_values = woe_results.get("woe_values", {}) if isinstance(woe_results, dict) else {}
+        gini_values = woe_results.get("univariate_gini", {}) if isinstance(woe_results, dict) else {}
+
+        tsfresh_lookup: Dict[str, Dict[str, Any]] = {}
+        if isinstance(self.tsfresh_metadata, pd.DataFrame) and not self.tsfresh_metadata.empty:
+            for _, row in self.tsfresh_metadata.iterrows():
+                feature_key = str(row.get('feature', '')).strip()
+                if feature_key:
+                    tsfresh_lookup.setdefault(feature_key, {}).update(row.to_dict())
 
         records: List[Dict[str, Any]] = []
 
@@ -108,6 +190,19 @@ class EnhancedReporter:
                 if mask.any():
                     record[f"importance_{model_name}"] = importance_df.loc[mask, "importance"].iloc[0]
 
+            ts_meta = tsfresh_lookup.get(str(feature)) or tsfresh_lookup.get(raw_feature)
+            if ts_meta:
+                record.update(
+                    {
+                        "is_tsfresh": True,
+                        "tsfresh_source": ts_meta.get('source_variable'),
+                        "tsfresh_statistic": ts_meta.get('statistic'),
+                        "tsfresh_generator": ts_meta.get('generator'),
+                    }
+                )
+            else:
+                record['is_tsfresh'] = False
+
             records.append(record)
 
         features_df = pd.DataFrame(records)
@@ -121,16 +216,17 @@ class EnhancedReporter:
                 "gini_raw",
                 "gini_woe",
                 "gini_drop",
+                "is_tsfresh",
+                "tsfresh_source",
+                "tsfresh_statistic",
+                "tsfresh_generator",
             ]
             ordered_cols = [c for c in preferred_order if c in features_df.columns]
             remaining_cols = [c for c in features_df.columns if c not in ordered_cols]
             features_df = features_df[ordered_cols + remaining_cols]
             if "iv" in features_df.columns:
                 features_df = features_df.sort_values("iv", ascending=False).reset_index(drop=True)
-
         self.reports_["features"] = features_df
-        if dictionary is not None:
-            self.reports_["data_dictionary"] = dictionary
         return features_df
 
     def generate_best_model_reports(
@@ -404,6 +500,12 @@ class EnhancedReporter:
 
             features = self.reports_.get("features")
             write_df("Features", features)
+
+            tsfresh_meta = self.reports_.get("tsfresh_metadata")
+            write_df("TSFresh_Metadata", tsfresh_meta)
+
+            selection_history = self.reports_.get("selection_history")
+            write_df("Selection_History", selection_history)
 
             final_vars = self.reports_.get("final_variables")
             write_df("Final_Variables", final_vars)

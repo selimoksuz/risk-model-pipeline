@@ -861,11 +861,18 @@ class UnifiedRiskPipeline:
             method=self.config.calibration_method
         )
 
+        metrics = self.calibrator.evaluate_calibration(
+            calibrated_model, X_cal, y_cal
+        )
+        stage1_details = {
+            'method': self.config.calibration_method,
+            'long_run_rate': float(metrics.get('long_run_rate', y_cal.mean())),
+            'base_rate': float(metrics.get('base_rate', y_cal.mean()))
+        }
         return {
             'calibrated_model': calibrated_model,
-            'calibration_metrics': self.calibrator.evaluate_calibration(
-                calibrated_model, X_cal, y_cal
-            )
+            'calibration_metrics': metrics,
+            'stage1_details': stage1_details
         }
 
     def _apply_stage2_calibration(self, stage1_results: Dict, stage2_df: pd.DataFrame) -> Dict:
@@ -1191,6 +1198,15 @@ class UnifiedRiskPipeline:
                 model_results, woe_results, self.data_dictionary
             )
             reports.update(best_reports)
+
+            woe_tables = self.reporter.generate_woe_tables(
+                woe_results, model_results.get('selected_features', [])
+            )
+            if woe_tables:
+                reports['woe_tables'] = woe_tables
+            woe_mapping = self.reporter.reports_.get('woe_mapping')
+            if isinstance(woe_mapping, pd.DataFrame) and not woe_mapping.empty:
+                reports['woe_mapping'] = woe_mapping
 
         # Risk band report
         if 'risk_bands' in self.results_ and self.results_['risk_bands']:

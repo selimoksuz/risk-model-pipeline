@@ -16,6 +16,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+from .utils import predict_positive_proba
+
 class TwoStageCalibrator:
     """
     Two-stage calibration for risk models.
@@ -53,7 +55,7 @@ class TwoStageCalibrator:
         X_filled = X.fillna(0)
 
         # Get base predictions
-        base_scores = model.predict_proba(X_filled)[:, 1]
+        base_scores = predict_positive_proba(model, X_filled)
 
         # Calculate long-run default rate (Stage-1 anchor)
         long_run_rate = y.mean()
@@ -74,8 +76,11 @@ class TwoStageCalibrator:
         self.stage1_calibrator_ = calibrated_model
 
         # Evaluate calibration
-        calibrated_scores = calibrated_model.predict_proba(X_filled)[:, 1]
+        calibrated_scores = predict_positive_proba(calibrated_model, X_filled)
         metrics = self._evaluate_calibration_quality(calibrated_scores, y)
+        metrics['long_run_rate'] = float(long_run_rate)
+        metrics['base_rate'] = float(base_scores.mean())
+        metrics['method'] = method
 
         print(f"      ECE: {metrics['ece']:.4f}")
         print(f"      MCE: {metrics['mce']:.4f}")
@@ -92,7 +97,7 @@ class TwoStageCalibrator:
         print(f"    Applying Stage 2 calibration (method={method})...")
 
         X_recent_filled = X_recent.fillna(0) if hasattr(X_recent, 'fillna') else X_recent
-        stage1_scores = stage1_model.predict_proba(X_recent_filled)[:, 1]
+        stage1_scores = predict_positive_proba(stage1_model, X_recent_filled)
 
         recent_rate = float(y_recent.mean())
         stage1_rate = float(stage1_scores.mean())
@@ -144,14 +149,21 @@ class TwoStageCalibrator:
 
         self.stage2_calibrator_ = adjusted_model
 
-        adjusted_scores = adjusted_model.predict_proba(X_recent_filled)[:, 1]
+        adjusted_scores = predict_positive_proba(adjusted_model, X_recent_filled)
         metrics = self._evaluate_calibration_quality(adjusted_scores, y_recent)
+        achieved_rate = float(adjusted_scores.mean())
 
         print(f"      ECE: {metrics['ece']:.4f}")
         print(f"      MCE: {metrics['mce']:.4f}")
-        print(f"      Adjusted mean prediction: {adjusted_scores.mean():.2%}")
+        print(f"      Adjusted mean prediction: {achieved_rate:.2%}")
 
-        stage2_info['achieved_rate'] = float(adjusted_scores.mean())
+        stage2_info['achieved_rate'] = achieved_rate
+        metrics['method'] = method
+        metrics['recent_rate'] = recent_rate
+        metrics['stage1_rate'] = stage1_rate
+        metrics['target_rate'] = float(stage2_info.get('target_rate', recent_rate))
+        metrics['achieved_rate'] = achieved_rate
+
         self.calibration_metrics_['stage2'] = metrics
         self.stage2_metadata_ = stage2_info
 
@@ -160,18 +172,36 @@ class TwoStageCalibrator:
     def _isotonic_calibration(self, model, X: pd.DataFrame, y: pd.Series):
         """Apply isotonic regression calibration."""
 
-        # Handle NaN values
         X_filled = X.fillna(0)
+        base_scores = predict_positive_proba(model, X_filled)
 
-        # Use sklearn's CalibratedClassifierCV with isotonic method
-        calibrated = CalibratedClassifierCV(
-            model,
-            method='isotonic',
-            cv='prefit'  # Model is already fitted
-        )
+        try:
+            calibrated = CalibratedClassifierCV(
+                model,
+                method='isotonic',
+                cv='prefit'
+            )
+            calibrated.fit(X_filled, y)
+            return calibrated
+        except Exception:
+            iso = IsotonicRegression(out_of_bounds='clip')
+            iso.fit(base_scores, y)
 
-        calibrated.fit(X_filled, y)
-        return calibrated
+            class _IsotonicWrapper:
+                def __init__(self, base_model, iso_model):
+                    self.base_model = base_model
+                    self.iso_model = iso_model
+                    self.classes_ = np.array([0, 1])
+
+                def predict_proba(self, X):
+                    probs = predict_positive_proba(self.base_model, X)
+                    calibrated_probs = np.clip(self.iso_model.predict(probs), 0, 1)
+                    return np.column_stack([1 - calibrated_probs, calibrated_probs])
+
+                def predict(self, X):
+                    return (predict_positive_proba(self, X) > 0.5).astype(int)
+
+            return _IsotonicWrapper(model, iso)
 
     def _platt_calibration(self, model, X: pd.DataFrame, y: pd.Series):
         """Apply Platt scaling (sigmoid) calibration."""
@@ -225,12 +255,12 @@ class TwoStageCalibrator:
                 self.b = b
 
             def predict_proba(self, X):
-                base_probs = self.base_model.predict_proba(X)[:, 1]
+                base_probs = predict_positive_proba(self.base_model, X)
                 calibrated = beta.cdf(base_probs, self.a, self.b)
                 return np.column_stack([1 - calibrated, calibrated])
 
             def predict(self, X):
-                return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+                return (predict_positive_proba(self, X) > 0.5).astype(int)
 
         return BetaCalibratedModel(model, a_opt, b_opt)
 
@@ -263,12 +293,12 @@ class TwoStageCalibrator:
 
             def predict_proba(self, X):
                 X_filled = X.fillna(0) if hasattr(X, 'fillna') else X
-                base_probs = self.base_model.predict_proba(X_filled)[:, 1]
+                base_probs = predict_positive_proba(self.base_model, X_filled)
                 scaled = np.clip(base_probs * self.scale, 0, 1)
                 return np.column_stack([1 - scaled, scaled])
 
             def predict(self, X):
-                return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+                return (predict_positive_proba(self, X) > 0.5).astype(int)
 
         return ScaledModel(base_model, scale)
 
@@ -293,7 +323,7 @@ class TwoStageCalibrator:
                 self.adjustment = adjustment
 
             def predict_proba(self, X):
-                base_probs = self.base_model.predict_proba(X)[:, 1]
+                base_probs = predict_positive_proba(self.base_model, X)
 
                 # Apply non-linear adjustment (more conservative for lower scores)
                 adjusted = base_probs ** (1 / self.adjustment)
@@ -308,7 +338,7 @@ class TwoStageCalibrator:
                 return np.column_stack([1 - adjusted, adjusted])
 
             def predict(self, X):
-                return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+                return (predict_positive_proba(self, X) > 0.5).astype(int)
 
         return LowerMeanAdjustedModel(stage1_model, adjustment)
 
@@ -330,7 +360,7 @@ class TwoStageCalibrator:
                 self.target_rate = target_rate
 
             def predict_proba(self, X):
-                base_probs = self.base_model.predict_proba(X)[:, 1]
+                base_probs = predict_positive_proba(self.base_model, X)
 
                 # Cap at upper bound
                 adjusted = np.minimum(base_probs, self.upper_bound)
@@ -344,7 +374,7 @@ class TwoStageCalibrator:
                 return np.column_stack([1 - adjusted, adjusted])
 
             def predict(self, X):
-                return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+                return (predict_positive_proba(self, X) > 0.5).astype(int)
 
         return UpperBoundAdjustedModel(stage1_model, upper_bound, recent_rate)
 
@@ -360,7 +390,7 @@ class TwoStageCalibrator:
 
         recent_model = LogisticRegression(max_iter=1000)
         recent_model.fit(X_recent, y_recent)
-        recent_scores = recent_model.predict_proba(X_recent)[:, 1]
+        recent_scores = predict_positive_proba(recent_model, X_recent)
 
         # Find optimal weight
         best_weight = 0.5
@@ -381,14 +411,14 @@ class TwoStageCalibrator:
                 self.weight = weight
 
             def predict_proba(self, X):
-                stage1_probs = self.stage1_model.predict_proba(X)[:, 1]
-                recent_probs = self.recent_model.predict_proba(X)[:, 1]
+                stage1_probs = predict_positive_proba(self.stage1_model, X)
+                recent_probs = predict_positive_proba(self.recent_model, X)
 
                 combined = self.weight * stage1_probs + (1 - self.weight) * recent_probs
                 return np.column_stack([1 - combined, combined])
 
             def predict(self, X):
-                return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+                return (predict_positive_proba(self, X) > 0.5).astype(int)
 
         return WeightedModel(stage1_model, recent_model, best_weight)
 
@@ -403,12 +433,12 @@ class TwoStageCalibrator:
                 self.shift = shift
 
             def predict_proba(self, X):
-                base_probs = self.base_model.predict_proba(X)[:, 1]
+                base_probs = predict_positive_proba(self.base_model, X)
                 shifted = np.clip(base_probs + self.shift, 0, 1)
                 return np.column_stack([1 - shifted, shifted])
 
             def predict(self, X):
-                return (self.predict_proba(X)[:, 1] > 0.5).astype(int)
+                return (predict_positive_proba(self, X) > 0.5).astype(int)
 
         return ShiftedModel(stage1_model, shift)
 
@@ -529,6 +559,6 @@ class TwoStageCalibrator:
 
         # Handle NaN values
         X_filled = X.fillna(0)
-        predictions = model.predict_proba(X_filled)[:, 1]
+        predictions = predict_positive_proba(model, X_filled)
         return self._evaluate_calibration_quality(predictions, y)
 

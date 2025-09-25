@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import re
 
 
 class EnhancedReporter:
@@ -215,20 +216,28 @@ class EnhancedReporter:
         """Return WOE detail tables for requested features."""
 
         tables: Dict[str, pd.DataFrame] = {}
+        combined_frames: List[pd.DataFrame] = []
+        woe_values = woe_results.get("woe_values", {}) or {}
 
         for feature in selected_features:
-            woe_info = woe_results.get("woe_values", {}).get(feature)
+            raw_feature = self._extract_raw_feature(feature)
+            woe_key = self._resolve_woe_key(raw_feature, feature, woe_values)
+            woe_info = woe_values.get(woe_key)
             if not woe_info or "stats" not in woe_info:
                 continue
 
             table = pd.DataFrame(woe_info["stats"])
             table["feature"] = feature
+            table["raw_feature"] = raw_feature
             table["type"] = woe_info.get("type", "unknown")
             if "woe" in table.columns:
                 table = table.sort_values("woe").reset_index(drop=True)
             tables[feature] = table
+            combined_frames.append(table.copy())
 
         self.reports_["woe_tables"] = tables
+        if combined_frames:
+            self.reports_["woe_mapping"] = pd.concat(combined_frames, ignore_index=True)
         return tables
 
     def generate_risk_band_report(self, risk_bands: Dict[str, Any]) -> pd.DataFrame:
@@ -263,6 +272,8 @@ class EnhancedReporter:
 
         self.reports_["risk_bands"] = bands_df
         self.reports_["risk_bands_summary"] = {"Risk Bands Summary": summary_lines}
+        if summary_lines:
+            self.reports_["risk_bands_summary_table"] = pd.DataFrame({'summary': summary_lines})
         return bands_df
 
     def generate_calibration_report(
@@ -279,12 +290,20 @@ class EnhancedReporter:
                 "method": getattr(self.config, "calibration_method", "unknown"),
                 "metrics": stage1_results.get("calibration_metrics", {}),
             }
+            details = stage1_results.get("stage1_details") or {}
+            if details:
+                report["stage1"]["details"] = details
+                self.reports_["stage1_details"] = details
 
         if stage2_results:
             report["stage2"] = {
                 "method": getattr(self.config, "stage2_method", "unknown"),
                 "metrics": stage2_results.get("stage2_metrics", {}),
             }
+            details = stage2_results.get("stage2_details") or {}
+            if details:
+                report["stage2"]["details"] = details
+                self.reports_["stage2_details"] = details
 
         self.reports_["calibration"] = report
         return report
@@ -357,28 +376,100 @@ class EnhancedReporter:
         lines.append("=" * 80)
         return "\n".join(lines)
 
+
     def export_to_excel(self, filepath: str) -> None:
         """Persist collected reports to an Excel workbook."""
 
+        used_names: set[str] = set()
+
+        def safe_sheet_name(name: str) -> str:
+            cleaned = re.sub(r"[^0-9A-Za-z _-]", "_", str(name)).strip()
+            cleaned = cleaned or "Sheet"
+            cleaned = cleaned[:31]
+            base = cleaned
+            counter = 1
+            while cleaned in used_names:
+                suffix = f"_{counter}"
+                cleaned = (base[: 31 - len(suffix)] + suffix).strip() or f"Sheet_{counter}"
+                counter += 1
+            used_names.add(cleaned)
+            return cleaned
+
         with pd.ExcelWriter(filepath, engine="xlsxwriter") as writer:
+            def write_df(name: str, df: pd.DataFrame, *, index: bool = False) -> None:
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    return
+                sheet = safe_sheet_name(name)
+                df.to_excel(writer, sheet_name=sheet, index=index)
+
             features = self.reports_.get("features")
-            if isinstance(features, pd.DataFrame) and not features.empty:
-                features.to_excel(writer, sheet_name="Features", index=False)
+            write_df("Features", features)
+
+            final_vars = self.reports_.get("final_variables")
+            write_df("Final_Variables", final_vars)
+
+            best_bins = self.reports_.get("best_model_bins")
+            write_df("Best_Model_Bins", best_bins)
+
+            woe_mapping = self.reports_.get("woe_mapping")
+            write_df("WOE_Mapping", woe_mapping)
 
             woe_tables = self.reports_.get("woe_tables", {})
-            for index, (feature, table) in enumerate(woe_tables.items()):
-                sheet_name = f"WOE_{index + 1}" if index < 10 else f"WOE_{feature[:20]}"
-                table.to_excel(writer, sheet_name=sheet_name, index=False)
+            if isinstance(woe_tables, dict):
+                for idx, (feature, table) in enumerate(woe_tables.items(), 1):
+                    write_df(f"WOE_{idx:02d}_{feature}", table)
 
             risk_bands = self.reports_.get("risk_bands")
-            if isinstance(risk_bands, pd.DataFrame) and not risk_bands.empty:
-                risk_bands.to_excel(writer, sheet_name="Risk_Bands", index=False)
+            write_df("Risk_Bands", risk_bands)
+
+            risk_summary_table = self.reports_.get("risk_bands_summary_table")
+            if isinstance(risk_summary_table, pd.DataFrame):
+                write_df("Risk_Bands_Summary", risk_summary_table)
 
             model_perf = self.reports_.get("model_performance", {})
-            if model_perf.get("model_scores"):
-                pd.DataFrame(model_perf["model_scores"]).T.to_excel(
-                    writer, sheet_name="Model_Scores"
-                )
+            if isinstance(model_perf, dict) and model_perf:
+                summary = {k: v for k, v in model_perf.items() if k != "model_scores"}
+                if summary:
+                    write_df("Model_Performance", pd.DataFrame([summary]))
+                scores = model_perf.get("model_scores")
+                if isinstance(scores, dict) and scores:
+                    write_df("Model_Scores", pd.DataFrame(scores).T)
+
+            calibration = self.reports_.get("calibration", {})
+            if isinstance(calibration, dict):
+                stage1 = calibration.get("stage1", {})
+                if stage1.get("metrics"):
+                    write_df("Calibration_Stage1", pd.DataFrame([stage1["metrics"]]))
+                if stage1.get("details"):
+                    write_df("Calibration_Stage1_Details", pd.DataFrame([stage1["details"]]))
+                stage2 = calibration.get("stage2", {})
+                if stage2.get("metrics"):
+                    write_df("Calibration_Stage2", pd.DataFrame([stage2["metrics"]]))
+                if stage2.get("details"):
+                    write_df("Calibration_Stage2_Details", pd.DataFrame([stage2["details"]]))
+
+            scoring_summary = self.reports_.get("scoring_summary")
+            write_df("Scoring_Summary", scoring_summary)
+
+            scoring_reports = self.reports_.get("scoring_reports", {})
+            if isinstance(scoring_reports, dict):
+                for name, data in scoring_reports.items():
+                    if isinstance(data, pd.DataFrame):
+                        write_df(f"Scoring_{name}", data)
+                    elif isinstance(data, dict):
+                        write_df(f"Scoring_{name}", pd.DataFrame([data]))
+
+            scored_df = self.reports_.get("scored_data")
+            if isinstance(scored_df, pd.DataFrame) and not scored_df.empty:
+                limit = getattr(self.config, 'report_scored_rows', 5000)
+                write_df("Scored_Data", scored_df.head(limit))
+
+            data_dictionary = self.reports_.get("data_dictionary")
+            write_df("Data_Dictionary", data_dictionary)
+
+            summary_text = self.generate_final_summary()
+            if summary_text:
+                write_df("Run_Summary", pd.DataFrame({'summary': summary_text.splitlines()}))
 
     def create_model_comparison_plot(self, models: Dict[str, Any]):
         """Visualise train/test AUC for compared models."""

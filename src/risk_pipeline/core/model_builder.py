@@ -14,7 +14,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.feature_selection import mutual_info_classif
 import warnings
 
-from .utils import gini_from_auc
+from .utils import gini_from_auc, predict_positive_proba
 
 warnings.filterwarnings('ignore')
 
@@ -868,7 +868,7 @@ class ComprehensiveModelBuilder:
 
                 if X_test is not None and y_test is not None and len(X_test) > 0:
                     model.fit(X_train, y_train)
-                    y_pred = self._predict_positive_proba(model, X_test)
+                    y_pred = predict_positive_proba(model, X_test)
                     score = roc_auc_score(y_test, y_pred)
                 else:
                     scores = cross_val_score(model, X_train, y_train, cv=3, scoring='roc_auc')
@@ -1054,36 +1054,6 @@ class ComprehensiveModelBuilder:
         raise ValueError(f"Unknown model: {model_name}")
 
 
-    def _predict_positive_proba(self, model, X):
-        """Return probability estimates for the positive class as a 1D array."""
-
-        if X is None:
-            return None
-
-        if hasattr(model, 'predict_proba'):
-            proba = model.predict_proba(X)
-            proba = np.asarray(proba)
-            if proba.ndim == 1:
-                return proba
-            if proba.ndim == 2:
-                if proba.shape[1] == 1:
-                    return proba[:, 0]
-                return proba[:, -1]
-
-        if hasattr(model, 'decision_function'):
-            scores = np.asarray(model.decision_function(X))
-            if scores.ndim == 1:
-                from scipy.special import expit
-                return expit(scores)
-            if scores.ndim == 2:
-                try:
-                    from scipy.special import softmax
-                except ImportError:
-                    return np.asarray(scores)[:, -1]
-                return softmax(scores, axis=1)[:, -1]
-
-        preds = model.predict(X)
-        return np.asarray(preds).ravel()
 
 
     def _evaluate_model(self, model, X: pd.DataFrame, y: pd.Series) -> Optional[float]:
@@ -1093,7 +1063,7 @@ class ComprehensiveModelBuilder:
             return None
 
         try:
-            y_pred = self._predict_positive_proba(model, X)
+            y_pred = predict_positive_proba(model, X)
             return roc_auc_score(y, y_pred)
         except Exception:
             return 0.0

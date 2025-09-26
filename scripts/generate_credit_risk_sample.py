@@ -155,10 +155,10 @@ def main() -> None:
         },
     }
 
-    development = make_panel(dev_months, sample_size=3600, drift=drift, target_rate=0.28)
-    calibration = make_panel(longrun_months, sample_size=2800, drift={'intercept': {}}, target_rate=0.26)
-    stage2 = make_panel(recent_months, sample_size=900, drift=drift, target_rate=0.34)
-    scoring = make_panel(scoring_months, sample_size=1000, drift=drift, target_rate=0.36)
+    development = make_panel(dev_months, sample_size=24000, drift=drift, target_rate=0.28)
+    calibration = make_panel(longrun_months, sample_size=12000, drift={'intercept': {}}, target_rate=0.26)
+    stage2 = make_panel(recent_months, sample_size=5000, drift=drift, target_rate=0.34)
+    scoring = make_panel(scoring_months, sample_size=6000, drift=drift, target_rate=0.36)
 
     for df, name in [
         (development, 'development.csv'),

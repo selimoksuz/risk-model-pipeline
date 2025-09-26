@@ -51,12 +51,13 @@ setup(
         "xlsxwriter==3.2.5",
         "matplotlib==3.8.4",
         "seaborn==0.13.2",
-        "statsmodels==0.14.3",
         "typer==0.9.0",
+        "statsmodels==0.14.3",
+        "tsfresh==0.20.1",
         "lightgbm==4.6.0",
-        "catboost==1.2.7",
         "xgboost==2.0.3; python_version < '3.10'",
         "xgboost==2.0.3; python_version >= '3.10'",
+        "catboost==1.2.7",
         "pygam==0.10.1",
         "optuna==4.5.0",
         "imbalanced-learn==0.11.0",
@@ -65,7 +66,10 @@ setup(
         "xbooster==0.2.6; python_version >= '3.10'",
         "pydantic==1.10.15",
         "nbformat==5.10.4",
-        "importlib-resources==5.13.0; python_version < \"3.9\"",
+        "shap==0.48.0",
+        "numba==0.62.0",
+        "llvmlite==0.45.0",
+        "importlib-resources==5.13.0; python_version < '3.9'",
     ],
     
     # Optional dependencies
@@ -86,7 +90,7 @@ setup(
             "plotly==5.24.1",
         ],
         "ml": [
-            "shap==0.43.0",
+            "shap==0.48.0",
         ],
         "notebook": [
             "jupyter==1.1.0",

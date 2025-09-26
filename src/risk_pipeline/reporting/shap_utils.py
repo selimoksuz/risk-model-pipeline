@@ -1,15 +1,26 @@
-﻿import os
+import os
 import numpy as np
 
 _SHAP_DISABLED = os.getenv("RISK_PIPELINE_DISABLE_SHAP") == "1"
+_SHAP_IMPORT_ERROR = None
+shap = None
 
 if not _SHAP_DISABLED:
     try:
-        import shap  # type: ignore
-    except Exception:
-        shap = None  # Optional dependency could not be loaded
+        from llvmlite.binding import ffi as _ffi  # type: ignore
+        _ = _ffi.lib  # force DLL load on Windows before importing shap
+    except Exception as exc:
+        _SHAP_IMPORT_ERROR = exc
+    else:
+        try:
+            import shap as _shap  # type: ignore
+        except Exception as exc:
+            _SHAP_IMPORT_ERROR = exc  # Optional dependency could not be loaded
+        else:
+            shap = _shap
+            _SHAP_IMPORT_ERROR = None
 else:
-    shap = None
+    _SHAP_IMPORT_ERROR = RuntimeError("SHAP disabled via RISK_PIPELINE_DISABLE_SHAP")
 
 
 def compute_shap_values(model, X, shap_sample=25000, random_state=42):

@@ -66,9 +66,12 @@ setup(
         "xbooster==0.2.6; python_version >= '3.10'",
         "pydantic==1.10.15",
         "nbformat==5.10.4",
-        "shap==0.48.0",
-        "numba==0.62.0",
-        "llvmlite==0.45.0",
+        "shap==0.44.1; python_version < '3.10'",
+        "shap==0.48.0; python_version >= '3.10'",
+        "numba==0.58.1; python_version < '3.10'",
+        "llvmlite==0.41.1; python_version < '3.10'",
+        "numba==0.62.0; python_version >= '3.10'",
+        "llvmlite==0.45.0; python_version >= '3.10'",
         "importlib-resources==5.13.0; python_version < '3.9'",
     ],
     
@@ -90,7 +93,8 @@ setup(
             "plotly==5.24.1",
         ],
         "ml": [
-            "shap==0.48.0",
+            "shap==0.44.1; python_version < '3.10'",
+            "shap==0.48.0; python_version >= '3.10'",
         ],
         "notebook": [
             "jupyter==1.1.0",

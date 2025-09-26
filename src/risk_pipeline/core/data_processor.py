@@ -74,9 +74,9 @@ class DataProcessor:
                 EfficientFCParameters,
                 ComprehensiveFCParameters,
             )
-        except ImportError:
+        except (ImportError, OSError) as exc:
             warnings.warn(
-                "tsfresh is not installed; falling back to simple aggregate features.",
+                f"tsfresh cannot be imported ({exc}); falling back to simple aggregate features.",
                 RuntimeWarning,
             )
             return self._generate_simple_tsfresh_features(df, id_col, numeric_cols)

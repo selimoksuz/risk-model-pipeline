@@ -100,6 +100,43 @@ class EnhancedReporter:
         self.selection_history = df
         self.reports_['selection_history'] = df
 
+
+    @staticmethod
+    def _binomial_results_to_df(results: Any) -> pd.DataFrame:
+        """Normalise binomial test outputs into a DataFrame."""
+
+        if results is None or results == []:
+            return pd.DataFrame()
+
+        if isinstance(results, pd.DataFrame):
+            df = results.copy()
+        elif isinstance(results, dict):
+            rows: List[Dict[str, Any]] = []
+            for band, payload in results.items():
+                row: Dict[str, Any] = {'band': band}
+                if isinstance(payload, dict):
+                    row.update(payload)
+                else:
+                    row['value'] = payload
+                rows.append(row)
+            df = pd.DataFrame(rows)
+        elif isinstance(results, (list, tuple)):
+            df = pd.DataFrame(list(results))
+        else:
+            df = pd.DataFrame()
+
+        if df.empty:
+            return df
+
+        if 'band' not in df.columns:
+            df.insert(0, 'band', range(1, len(df) + 1))
+        else:
+            df['band'] = pd.to_numeric(df['band'], errors='ignore')
+        if 'significant' in df.columns:
+            df['significant'] = df['significant'].astype(bool)
+        return df
+
+
     def generate_model_report(
         self,
         models: Dict[str, Any],
@@ -198,6 +235,7 @@ class EnhancedReporter:
                         "tsfresh_source": ts_meta.get('source_variable'),
                         "tsfresh_statistic": ts_meta.get('statistic'),
                         "tsfresh_generator": ts_meta.get('generator'),
+                        "tsfresh_parameters": ts_meta.get('parameters', ''),
                     }
                 )
             else:
@@ -220,6 +258,7 @@ class EnhancedReporter:
                 "tsfresh_source",
                 "tsfresh_statistic",
                 "tsfresh_generator",
+                "tsfresh_parameters",
             ]
             ordered_cols = [c for c in preferred_order if c in features_df.columns]
             remaining_cols = [c for c in features_df.columns if c not in ordered_cols]
@@ -336,40 +375,109 @@ class EnhancedReporter:
             self.reports_["woe_mapping"] = pd.concat(combined_frames, ignore_index=True)
         return tables
 
-    def generate_risk_band_report(self, risk_bands: Dict[str, Any]) -> pd.DataFrame:
+
+
+    def generate_risk_band_report(
+        self,
+        risk_bands: Dict[str, Any]
+    ) -> pd.DataFrame:
         """Summarise risk band allocation and diagnostics."""
 
-        if "bands" not in risk_bands:
-            return pd.DataFrame()
+        risk_dict = risk_bands if isinstance(risk_bands, dict) else {}
+        inner_bands = risk_dict.get('bands') if isinstance(risk_dict.get('bands'), dict) else None
 
-        bands_df = risk_bands["bands"]
-        metrics = risk_bands.get("metrics", {})
+        band_stats = risk_dict.get('band_stats')
+        if (not isinstance(band_stats, pd.DataFrame) or band_stats.empty) and isinstance(inner_bands, dict):
+            band_stats = inner_bands.get('band_stats')
 
-        summary_lines = [
-            f"Number of bands: {len(bands_df)}",
-            f"Herfindahl Index: {metrics.get('herfindahl_index', 0):.4f}",
-            f"Entropy: {metrics.get('entropy', 0):.4f}",
-            f"Gini Coefficient: {metrics.get('gini_coefficient', 0):.4f}",
-            f"KS Statistic: {metrics.get('ks_stat', 0):.4f}",
-            f"Hosmer-Lemeshow p-value: {metrics.get('hosmer_lemeshow_p', 0):.4f}",
-            f"Top 20% Concentration: {metrics.get('cr_top20', 0):.2%}",
-            f"Top 50% Concentration: {metrics.get('cr_top50', 0):.2%}",
-        ]
-
-        binomial_info = metrics.get("binomial_tests")
-        if binomial_info:
-            if isinstance(binomial_info, dict):
-                records = list(binomial_info.values())
+        if isinstance(band_stats, pd.DataFrame) and not band_stats.empty:
+            bands_df = band_stats.copy()
+        else:
+            bands_obj = risk_dict.get('bands')
+            if isinstance(bands_obj, pd.DataFrame):
+                bands_df = bands_obj.copy()
+            elif isinstance(bands_obj, (list, tuple)):
+                bands_df = pd.DataFrame(bands_obj)
             else:
-                records = [item for item in binomial_info if isinstance(item, dict)]
-            total = len(records)
-            significant = sum(1 for result in records if result.get("significant", False))
-            summary_lines.append(f"Significant bands (binomial test): {significant}/{total}")
+                bands_df = pd.DataFrame()
+            if isinstance(inner_bands, dict):
+                stats = inner_bands.get('band_stats')
+                if bands_df.empty and isinstance(stats, pd.DataFrame):
+                    bands_df = stats.copy()
 
-        self.reports_["risk_bands"] = bands_df
-        self.reports_["risk_bands_summary"] = {"Risk Bands Summary": summary_lines}
+        if not bands_df.empty and 'band' not in bands_df.columns:
+            bands_df = bands_df.reset_index().rename(columns={'index': 'band'})
+
+        metrics = risk_dict.get('metrics', {})
+        test_results = risk_dict.get('test_results', {}) if isinstance(risk_dict.get('test_results'), dict) else {}
+        if not test_results and isinstance(inner_bands, dict):
+            inner_tests = inner_bands.get('test_results')
+            if isinstance(inner_tests, dict):
+                test_results = inner_tests
+
+        binomial_source = metrics.get('binomial_tests')
+        if not binomial_source and isinstance(test_results, dict):
+            binomial_source = test_results.get('binomial')
+        binomial_df = self._binomial_results_to_df(binomial_source)
+
+        if not bands_df.empty and not binomial_df.empty and 'band' in binomial_df.columns:
+            bands_df = bands_df.merge(binomial_df, on='band', how='left')
+
+        bands_df = bands_df.sort_values('band').reset_index(drop=True) if 'band' in bands_df.columns else bands_df
+
+        self.reports_['risk_bands'] = bands_df
+
+        if not binomial_df.empty:
+            self.reports_['risk_bands_tests'] = binomial_df
+
+        if isinstance(metrics, dict) and metrics:
+            metrics_df = pd.DataFrame([metrics])
+            self.reports_['risk_bands_metrics'] = metrics_df
+        else:
+            metrics_df = pd.DataFrame()
+
+        summary_lines: List[str] = []
+        if not bands_df.empty:
+            summary_lines.append(f"Number of bands: {len(bands_df)}")
+            if 'bad_rate' in bands_df.columns:
+                summary_lines.append(
+                    f"Bad rate range: {bands_df['bad_rate'].min():.2%} – {bands_df['bad_rate'].max():.2%}"
+                )
+            if 'bad_capture' in bands_df.columns and bands_df['bad_capture'].notna().any():
+                summary_lines.append(
+                    f"Bad capture (top band): {bands_df['bad_capture'].iloc[-1]:.2%}"
+                )
+
+        if isinstance(metrics, dict):
+            hhi = metrics.get('herfindahl_index')
+            if hhi is not None:
+                summary_lines.append(f"Herfindahl Index: {hhi:.4f}")
+            entropy = metrics.get('entropy')
+            if entropy is not None:
+                summary_lines.append(f"Entropy: {entropy:.4f}")
+            gini_coeff = metrics.get('gini_coefficient')
+            if gini_coeff is not None:
+                summary_lines.append(f"Gini Coefficient: {gini_coeff:.4f}")
+            hl_p = metrics.get('hosmer_lemeshow_p')
+            if hl_p is not None:
+                summary_lines.append(f"Hosmer-Lemeshow p-value: {hl_p:.4f}")
+            ks = metrics.get('ks_stat')
+            if ks is not None:
+                summary_lines.append(f"KS Statistic: {ks:.4f}")
+
+        if not binomial_df.empty and 'significant' in binomial_df.columns:
+            significant = int(binomial_df['significant'].sum())
+            summary_lines.append(
+                f"Binomial significant bands: {significant}/{len(binomial_df)}"
+            )
+
         if summary_lines:
-            self.reports_["risk_bands_summary_table"] = pd.DataFrame({'summary': summary_lines})
+            self.reports_['risk_bands_summary'] = {"Risk Bands Summary": summary_lines}
+            self.reports_['risk_bands_summary_table'] = pd.DataFrame({'summary': summary_lines})
+        else:
+            self.reports_.pop('risk_bands_summary', None)
+            self.reports_.pop('risk_bands_summary_table', None)
+
         return bands_df
 
     def generate_calibration_report(
@@ -523,6 +631,12 @@ class EnhancedReporter:
 
             risk_bands = self.reports_.get("risk_bands")
             write_df("Risk_Bands", risk_bands)
+
+            risk_band_tests = self.reports_.get("risk_bands_tests")
+            write_df("Risk_Bands_Tests", risk_band_tests)
+
+            risk_band_metrics = self.reports_.get("risk_bands_metrics")
+            write_df("Risk_Band_Metrics", risk_band_metrics)
 
             risk_summary_table = self.reports_.get("risk_bands_summary_table")
             if isinstance(risk_summary_table, pd.DataFrame):
@@ -732,4 +846,5 @@ class EnhancedReporter:
         dictionary: Optional[pd.DataFrame],
     ) -> str:
         return self._lookup_dictionary_value(raw_feature, dictionary, "category")
+
 

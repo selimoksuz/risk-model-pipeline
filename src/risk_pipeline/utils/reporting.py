@@ -5,7 +5,7 @@ Report Generation Module
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -85,6 +85,18 @@ class ReportGenerator:
                 tests_df = self._create_statistical_tests_summary(report_data['risk_bands'])
                 tests_df.to_excel(writer, sheet_name='Statistical Tests', index=False)
         
+            # Variable dictionary
+            if (
+                self.config.include_variable_dictionary
+                and report_data.get('variable_dictionary') is not None
+            ):
+                self._write_variable_dictionary(
+                    writer,
+                    report_data['variable_dictionary'],
+                    report_data.get('selected_features', {}),
+                    report_data.get('best_model')
+                )
+
         print(f"Report saved to: {report_path}")
         return report_path
     
@@ -241,3 +253,49 @@ class ReportGenerator:
             })
         
         return pd.DataFrame(summary_data)
+
+    def _write_variable_dictionary(
+        self,
+        writer,
+        variable_dictionary,
+        selected_features: Dict[str, List[str]],
+        best_model: Optional[str]
+    ) -> None:
+        """Append variable dictionary entries used by the best model"""
+
+        if variable_dictionary is None:
+            return
+
+        if isinstance(variable_dictionary, pd.DataFrame):
+            dict_df = variable_dictionary.copy()
+        else:
+            dict_df = pd.DataFrame(variable_dictionary)
+
+        if dict_df.empty:
+            return
+
+        candidate_columns = ['Feature', 'feature', 'variable', 'Variable', 'name', 'Name']
+        feature_col = None
+        for col in candidate_columns:
+            if col in dict_df.columns:
+                feature_col = col
+                break
+        if feature_col is None:
+            feature_col = dict_df.columns[0]
+
+        best_features: List[str] = []
+        if best_model and best_model in selected_features:
+            best_features = selected_features.get(best_model, []) or []
+        elif selected_features:
+            first_key = next(iter(selected_features))
+            best_features = selected_features.get(first_key, []) or []
+
+        dict_df['Feature'] = dict_df[feature_col].astype(str)
+        dict_df['Used_In_Best_Model'] = dict_df['Feature'].isin(best_features)
+        if best_features:
+            dict_df = dict_df[dict_df['Used_In_Best_Model']]
+
+        if dict_df.empty:
+            return
+
+        dict_df.to_excel(writer, sheet_name='Variable Dictionary', index=False)

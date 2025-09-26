@@ -12,6 +12,7 @@ Production-ready risk modeling pipeline with WOE transformation and advanced ML 
 - **WOE Transformation**: Automatic Weight of Evidence binning and transformation
 - **Advanced ML Models**: XGBoost, LightGBM, CatBoost, Random Forest, WoE-LI interactions, Shao penalised logistic, and more
 - **Dual Pipeline**: Simultaneous raw and WOE-transformed feature processing
+- **TSFresh Feature Extraction**: Optional tsfresh-powered time-series summaries (minimal/efficient/comprehensive or custom calculators)
 - **Hyperparameter Optimization**: Optuna integration for automated tuning
 - **Model Interpretability**: SHAP values and feature importance analysis
 - **Comprehensive Reporting**: Excel reports with model metrics, WOE bins, and visualizations
@@ -35,6 +36,22 @@ pip install git+https://github.com/selimoksuz/risk-model-pipeline.git@developmen
 ```bash
 pip install --no-cache-dir --upgrade --force-reinstall "risk-pipeline @ git+https://github.com/selimoksuz/risk-model-pipeline.git@development"
 ```
+
+Enable the richer tsfresh features by installing the optional dependency and toggling the configuration flag:
+
+```bash
+pip install tsfresh==0.20.1
+```
+
+```python
+config = Config(
+    enable_tsfresh_features=True,
+    tsfresh_feature_set='efficient',  # or 'minimal' / 'comprehensive'
+    tsfresh_custom_fc_parameters=['mean', 'variance__lag_1'],  # optional
+)
+```
+
+The pipeline automatically falls back to lightweight aggregates when the package is absent or if extraction fails, and stores detailed provenance for every tsfresh feature under `tsfresh_metadata`.
 
 > Not: Python 3.8/3.9 ortamlarında pip otomatik olarak `pandas==2.0.3`, `numpy==1.26.0`, `xgboost==2.0.3` ve `xbooster==0.2.2` sürümlerini seçer; Python 3.10+ için sırasıyla `pandas==2.3.2`, `numpy==1.26.4`, `xgboost==2.0.3` ve `xbooster==0.2.6` kurulacaktır.
 

@@ -19,35 +19,6 @@ import xgboost as xgb
 from pygam import LogisticGAM, s
 import optuna
 from datetime import datetime
-
-
-_XGB_VERSION = getattr(xgb, '__version__', '0.0.0')
-
-
-def _xgb_supports_label_encoder() -> bool:
-    try:
-        parts = [int(part) for part in _XGB_VERSION.split('.')[:2]]
-        if len(parts) == 1:
-            parts.append(0)
-        major, minor = parts[0], parts[1]
-    except Exception:
-        return True
-    return (major, minor) < (1, 6)
-
-
-_USE_LABEL_ENCODER_PARAM = _xgb_supports_label_encoder()
-
-
-def _finalize_xgb_params(params: Dict[str, Any]) -> Dict[str, Any]:
-    updated = dict(params)
-    if _USE_LABEL_ENCODER_PARAM:
-        updated.setdefault('use_label_encoder', False)
-    else:
-        updated.pop('use_label_encoder', None)
-    updated.setdefault('eval_metric', updated.get('eval_metric', 'logloss'))
-    return updated
-
-
 import joblib
 import os
 from pathlib import Path
@@ -370,22 +341,20 @@ class RiskModelPipeline:
             else:
                 fill_value = 0
             
-            self.train_data.loc[:, col] = self.train_data[col].fillna(fill_value)
+            self.train_data[col].fillna(fill_value, inplace=True)
             if self.test_data is not None:
-                self.test_data.loc[:, col] = self.test_data[col].fillna(fill_value)
-            if self.oot_data is not None:
-                self.oot_data.loc[:, col] = self.oot_data[col].fillna(fill_value)
+                self.test_data[col].fillna(fill_value, inplace=True)
+            self.oot_data[col].fillna(fill_value, inplace=True)
             
             # Outlier handling
             if self.config.numeric_outlier_method == 'clip':
                 lower = self.train_data[col].quantile(self.config.outlier_lower_quantile)
                 upper = self.train_data[col].quantile(self.config.outlier_upper_quantile)
                 
-                self.train_data.loc[:, col] = self.train_data[col].clip(lower, upper)
+                self.train_data[col] = self.train_data[col].clip(lower, upper)
                 if self.test_data is not None:
-                    self.test_data.loc[:, col] = self.test_data[col].clip(lower, upper)
-                if self.oot_data is not None:
-                    self.oot_data.loc[:, col] = self.oot_data[col].clip(lower, upper)
+                    self.test_data[col] = self.test_data[col].clip(lower, upper)
+                self.oot_data[col] = self.oot_data[col].clip(lower, upper)
         
         # Categorical preprocessing
         for col in categorical_cols:
@@ -395,22 +364,20 @@ class RiskModelPipeline:
             else:
                 fill_value = 'missing'
             
-            self.train_data.loc[:, col] = self.train_data[col].fillna(fill_value)
+            self.train_data[col].fillna(fill_value, inplace=True)
             if self.test_data is not None:
-                self.test_data.loc[:, col] = self.test_data[col].fillna(fill_value)
-            if self.oot_data is not None:
-                self.oot_data.loc[:, col] = self.oot_data[col].fillna(fill_value)
+                self.test_data[col].fillna(fill_value, inplace=True)
+            self.oot_data[col].fillna(fill_value, inplace=True)
             
             # Rare category handling
             value_counts = self.train_data[col].value_counts()
             rare_categories = value_counts[value_counts / len(self.train_data) < self.config.rare_category_threshold].index
             
             if len(rare_categories) > 0:
-                self.train_data.loc[:, col] = self.train_data[col].replace(rare_categories, 'rare')
+                self.train_data[col] = self.train_data[col].replace(rare_categories, 'rare')
                 if self.test_data is not None:
-                    self.test_data.loc[:, col] = self.test_data[col].replace(rare_categories, 'rare')
-                if self.oot_data is not None:
-                    self.oot_data.loc[:, col] = self.oot_data[col].replace(rare_categories, 'rare')
+                    self.test_data[col] = self.test_data[col].replace(rare_categories, 'rare')
+                self.oot_data[col] = self.oot_data[col].replace(rare_categories, 'rare')
     
     def _calculate_woe_all_variables(self, numeric_cols: List[str], categorical_cols: List[str]):
         """Calculate WOE for all variables"""
@@ -624,7 +591,6 @@ class RiskModelPipeline:
 
                 return np.mean(cv_scores)
 
-            params = _finalize_xgb_params(params)
             study = optuna.create_study(direction='maximize')
             study.optimize(
                 objective,
@@ -804,6 +770,7 @@ class RiskModelPipeline:
                     'reg_alpha': trial.suggest_float('reg_alpha', 0, 5),
                     'reg_lambda': trial.suggest_float('reg_lambda', 0, 5),
                     'random_state': self.config.random_state,
+                    'use_label_encoder': False,
                     'eval_metric': 'logloss'
                 }
 
@@ -842,17 +809,17 @@ class RiskModelPipeline:
 
             best_params = study.best_params
             best_params['random_state'] = self.config.random_state
+            best_params['use_label_encoder'] = False
             best_params['eval_metric'] = 'logloss'
-            best_params = _finalize_xgb_params(best_params)
 
             model = xgb.XGBClassifier(**best_params)
         else:
-            default_params = _finalize_xgb_params({
-                'n_estimators': 500,
-                'random_state': self.config.random_state,
-                'eval_metric': 'logloss'
-            })
-            model = xgb.XGBClassifier(**default_params)
+            model = xgb.XGBClassifier(
+                n_estimators=500,
+                random_state=self.config.random_state,
+                use_label_encoder=False,
+                eval_metric='logloss'
+            )
 
         model.fit(X, y)
         return model
@@ -1261,7 +1228,7 @@ class RiskModelPipeline:
                 mapped[series.isna()] = woe_map.get('MISSING', 0.0)
             result = mapped.astype(float)
 
-        result = result.fillna(0.0)
+        result.fillna(0.0, inplace=True)
         return result
     
     def _prepare_scoring_data(self, df: pd.DataFrame, features: List[str], 

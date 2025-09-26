@@ -150,3 +150,5 @@ notebooks/output/
 notebooks/catboost_info/
 !tests/test_quickstart_demo.py
 !tests/test_sample_data.py
+!tests/test_data_processor_tsfresh.py
+!tests/test_config_split.py

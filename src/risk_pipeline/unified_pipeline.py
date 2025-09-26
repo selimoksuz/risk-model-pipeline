@@ -246,7 +246,7 @@ class UnifiedRiskPipeline:
                     'selection_results': best_flow['selection_results'],
                     'calibration_stage1': best_flow['stage1'],
                     'calibration_stage2': best_flow['stage2'],
-                    'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
+                    'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
                 }
                 reports = self._generate_reports()
 
@@ -344,7 +344,7 @@ class UnifiedRiskPipeline:
                     'selection_results': selection_results,
                     'calibration_stage1': stage1_results,
                     'calibration_stage2': stage2_results,
-                    'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
+                    'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
                 })
                 reports = self._generate_reports()
 
@@ -369,7 +369,7 @@ class UnifiedRiskPipeline:
                     'best_model_name': model_results.get('best_model_name'),
                     'scores': model_results.get('scores', {}),
                     'selection_history': selection_results.get('selection_history'),
-                    'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
+                    'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
                 }
 
                 self._persist_model_artifacts()
@@ -1383,3 +1383,5 @@ class UnifiedRiskPipeline:
         pipeline = joblib.load(path)
         print(f"Pipeline loaded from {path}")
         return pipeline
+
+

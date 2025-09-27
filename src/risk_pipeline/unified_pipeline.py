@@ -7,6 +7,7 @@ Date: 2024
 import os
 import json
 import warnings
+import re
 import numpy as np
 import pandas as pd
 from pandas.api.types import (
@@ -69,6 +70,7 @@ class UnifiedRiskPipeline:
         self.models_ = {}
         self.transformers_ = {}
         self.data_ = {}
+        self.feature_name_map: Dict[str, str] = {}
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
@@ -124,7 +126,7 @@ class UnifiedRiskPipeline:
         try:
             # Step 1: Data Processing
             print("\n[Step 1/10] Data Processing...")
-            processed_data = self._process_data(df)
+            processed_data = self._process_data(df, create_map=True)
 
             # Step 2: Data Splitting
             print("\n[Step 2/10] Data Splitting...")
@@ -384,7 +386,7 @@ class UnifiedRiskPipeline:
             print(f"\nERROR: Pipeline failed at step: {str(e)}")
             raise
 
-    def _process_data(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _process_data(self, df: pd.DataFrame, create_map: bool = False) -> pd.DataFrame:
         """Process raw data with separate handling for numeric/categorical."""
 
         df_processed = self.data_processor.validate_and_freeze(df.copy())
@@ -449,8 +451,56 @@ class UnifiedRiskPipeline:
             df_processed = df_processed.copy()
             df_processed['noise_sentinel'] = np.random.normal(0, 1, len(df_processed))
 
+
+        df_processed = self._sanitize_feature_columns(df_processed, create_map=create_map)
+
         self.data_['processed'] = df_processed
         return df_processed
+
+    def _sanitize_feature_columns(self, df: pd.DataFrame, create_map: bool) -> pd.DataFrame:
+        """Sanitize feature names to avoid characters that break LightGBM/JSON."""
+        exclude = {self.config.target_col, self.config.id_col, self.config.time_col, self.config.weight_column, 'snapshot_month'}
+        exclude = {col for col in exclude if col}
+        mapping = {} if create_map or not getattr(self, 'feature_name_map', None) else dict(self.feature_name_map)
+        used = set(mapping.values())
+
+        def _sanitize(name: str) -> str:
+            sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", str(name)).strip("_")
+            if not sanitized:
+                sanitized = "feature"
+            base = sanitized
+            counter = 1
+            while sanitized in used:
+                counter += 1
+                sanitized = f"{base}_{counter}"
+            used.add(sanitized)
+            return sanitized
+
+        rename_map: Dict[str, str] = {}
+        for col in df.columns:
+            if col in exclude:
+                mapping.setdefault(col, col)
+                continue
+            sanitized = mapping.get(col)
+            if sanitized is None:
+                sanitized = _sanitize(col)
+                mapping[col] = sanitized
+            if sanitized != col:
+                rename_map[col] = sanitized
+
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        self.feature_name_map = mapping
+        self.data_['feature_name_map'] = mapping.copy()
+
+        meta = self.data_.get('tsfresh_metadata')
+        if meta is not None and not meta.empty:
+            meta = meta.copy()
+            meta['feature'] = meta['feature'].map(lambda f: mapping.get(f, f))
+            self.data_['tsfresh_metadata'] = meta
+
+        return df
 
     def _split_data(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Split data with equal default rates if configured."""
@@ -847,7 +897,7 @@ class UnifiedRiskPipeline:
         # Process calibration data
         if self.config.enable_woe:
             # First process the data to add snapshot_month etc
-            cal_processed = self._process_data(calibration_df)
+            cal_processed = self._process_data(calibration_df, create_map=False)
             # WOE transformer handles processed data
             cal_woe = self.woe_transformer.transform(cal_processed)
 
@@ -867,7 +917,7 @@ class UnifiedRiskPipeline:
                     X_cal.loc[:, col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
         else:
             # Only for non-WOE case, process data
-            cal_processed = self._process_data(calibration_df)
+            cal_processed = self._process_data(calibration_df, create_map=False)
             X_cal = cal_processed[selected_features].copy()
 
             # Ensure all columns are numeric
@@ -914,7 +964,7 @@ class UnifiedRiskPipeline:
             return {}
 
         # Process Stage 2 data
-        stage2_processed = self._process_data(stage2_df.copy())
+        stage2_processed = self._process_data(stage2_df.copy(), create_map=False)
 
         if self.config.enable_woe:
             stage2_woe = self.woe_transformer.transform(stage2_processed)
@@ -1091,7 +1141,7 @@ class UnifiedRiskPipeline:
             print("  Skipping scoring: No features selected")
             return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}}
 
-        score_processed = self._process_data(score_df)
+        score_processed = self._process_data(score_df, create_map=False)
 
         if self.config.enable_woe:
             score_matrix = self.woe_transformer.transform(score_processed)[final_features]

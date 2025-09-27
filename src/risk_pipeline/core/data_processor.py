@@ -1,5 +1,7 @@
 """Data processing module for the pipeline"""
 
+import os
+import sys
 import pandas as pd
 import numpy as np
 import warnings
@@ -74,6 +76,21 @@ class DataProcessor:
                 EfficientFCParameters,
                 ComprehensiveFCParameters,
             )
+
+        raw_jobs = getattr(self.cfg, 'tsfresh_n_jobs', getattr(self.cfg, 'n_jobs', 0))
+        try:
+            jobs = int(raw_jobs) if raw_jobs is not None else 0
+        except (TypeError, ValueError):
+            jobs = 0
+        if jobs < 0:
+            jobs = max(os.cpu_count() or 1, 1)
+        in_notebook = 'ipykernel' in sys.modules or os.environ.get('JPY_PARENT_PID') or os.environ.get('IPYTHONENABLE')
+        if os.name == 'nt' and in_notebook and jobs != 0:
+            warnings.warn(
+                'tsfresh multiprocessing is unstable on Windows notebooks; forcing sequential execution (n_jobs=0).',
+                RuntimeWarning,
+            )
+            jobs = 0
         except (ImportError, OSError) as exc:
             warnings.warn(
                 f"tsfresh cannot be imported ({exc}); falling back to simple aggregate features.",
@@ -174,7 +191,7 @@ class DataProcessor:
                 column_value='__tsfresh_value__',
                 default_fc_parameters=fc_parameters,
                 disable_progressbar=True,
-                n_jobs=getattr(self.cfg, 'tsfresh_n_jobs', getattr(self.cfg, 'n_jobs', 0)),
+                n_jobs=jobs,
             )
         except Exception as exc:
             warnings.warn(

@@ -32,7 +32,7 @@ setup(
     
     # Package configuration
     package_dir={"": "src"},
-    packages=find_packages(where="src"),
+    packages=find_packages(where="src", include=["risk_pipeline*", "matrixprofile*"]),
     include_package_data=True,
     
     # Python version requirement
@@ -140,6 +140,7 @@ setup(
         "credit-risk",
     ],
 )
+
 
 
 

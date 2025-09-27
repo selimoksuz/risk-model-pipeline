@@ -101,7 +101,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["risk_pipeline*"]
+include = ["risk_pipeline*", "matrixprofile*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "risk_pipeline._version.__version__"}
@@ -135,6 +135,7 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+
 
 
 

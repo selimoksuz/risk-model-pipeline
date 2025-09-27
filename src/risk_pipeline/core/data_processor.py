@@ -155,6 +155,16 @@ class DataProcessor:
             except Exception:
                 fc_parameters = MinimalFCParameters()
 
+        if isinstance(fc_parameters, dict) and 'matrix_profile' in fc_parameters:
+            try:
+                import matrixprofile  # noqa: F401
+            except Exception:
+                fc_parameters.pop('matrix_profile', None)
+                warnings.warn(
+                    'matrix_profile calculators skipped (optional dependency missing).',
+                    RuntimeWarning,
+                )
+
         try:
             features = extract_features(
                 melted,

@@ -57,46 +57,65 @@ class FeatureSelector:
         selection_steps = selection_steps or self.config.selection_steps
         features = list(X.columns)
         initial_count = len(features)
-        
-        print(f"Starting feature selection with {initial_count} features")
-        
+
+        def _tsfresh_count(items):
+            return sum(1 for name in items if str(name).endswith('_tsfresh'))
+
+        def _log_tsfresh(step_name, before, after):
+            if before != after:
+                print(f"    tsfresh after {step_name}: {before} -> {after} (removed {before - after})")
+
+        tsfresh_initial = _tsfresh_count(features)
+        print(f"Starting feature selection with {initial_count} features ({tsfresh_initial} tsfresh)")
+
         for step in selection_steps:
+            tsfresh_before = _tsfresh_count(features)
             if step == 'univariate' and univariate_stats:
                 features = self._filter_univariate(features, univariate_stats)
                 print(f"  After univariate filter: {len(features)} features")
-                
+                _log_tsfresh('univariate', tsfresh_before, _tsfresh_count(features))
+
             elif step == 'psi':
-                # PSI would need reference data - skip in this context
                 pass
-                
+
             elif step == 'vif':
                 features = self._filter_vif(X[features])
                 print(f"  After VIF filter: {len(features)} features")
-                
+                _log_tsfresh('vif', tsfresh_before, _tsfresh_count(features))
+
             elif step == 'correlation':
                 features = self._filter_correlation(X[features], univariate_stats)
                 print(f"  After correlation filter: {len(features)} features")
-                
+                _log_tsfresh('correlation', tsfresh_before, _tsfresh_count(features))
+
             elif step == 'iv' and univariate_stats:
                 features = self._filter_iv(features, univariate_stats)
                 print(f"  After IV filter: {len(features)} features")
-                
+                _log_tsfresh('iv', tsfresh_before, _tsfresh_count(features))
+
             elif step == 'boruta':
                 features = self._run_boruta(X[features], y)
                 print(f"  After Boruta: {len(features)} features")
-                
+                _log_tsfresh('boruta', tsfresh_before, _tsfresh_count(features))
+
             elif step == 'stepwise':
                 method = self.config.stepwise_method
                 features = self._run_stepwise(X[features], y, method)
                 print(f"  After {method} selection: {len(features)} features")
-        
-        # Noise sentinel check if enabled
+                _log_tsfresh(method, tsfresh_before, _tsfresh_count(features))
+
         if self.config.use_noise_sentinel:
+            tsfresh_before = _tsfresh_count(features)
             features = self._noise_sentinel_check(X[features], y)
             print(f"  After noise sentinel: {len(features)} features")
-        
+            _log_tsfresh('noise_sentinel', tsfresh_before, _tsfresh_count(features))
+
+        tsfresh_final = _tsfresh_count(features)
         print(f"Final selected features: {len(features)} (reduced from {initial_count})")
-        
+        if tsfresh_initial:
+            print(f"  tsfresh summary: started {tsfresh_initial}, removed {tsfresh_initial - tsfresh_final}, remaining {tsfresh_final}")
+        else:
+            print("  tsfresh summary: no tsfresh features in input")
         return features
     
     def _filter_univariate(self, features: List[str], univariate_stats: Dict) -> List[str]:

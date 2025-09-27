@@ -54,6 +54,7 @@ class Config:
     tsfresh_feature_set: str = 'minimal'
     tsfresh_window: Optional[int] = None
     tsfresh_max_ids: Optional[int] = None
+    tsfresh_auto_max_ids: Optional[int] = 3000
     tsfresh_n_jobs: int = 0
     tsfresh_custom_fc_parameters: Optional[Dict[str, Any]] = None
 

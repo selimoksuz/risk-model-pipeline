@@ -226,32 +226,31 @@ class DataProcessor:
 
 
         max_ids = getattr(self.cfg, 'tsfresh_max_ids', None)
+        max_ids_int = None
+        unique_ids = df_work[id_col].nunique()
 
         if max_ids is not None:
-
             try:
-
                 max_ids_int = max(1, int(max_ids))
-
             except (TypeError, ValueError):
-
                 max_ids_int = None
+        else:
+            auto_limit = getattr(self.cfg, 'tsfresh_auto_max_ids', 3000)
+            try:
+                auto_limit_int = max(1, int(auto_limit)) if auto_limit is not None else None
+            except (TypeError, ValueError):
+                auto_limit_int = None
+            if auto_limit_int is not None and unique_ids > auto_limit_int:
+                max_ids_int = auto_limit_int
 
-            if max_ids_int is not None and df_work[id_col].nunique() > max_ids_int:
-
-                random_state = getattr(self.cfg, 'random_state', None)
-
-                sampled_ids = (
-
-                    df_work[id_col]
-
-                    .drop_duplicates()
-
-                    .sample(max_ids_int, random_state=random_state)
-
-                )
-
-                df_work = df_work[df_work[id_col].isin(sampled_ids)]
+        if max_ids_int is not None and unique_ids > max_ids_int:
+            random_state = getattr(self.cfg, 'random_state', None)
+            sampled_ids = (
+                df_work[id_col]
+                .drop_duplicates()
+                .sample(max_ids_int, random_state=random_state)
+            )
+            df_work = df_work[df_work[id_col].isin(sampled_ids)]
 
 
 

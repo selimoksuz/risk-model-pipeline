@@ -963,8 +963,13 @@ class UnifiedRiskPipeline:
             print("  Skipping Stage 2 calibration: No features selected")
             return {}
 
+        stage2_input = stage2_df.copy()
+        target_col = self.config.target_col
+        if target_col and target_col not in stage2_input.columns:
+            stage2_input[target_col] = np.nan
+
         # Process Stage 2 data
-        stage2_processed = self._process_data(stage2_df.copy(), create_map=False)
+        stage2_processed = self._process_data(stage2_input, create_map=False)
 
         if self.config.enable_woe:
             stage2_woe = self.woe_transformer.transform(stage2_processed)

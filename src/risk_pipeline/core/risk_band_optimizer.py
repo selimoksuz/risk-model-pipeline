@@ -441,10 +441,30 @@ class OptimalRiskBandAnalyzer:
         if band_stats is None or band_stats.empty:
             return pd.DataFrame(), {}
 
-        df = band_stats.copy().sort_values('band').reset_index(drop=True)
+        df = band_stats.copy().reset_index(drop=True)
+        if 'band' in df.columns:
+            df = df.sort_values('band').reset_index(drop=True)
+
+        if 'pct_count' not in df.columns and {'count'}.issubset(df.columns):
+            total = float(df['count'].sum())
+            if total > 0:
+                df['pct_count'] = df['count'] / total
+
+        if 'bad_rate' not in df.columns and {'bad_count', 'count'}.issubset(df.columns):
+            df['bad_rate'] = np.divide(
+                df['bad_count'],
+                df['count'],
+                out=np.zeros_like(df['bad_count'], dtype=float),
+                where=df['count'].to_numpy(dtype=float) > 0
+            )
+
+        required_cols = {'count', 'pct_count', 'bad_rate', 'avg_score'}
+        if not required_cols.issubset(df.columns):
+            return pd.DataFrame(), {}
+
         total = float(df['count'].sum())
         if total <= 0:
-            return df, {}
+            return pd.DataFrame(), {}
 
         cfg = self.config
         alpha = float(getattr(cfg, 'risk_band_alpha', 0.05) or 0.05)

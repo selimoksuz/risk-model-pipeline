@@ -257,15 +257,10 @@ class DataProcessor:
                 window = max(1, int(window))
             except (TypeError, ValueError):
                 window = None
-
             if window is not None:
                 df_work = df_work.groupby(id_col, group_keys=False).apply(lambda g: g.tail(window))
 
-
-
         df_work = df_work.sort_values([id_col, time_column])
-
-
 
         melted = df_work.melt(
 

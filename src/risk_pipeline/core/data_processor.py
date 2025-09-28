@@ -251,22 +251,14 @@ class DataProcessor:
             )
             df_work = df_work[df_work[id_col].isin(sampled_ids)]
 
-
-
         window = getattr(self.cfg, 'tsfresh_window', None)
-
         if window is not None:
-
             try:
-
                 window = max(1, int(window))
-
             except (TypeError, ValueError):
-
                 window = None
 
             if window is not None:
-
                 df_work = df_work.groupby(id_col, group_keys=False).apply(lambda g: g.tail(window))
 
 

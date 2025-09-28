@@ -54,10 +54,15 @@ class CreditRiskSample:
 
 
 def load_credit_risk_sample() -> CreditRiskSample:
+    calibration_recent = _read_csv('calibration_recent.csv')
+    for target_col in ('target', 'bad_flag'):
+        if target_col in calibration_recent.columns:
+            calibration_recent = calibration_recent.drop(columns=target_col)
+
     return CreditRiskSample(
         development=_read_csv('development.csv'),
         calibration_longrun=_read_csv('calibration_longrun.csv'),
-        calibration_recent=_read_csv('calibration_recent.csv'),
+        calibration_recent=calibration_recent,
         scoring_future=_read_csv('scoring_future.csv'),
         data_dictionary=_read_csv('data_dictionary.csv'),
     )

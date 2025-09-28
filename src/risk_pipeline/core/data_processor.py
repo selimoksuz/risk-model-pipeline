@@ -157,41 +157,39 @@ class DataProcessor:
 
 
 
-            raw_jobs = getattr(self.cfg, 'tsfresh_n_jobs', getattr(self.cfg, 'n_jobs', 0))
-
+            raw_jobs = getattr(self.cfg, 'tsfresh_n_jobs', getattr(self.cfg, 'n_jobs', None))
+            cpu_count = max(1, os.cpu_count() or 1)
+            jobs = None
             try:
-
-                jobs = int(raw_jobs) if raw_jobs is not None else 0
-
+                jobs = int(raw_jobs) if raw_jobs is not None else None
             except (TypeError, ValueError):
+                jobs = None
 
-                jobs = 0
+            if jobs is None or jobs < 0:
+                fraction = float(getattr(self.cfg, 'tsfresh_cpu_fraction', 0.8) or 0.0)
+                if fraction <= 0:
+                    jobs = 1
+                else:
+                    jobs = max(1, int(cpu_count * fraction))
+            else:
+                jobs = max(1, jobs)
 
-            if jobs < 0:
-
-                jobs = max(os.cpu_count() or 1, 1)
+            if not getattr(self.cfg, 'tsfresh_use_multiprocessing', True):
+                jobs = 1
 
             in_notebook = (
-
                 'ipykernel' in sys.modules
-
                 or os.environ.get('JPY_PARENT_PID')
-
                 or os.environ.get('IPYTHONENABLE')
-
             )
-
-            if os.name == 'nt' and in_notebook and jobs != 0:
-
+            force_seq = getattr(self.cfg, 'tsfresh_force_sequential_notebook', False)
+            if os.name == 'nt' and in_notebook and jobs > 1 and force_seq:
                 warnings.warn(
-
-                    'tsfresh multiprocessing is unstable on Windows notebooks; forcing sequential execution (n_jobs=0).',
-
+                    'tsfresh multiprocessing is forced to sequential mode in Windows notebooks; set tsfresh_force_sequential_notebook=False to override.',
                     RuntimeWarning,
-
                 )
+                jobs = 1
 
-                jobs = 0
 
         except (ImportError, OSError) as exc:
 
@@ -226,7 +224,7 @@ class DataProcessor:
 
 
         max_ids = getattr(self.cfg, 'tsfresh_max_ids', None)
-        max_ids_int = None
+        max_ids_int: Optional[int] = None
         unique_ids = df_work[id_col].nunique()
 
         if max_ids is not None:
@@ -240,8 +238,9 @@ class DataProcessor:
                 auto_limit_int = max(1, int(auto_limit)) if auto_limit is not None else None
             except (TypeError, ValueError):
                 auto_limit_int = None
-            if auto_limit_int is not None and unique_ids > auto_limit_int:
-                max_ids_int = auto_limit_int
+            else:
+                if auto_limit_int is not None and unique_ids > auto_limit_int:
+                    max_ids_int = auto_limit_int
 
         if max_ids_int is not None and unique_ids > max_ids_int:
             random_state = getattr(self.cfg, 'random_state', None)

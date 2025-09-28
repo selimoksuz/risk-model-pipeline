@@ -434,60 +434,146 @@ class OptimalRiskBandAnalyzer:
 
         return best_solution, best_stats, best_summary
 
-    def _score_band_configuration(self, band_stats: pd.DataFrame) -> Tuple[float, pd.DataFrame, Dict[str, Any]]:
-        """Evaluate band statistics against business constraints and compute penalty."""
+
+    def _annotate_band_statistics(self, band_stats: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        '''Annotate per-band statistics with binomial and summary metrics.'''
 
         if band_stats is None or band_stats.empty:
-            return math.inf, band_stats, {}
+            return pd.DataFrame(), {}
 
         df = band_stats.copy().sort_values('band').reset_index(drop=True)
         total = float(df['count'].sum())
         if total <= 0:
-            return math.inf, df, {}
+            return df, {}
+
+        cfg = self.config
+        alpha = float(getattr(cfg, 'risk_band_alpha', 0.05) or 0.05)
+        if not 0 < alpha < 1:
+            alpha = 0.05
+        confidence = 1 - alpha
+
+        min_weight = float(getattr(cfg, 'risk_band_min_weight', 0.05))
+        max_weight = float(getattr(cfg, 'risk_band_max_weight', 0.30))
+
+        df['pct_count'] = df['count'] / total
+        df['weight'] = df['pct_count']
+        df['avg_score'] = df['avg_score'].astype(float).clip(0.0, 1.0)
+        df['bad_rate'] = df['bad_rate'].astype(float).clip(0.0, 1.0)
+        df['expected_defaults'] = df['avg_score'] * df['count']
+        df['dr_pd_diff'] = df['bad_rate'] - df['avg_score']
+        df['abs_dr_pd_diff'] = df['dr_pd_diff'].abs()
+        df['hhi_contrib'] = df['pct_count'] ** 2
+        df['bin_range'] = df.apply(lambda row: f"[{row['min_score']:.4f}, {row['max_score']:.4f}]", axis=1)
+        df['band_label'] = df['band'].apply(lambda band: f"Band {int(band)}")
+
+        ci_lowers: List[float] = []
+        ci_uppers: List[float] = []
+        p_values: List[float] = []
+        binomial_pass: List[bool] = []
+
+        for _, row in df.iterrows():
+            n_obs = int(row['count'])
+            n_bad = int(row['bad_count'])
+            if n_obs > 0:
+                predicted_pd = float(np.clip(row['avg_score'], 1e-9, 1 - 1e-9))
+                try:
+                    binom_res = stats.binomtest(n_bad, n_obs, predicted_pd, alternative='two-sided')
+                except TypeError:
+                    binom_res = stats.binomtest(n_bad, n_obs, predicted_pd)
+                p_val = float(binom_res.pvalue)
+                try:
+                    ci = binom_res.proportion_ci(confidence_level=confidence, method='wilson')
+                except TypeError:
+                    ci = stats.binomtest(n_bad, n_obs).proportion_ci(confidence_level=confidence, method='wilson')
+                ci_low = float(ci.low)
+                ci_high = float(ci.high)
+                in_ci = ci_low <= predicted_pd <= ci_high
+            else:
+                p_val = np.nan
+                ci_low = np.nan
+                ci_high = np.nan
+                in_ci = True
+            ci_lowers.append(ci_low)
+            ci_uppers.append(ci_high)
+            p_values.append(p_val)
+            binomial_pass.append(in_ci)
+
+        df['ci_lower'] = ci_lowers
+        df['ci_upper'] = ci_uppers
+        df['ci_lower_observed'] = df['ci_lower']
+        df['ci_upper_observed'] = df['ci_upper']
+        df['binomial_p_value'] = p_values
+        df['binomial_pass'] = binomial_pass
+        df['binomial_result'] = df['binomial_pass'].map(lambda flag: 'Pass' if flag else 'Reject')
+        df['predicted_within_ci'] = df['binomial_pass']
+        df['mean_pd_gt_dr'] = (df['avg_score'] >= df['bad_rate']).astype(int)
+        df['weight_pct'] = df['pct_count']
+        df['mean_pd'] = df['avg_score']
+        df['observed_dr'] = df['bad_rate']
+        df['bad_minus_expected'] = df['bad_count'] - df['expected_defaults']
+        df['binomial_distance'] = df['abs_dr_pd_diff']
+        df['ci_width'] = df['ci_upper'] - df['ci_lower']
+
+        ci_overlaps = int(np.sum(df['ci_upper'].values[:-1] > df['ci_lower'].values[1:] + 1e-12)) if len(df) > 1 else 0
+        binomial_failures = int((~df['binomial_pass']).sum())
+        binomial_pass_weight = float(df.loc[df['binomial_pass'], 'pct_count'].sum())
+        binomial_pass_rate = float(df['binomial_pass'].mean()) if len(df) else 0.0
+        avg_diff = float(df['dr_pd_diff'].mean()) if len(df) else 0.0
+        avg_abs_diff = float(df['abs_dr_pd_diff'].mean()) if len(df) else 0.0
+        mean_pd_failures = int(((~df['binomial_pass']) & (df['dr_pd_diff'] < 0)).sum())
+        hhi_total = float(df['hhi_contrib'].sum())
+        weight_violations = int(((df['pct_count'] < min_weight - 1e-9) | (df['pct_count'] > max_weight + 1e-9)).sum())
+        monotonic_pd = bool(np.all(np.diff(df['avg_score']) >= -1e-6))
+        monotonic_dr = bool(np.all(np.diff(df['bad_rate']) >= -1e-6))
+
+        summary = {
+            'ci_overlaps': ci_overlaps,
+            'binomial_failures': binomial_failures,
+            'binomial_pass_weight': binomial_pass_weight,
+            'binomial_pass_rate': binomial_pass_rate,
+            'dr_pd_diff_mean': avg_diff,
+            'dr_pd_diff_mean_abs': avg_abs_diff,
+            'mean_pd_gt_dr_failures': mean_pd_failures,
+            'hhi_total': hhi_total,
+            'weight_violations': weight_violations,
+            'monotonic_pd': monotonic_pd,
+            'monotonic_dr': monotonic_dr,
+            'n_bins': int(len(df)),
+        }
+
+        return df, summary
+
+
+
+    def _score_band_configuration(self, band_stats: pd.DataFrame) -> Tuple[float, pd.DataFrame, Dict[str, Any]]:
+        '''Evaluate band statistics against business constraints and compute penalty.'''
+
+        annotated_df, summary = self._annotate_band_statistics(band_stats)
+        if annotated_df is None or annotated_df.empty:
+            return math.inf, annotated_df, summary or {}
 
         cfg = self.config
         min_weight = float(getattr(cfg, 'risk_band_min_weight', 0.05))
         max_weight = float(getattr(cfg, 'risk_band_max_weight', 0.30))
         hhi_threshold = float(getattr(cfg, 'risk_band_hhi_threshold', 0.15))
         required_pass_weight = float(getattr(cfg, 'risk_band_binomial_pass_weight', 0.85))
-        alpha = float(getattr(cfg, 'risk_band_alpha', 0.05))
-        z_value = stats.norm.ppf(1 - alpha / 2) if 0 < alpha < 1 else stats.norm.ppf(0.975)
 
-        df['pct_count'] = df['count'] / total
-        df['avg_score'] = df['avg_score'].astype(float)
-        df['bad_rate'] = df['bad_rate'].astype(float)
-        se = np.sqrt(np.clip(df['avg_score'] * (1 - df['avg_score']), 1e-6, None) / np.clip(df['count'], 1, None))
-        df['ci_lower'] = np.clip(df['avg_score'] - z_value * se, 0.0, 1.0)
-        df['ci_upper'] = np.clip(df['avg_score'] + z_value * se, 0.0, 1.0)
-        df['dr_pd_diff'] = np.abs(df['bad_rate'] - df['avg_score'])
-        df['binomial_pass'] = (df['bad_rate'] >= df['ci_lower'] - 1e-12) & (df['bad_rate'] <= df['ci_upper'] + 1e-12)
-        df['binomial_result'] = np.where(df['binomial_pass'], 'Pass', 'Reject')
-        df['mean_pd_gt_dr'] = (df['avg_score'] >= df['bad_rate']).astype(int)
-        df['weight'] = df['pct_count']
-        df['hhi_contrib'] = df['pct_count'] ** 2
-        if 'bin_range' not in df.columns:
-            df['bin_range'] = df.apply(
-                lambda row: f"[{row['min_score']:.4f}, {row['max_score']:.4f}]",
-                axis=1
-            )
-
-        ci_overlaps = int(np.sum(df['ci_upper'].values[:-1] > df['ci_lower'].values[1:] + 1e-6)) if len(df) > 1 else 0
-        binomial_failures = int((~df['binomial_pass']).sum())
-        binomial_pass_weight = float(df.loc[df['binomial_pass'], 'pct_count'].sum())
-        binomial_pass_rate = float(df['binomial_pass'].mean()) if len(df) else 0.0
-        avg_dr_pd_diff = float(df['dr_pd_diff'].mean()) if len(df) else 0.0
-        mean_pd_failures = int(((~df['binomial_pass']) & (df['mean_pd_gt_dr'] == 0)).sum())
-        hhi_total = float(df['hhi_contrib'].sum())
-        weight_violations = int(((df['pct_count'] < min_weight - 1e-9) | (df['pct_count'] > max_weight + 1e-9)).sum())
-        monotonic_pd = bool(np.all(np.diff(df['avg_score']) >= -1e-6))
-        monotonic_dr = bool(np.all(np.diff(df['bad_rate']) >= -1e-6))
+        ci_overlaps = summary.get('ci_overlaps', 0)
+        binomial_failures = summary.get('binomial_failures', 0)
+        binomial_pass_weight = summary.get('binomial_pass_weight', 0.0)
+        avg_abs_diff = summary.get('dr_pd_diff_mean_abs', 0.0)
+        mean_pd_failures = summary.get('mean_pd_gt_dr_failures', 0)
+        hhi_total = summary.get('hhi_total', 0.0)
+        weight_violations = summary.get('weight_violations', 0)
+        monotonic_pd = summary.get('monotonic_pd', True)
+        monotonic_dr = summary.get('monotonic_dr', True)
 
         overlaps_penalty = ci_overlaps * 10000.0
         binomial_penalty = binomial_failures * 200.0
         binomial_weight_penalty = 0.0
         if binomial_pass_weight < required_pass_weight:
             binomial_weight_penalty = (required_pass_weight - binomial_pass_weight) * 500.0 * 1000.0
-        dr_pd_penalty = avg_dr_pd_diff * 80.0 * 100.0
+        dr_pd_penalty = avg_abs_diff * 80.0 * 100.0
         mean_pd_penalty = mean_pd_failures * 50.0
         hhi_penalty = max(0.0, hhi_total - hhi_threshold) * 100.0 * 20.0
         weight_penalty = weight_violations * 50.0 * 100.0
@@ -495,20 +581,17 @@ class OptimalRiskBandAnalyzer:
 
         total_penalty = overlaps_penalty + binomial_penalty + binomial_weight_penalty + dr_pd_penalty + mean_pd_penalty + hhi_penalty + weight_penalty + monotonic_penalty
 
-        summary = {
-            'ci_overlaps': ci_overlaps,
-            'binomial_failures': binomial_failures,
-            'binomial_pass_weight': binomial_pass_weight,
-            'binomial_pass_rate': binomial_pass_rate,
-            'dr_pd_diff_mean': avg_dr_pd_diff,
-            'mean_pd_gt_dr_failures': mean_pd_failures,
-            'hhi_total': hhi_total,
-            'weight_violations': weight_violations,
-            'monotonic_pd': monotonic_pd,
-            'monotonic_dr': monotonic_dr,
-        }
+        summary = dict(summary)
+        summary.update({
+            'total_penalty': total_penalty,
+            'min_weight': min_weight,
+            'max_weight': max_weight,
+            'hhi_threshold': hhi_threshold,
+            'required_pass_weight': required_pass_weight,
+            'table': annotated_df,
+        })
 
-        return total_penalty, df, summary
+        return total_penalty, annotated_df, summary
 
     def _assign_to_bands(self, predictions: np.ndarray, bands: np.ndarray) -> np.ndarray:
         """Assign predictions to bands."""
@@ -715,53 +798,49 @@ class OptimalRiskBandAnalyzer:
 
         return chi_square, p_value
 
-    def _perform_binomial_tests(self, band_stats: pd.DataFrame) -> Dict:
-        """
-        Perform binomial test for each band.
 
-        Tests if observed bad rate significantly differs from expected.
-        """
+    def _perform_binomial_tests(self, band_stats: pd.DataFrame) -> pd.DataFrame:
+        '''Return detailed binomial test diagnostics per band.'''
 
-        results = {}
-        total_count = band_stats['count'].sum()
-        if total_count == 0:
-            return []
+        annotated_df, summary = self._annotate_band_statistics(band_stats)
+        if isinstance(summary, dict) and summary:
+            summary_with_table = dict(summary)
+            summary_with_table['table'] = annotated_df
+            existing_summary = getattr(self, 'band_summary_', None)
+            if isinstance(existing_summary, dict):
+                merged = dict(existing_summary)
+                merged.update(summary_with_table)
+                self.band_summary_ = merged
+            else:
+                self.band_summary_ = summary_with_table
 
-        overall_bad_rate = band_stats['bad_count'].sum() / total_count
-
-        for _, row in band_stats.iterrows():
-            band = row['band']
-            n_obs = int(row['count'])
-            n_bad = int(row['bad_count'])
-
-            if n_obs > 0:
-                # Binomial test: is bad rate different from overall?
-                try:
-                    from scipy.stats import binomtest
-                    result = binomtest(
-                        k=n_bad,
-                        n=n_obs,
-                        p=overall_bad_rate,
-                        alternative='two-sided'
-                    )
-                    p_value = result.pvalue
-                except ImportError:
-                    # Fallback for older scipy
-                    p_value = stats.binom_test(
-                        n_bad,
-                        n_obs,
-                        overall_bad_rate,
-                        alternative='two-sided'
-                    )
-
-                results[band] = {
-                    'p_value': p_value,
-                    'observed_rate': row['bad_rate'],
-                    'expected_rate': overall_bad_rate,
-                    'significant': p_value < 0.05
-                }
-
-        return results
+        detail_columns = [
+            'band',
+            'band_label',
+            'bin_range',
+            'count',
+            'weight_pct',
+            'mean_pd',
+            'observed_dr',
+            'dr_pd_diff',
+            'ci_lower_observed',
+            'ci_upper_observed',
+            'binomial_p_value',
+            'binomial_result',
+            'binomial_pass',
+            'predicted_within_ci',
+            'binomial_distance',
+            'hhi_contrib',
+            'ks',
+            'bad_capture',
+            'good_capture',
+            'expected_defaults',
+            'bad_minus_expected',
+        ]
+        existing_cols = [col for col in detail_columns if col in annotated_df.columns]
+        if not existing_cols:
+            return annotated_df
+        return annotated_df[existing_cols]
 
     def _calculate_ks_stat(self, band_stats: pd.DataFrame) -> float:
         """Calculate Kolmogorov-Smirnov statistic."""

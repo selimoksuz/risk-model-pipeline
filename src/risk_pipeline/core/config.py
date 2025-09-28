@@ -5,6 +5,8 @@ Unified Configuration System for Risk Model Pipeline
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union
 import warnings
+import os
+import math
 
 
 @dataclass
@@ -56,6 +58,9 @@ class Config:
     tsfresh_max_ids: Optional[int] = None
     tsfresh_auto_max_ids: Optional[int] = 3000
     tsfresh_n_jobs: int = 0
+    tsfresh_cpu_fraction: Optional[float] = None
+    tsfresh_use_multiprocessing: bool = True
+    tsfresh_force_sequential_notebook: bool = False
     tsfresh_custom_fc_parameters: Optional[Dict[str, Any]] = None
 
     
@@ -161,6 +166,7 @@ class Config:
     
     # Stage 2 calibration
     enable_stage2_calibration: bool = True
+    stage2_target_rate: Optional[float] = None
     stage2_lower_bound: float = 0.8
     stage2_upper_bound: float = 1.2
     stage2_confidence_level: float = 0.95
@@ -233,6 +239,7 @@ class Config:
     # ==================== SYSTEM ====================
     random_state: int = 42
     n_jobs: int = -1
+    cpu_fraction: float = 0.8
     verbose: bool = True
     log_level: str = 'INFO'  # 'DEBUG', 'INFO', 'WARNING', 'ERROR'
     
@@ -357,7 +364,36 @@ class Config:
         valid_calibration = ['isotonic', 'sigmoid']
         if self.calibration_method not in valid_calibration:
             raise ValueError(f"calibration_method must be one of {valid_calibration}")
-    
+
+        if self.stage2_target_rate is not None:
+            if not 0 <= float(self.stage2_target_rate) <= 1:
+                raise ValueError("stage2_target_rate must be between 0 and 1")
+
+        if self.stage2_lower_bound <= 0 or self.stage2_upper_bound <= 0:
+            raise ValueError("stage2 lower/upper bounds must be positive")
+        if self.stage2_lower_bound > self.stage2_upper_bound:
+            raise ValueError("stage2_lower_bound cannot exceed stage2_upper_bound")
+        if self.cpu_fraction <= 0 or self.cpu_fraction > 1:
+            raise ValueError("cpu_fraction must be between 0 and 1")
+
+        cpu_fraction = getattr(self, 'tsfresh_cpu_fraction', None)
+        if cpu_fraction is not None:
+            frac = float(cpu_fraction)
+            if frac < 0 or frac > 1:
+                raise ValueError("tsfresh_cpu_fraction must be between 0 and 1")
+
+
+    def _resolve_parallel_jobs(self, value: Optional[int]) -> int:
+        """Resolve requested parallel jobs into an absolute worker count."""
+
+        cpu_total = max(1, os.cpu_count() or 1)
+        fraction = float(getattr(self, 'cpu_fraction', 0.8) or 0.8)
+        if value is None:
+            return max(1, math.floor(cpu_total * fraction))
+        if value < 0:
+            return max(1, math.floor(cpu_total * fraction))
+        return int(value)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary"""
         return {
@@ -375,6 +411,9 @@ class Config:
         self._apply_ratio_defaults()
         self.validate()
         self._set_backward_compatibility_aliases()
+        self.n_jobs = self._resolve_parallel_jobs(getattr(self, 'n_jobs', None))
+        if getattr(self, 'tsfresh_cpu_fraction', None) is None:
+            self.tsfresh_cpu_fraction = self.cpu_fraction
 
     def _set_backward_compatibility_aliases(self) -> None:
         """Expose legacy attribute names expected by older modules"""

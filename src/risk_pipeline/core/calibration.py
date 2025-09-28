@@ -90,7 +90,8 @@ class TwoStageCalibrator:
 
         return calibrated_model
 
-    def calibrate_stage2(self, stage1_model, X_recent: pd.DataFrame, y_recent: pd.Series,
+
+    def calibrate_stage2(self, stage1_model, X_recent: pd.DataFrame, y_recent: Optional[pd.Series] = None,
                         method: str = 'lower_mean') -> Any:
         """Stage 2: Adjust for recent period trends."""
 
@@ -98,46 +99,87 @@ class TwoStageCalibrator:
 
         X_recent_filled = X_recent.fillna(0) if hasattr(X_recent, 'fillna') else X_recent
         stage1_scores = predict_positive_proba(stage1_model, X_recent_filled)
+        stage1_rate = float(stage1_scores.mean()) if stage1_scores.size else 0.0
 
-        recent_rate = float(y_recent.mean())
-        stage1_rate = float(stage1_scores.mean())
+        y_series: Optional[pd.Series] = None
+        if y_recent is not None:
+            y_series = pd.Series(y_recent).astype(float)
+            y_series = y_series.dropna()
+            if y_series.empty:
+                y_series = None
 
-        print(f"      Recent default rate: {recent_rate:.2%}")
+        has_recent_actuals = y_series is not None
+        configured_target = getattr(self.config, 'stage2_target_rate', None)
+        manual_target = getattr(self.config, 'stage2_manual_target', None)
+        fallback_target = configured_target if configured_target is not None else manual_target
+
+        if has_recent_actuals:
+            recent_rate = float(y_series.mean())
+            n_recent = int(len(y_series))
+        else:
+            n_recent = 0
+            if fallback_target is not None:
+                recent_rate = float(np.clip(fallback_target, 0.0, 1.0))
+            else:
+                recent_rate = stage1_rate
+
+        if has_recent_actuals:
+            print(f"      Recent default rate ({n_recent} obs): {recent_rate:.2%}")
+        elif fallback_target is not None:
+            print(f"      No observed recent targets; using configured target rate: {recent_rate:.2%}")
+        else:
+            print("      No observed recent targets; defaulting to Stage 1 mean rate.")
+
         print(f"      Stage 1 predicted rate: {stage1_rate:.2%}")
 
+        effective_method = method
         stage2_info = {
-            'method': method,
-            'recent_rate': recent_rate,
-            'stage1_rate': stage1_rate
+            'method_requested': method,
+            'method': effective_method,
+            'recent_rate': recent_rate if has_recent_actuals else np.nan,
+            'stage1_rate': stage1_rate,
+            'target_source': 'observed' if has_recent_actuals else ('configured' if fallback_target is not None else 'stage1'),
+            'n_recent_observations': n_recent,
         }
 
-        if method == 'lower_mean':
+        if not has_recent_actuals and fallback_target is not None:
+            stage2_info['configured_target_rate'] = recent_rate
+
+        if effective_method == 'weighted' and not has_recent_actuals:
+            warnings.warn(
+                "Stage 2 'weighted' method requires observed targets; falling back to 'shift'.",
+                RuntimeWarning,
+            )
+            effective_method = 'shift'
+            stage2_info['method'] = effective_method
+
+        if effective_method == 'lower_mean':
             adjusted_model = self._lower_mean_adjustment(
                 stage1_model, stage1_scores, recent_rate, stage1_rate
             )
             stage2_info['target_rate'] = recent_rate
             stage2_info['adjustment_factor'] = float(getattr(adjusted_model, 'adjustment', 1.0))
-        elif method == 'upper_bound':
+        elif effective_method == 'upper_bound':
             adjusted_model = self._upper_bound_adjustment(
                 stage1_model, stage1_scores, recent_rate, stage1_rate
             )
             stage2_info['target_rate'] = float(getattr(adjusted_model, 'target_rate', recent_rate))
             stage2_info['upper_bound'] = float(getattr(adjusted_model, 'upper_bound', stage1_rate))
-        elif method == 'weighted':
+        elif effective_method == 'weighted':
             adjusted_model = self._weighted_adjustment(
-                stage1_model, X_recent, y_recent, stage1_scores
+                stage1_model, X_recent, y_series, stage1_scores
             )
             stage2_info['target_rate'] = recent_rate
             stage2_info['weight'] = float(getattr(adjusted_model, 'weight', 0.5))
-        elif method == 'shift':
+        elif effective_method == 'shift':
             adjusted_model = self._shift_adjustment(
                 stage1_model, recent_rate, stage1_rate
             )
             stage2_info['target_rate'] = recent_rate
             stage2_info['adjustment_factor'] = float(getattr(adjusted_model, 'shift', 0.0))
-        elif method in ['lower_ci', 'upper_ci', 'mean_ci', 'manual', 'expert']:
+        elif effective_method in ['lower_ci', 'upper_ci', 'mean_ci', 'manual', 'expert']:
             adjusted_model, ci_info = self._confidence_interval_adjustment(
-                stage1_model, stage1_scores, y_recent, method
+                stage1_model, stage1_scores, y_series, effective_method
             )
             stage2_info.update(ci_info)
         else:
@@ -150,7 +192,7 @@ class TwoStageCalibrator:
         self.stage2_calibrator_ = adjusted_model
 
         adjusted_scores = predict_positive_proba(adjusted_model, X_recent_filled)
-        metrics = self._evaluate_calibration_quality(adjusted_scores, y_recent)
+        metrics = self._evaluate_calibration_quality(adjusted_scores, y_series)
         achieved_rate = float(adjusted_scores.mean())
 
         print(f"      ECE: {metrics['ece']:.4f}")
@@ -158,17 +200,18 @@ class TwoStageCalibrator:
         print(f"      Adjusted mean prediction: {achieved_rate:.2%}")
 
         stage2_info['achieved_rate'] = achieved_rate
-        metrics['method'] = method
-        metrics['recent_rate'] = recent_rate
+        metrics['method'] = effective_method
+        metrics['recent_rate'] = float(stage2_info.get('recent_rate', np.nan))
         metrics['stage1_rate'] = stage1_rate
         metrics['target_rate'] = float(stage2_info.get('target_rate', recent_rate))
         metrics['achieved_rate'] = achieved_rate
+        metrics['target_source'] = stage2_info.get('target_source')
+        metrics['n_recent_observations'] = stage2_info.get('n_recent_observations', 0)
 
         self.calibration_metrics_['stage2'] = metrics
         self.stage2_metadata_ = stage2_info
 
         return adjusted_model
-
     def _isotonic_calibration(self, model, X: pd.DataFrame, y: pd.Series):
         """Apply isotonic regression calibration."""
 
@@ -442,19 +485,56 @@ class TwoStageCalibrator:
 
         return ShiftedModel(stage1_model, shift)
 
-    def _confidence_interval_adjustment(self, stage1_model, stage1_scores: np.ndarray,
-                                        y_recent: pd.Series, method: str) -> Tuple[Any, Dict[str, float]]:
-        if len(y_recent) == 0:
-            model, scale = self._scale_scores_to_target(stage1_model, stage1_scores.mean(), stage1_scores.mean())
-            return model, {'target_rate': float(stage1_scores.mean()), 'adjustment_factor': float(scale)}
 
-        recent_series = pd.Series(y_recent).astype(float)
+    def _confidence_interval_adjustment(self, stage1_model, stage1_scores: np.ndarray,
+                                        y_recent: Optional[pd.Series], method: str) -> Tuple[Any, Dict[str, float]]:
+        stage1_mean = float(stage1_scores.mean()) if stage1_scores.size else 0.0
+        confidence = float(getattr(self.config, 'stage2_confidence_level', 0.95) or 0.95)
+        confidence = float(np.clip(confidence, 0.0, 0.9999))
+
+        if y_recent is None or len(y_recent) == 0:
+            lower_bound = float(np.clip(stage1_mean * getattr(self.config, 'stage2_lower_bound', 0.8), 0.0, 1.0))
+            upper_bound = float(np.clip(stage1_mean * getattr(self.config, 'stage2_upper_bound', 1.2), 0.0, 1.0))
+            configured_target = getattr(self.config, 'stage2_target_rate', None)
+            manual_target = getattr(self.config, 'stage2_manual_target', None)
+            fallback_target = configured_target if configured_target is not None else manual_target
+
+            if method == 'lower_ci':
+                target_rate = lower_bound
+                target_source = 'configured_lower_bound'
+            elif method == 'upper_ci':
+                target_rate = upper_bound
+                target_source = 'configured_upper_bound'
+            elif fallback_target is not None:
+                target_rate = float(np.clip(fallback_target, 0.0, 1.0))
+                target_source = 'configured'
+            else:
+                target_rate = stage1_mean
+                target_source = 'stage1'
+
+            scaled_model, scale = self._scale_scores_to_target(stage1_model, target_rate, stage1_mean)
+            info = {
+                'target_rate': float(np.clip(target_rate, 0.0, 1.0)),
+                'recent_rate': np.nan,
+                'stage1_rate': stage1_mean,
+                'lower_ci': lower_bound,
+                'upper_ci': upper_bound,
+                'std_error': np.nan,
+                't_value': np.nan,
+                'confidence_level': confidence,
+                'adjustment_factor': float(scale),
+                'target_source': target_source,
+            }
+            return scaled_model, info
+
+        recent_series = pd.Series(y_recent).astype(float).dropna()
+        if recent_series.empty:
+            return self._confidence_interval_adjustment(stage1_model, stage1_scores, None, method)
+
         mean_rate = float(recent_series.mean())
         if len(recent_series) > 1:
             std = float(recent_series.std(ddof=1))
             se = std / np.sqrt(len(recent_series)) if len(recent_series) > 0 else 0.0
-            confidence = float(getattr(self.config, 'stage2_confidence_level', 0.95) or 0.95)
-            confidence = np.clip(confidence, 0.0, 0.9999)
             t_value = float(stats.t.ppf((1 + confidence) / 2, df=len(recent_series) - 1))
             lower = max(mean_rate - t_value * se, 0.0)
             upper = min(mean_rate + t_value * se, 1.0)
@@ -466,57 +546,95 @@ class TwoStageCalibrator:
 
         if method == 'lower_ci':
             target_rate = lower
+            target_source = 'observed_ci_lower'
         elif method == 'upper_ci':
             target_rate = upper
+            target_source = 'observed_ci_upper'
         elif method in ('manual', 'expert'):
             manual_target = getattr(self.config, 'stage2_manual_target', None)
             if manual_target is None:
                 manual_target = mean_rate
             target_rate = float(np.clip(manual_target, 0.0, 1.0))
+            target_source = 'configured'
         else:
             target_rate = mean_rate
+            target_source = 'observed_ci_mean'
 
-        scaled_model, scale = self._scale_scores_to_target(stage1_model, target_rate, stage1_scores.mean())
+        scaled_model, scale = self._scale_scores_to_target(stage1_model, target_rate, stage1_mean)
         info = {
             'target_rate': float(np.clip(target_rate, 0.0, 1.0)),
             'recent_rate': mean_rate,
-            'stage1_rate': float(stage1_scores.mean()),
+            'stage1_rate': stage1_mean,
             'lower_ci': float(lower),
             'upper_ci': float(upper),
             'std_error': float(se),
             't_value': float(t_value),
-            'confidence_level': float(getattr(self.config, 'stage2_confidence_level', 0.95) or 0.95),
-            'adjustment_factor': float(scale)
+            'confidence_level': confidence,
+            'adjustment_factor': float(scale),
+            'target_source': target_source,
         }
         return scaled_model, info
 
-    def _evaluate_calibration_quality(self, predictions: np.ndarray, actuals: pd.Series) -> Dict:
+    def _evaluate_calibration_quality(self, predictions: np.ndarray, actuals: Optional[pd.Series]) -> Dict:
         """Evaluate calibration quality with multiple metrics."""
 
-        metrics = {}
+        preds = np.asarray(predictions, dtype=float)
+        metrics: Dict[str, Any] = {
+            'mean_predicted': float(np.mean(preds)) if preds.size else 0.0
+        }
 
-        # Expected Calibration Error (ECE)
-        metrics['ece'] = self._calculate_ece(predictions, actuals)
+        if actuals is None:
+            metrics.update({
+                'ece': np.nan,
+                'mce': np.nan,
+                'brier': np.nan,
+                'log_loss': np.nan,
+                'mean_actual': np.nan,
+                'calibration_gap': np.nan,
+            })
+            return metrics
 
-        # Maximum Calibration Error (MCE)
-        metrics['mce'] = self._calculate_mce(predictions, actuals)
+        actual_series = pd.Series(actuals).astype(float).dropna()
+        if actual_series.empty:
+            metrics.update({
+                'ece': np.nan,
+                'mce': np.nan,
+                'brier': np.nan,
+                'log_loss': np.nan,
+                'mean_actual': np.nan,
+                'calibration_gap': np.nan,
+            })
+            return metrics
 
-        # Brier Score
-        metrics['brier'] = brier_score_loss(actuals, predictions)
+        min_len = min(len(actual_series), preds.shape[0])
+        if min_len == 0:
+            metrics.update({
+                'ece': np.nan,
+                'mce': np.nan,
+                'brier': np.nan,
+                'log_loss': np.nan,
+                'mean_actual': np.nan,
+                'calibration_gap': np.nan,
+            })
+            return metrics
 
-        # Log Loss
+        actual_aligned = actual_series.iloc[:min_len]
+        preds_aligned = preds[:min_len]
+        metrics['mean_predicted'] = float(np.mean(preds_aligned))
+
+        metrics['ece'] = self._calculate_ece(preds_aligned, actual_aligned)
+        metrics['mce'] = self._calculate_mce(preds_aligned, actual_aligned)
+        metrics['brier'] = brier_score_loss(actual_aligned, preds_aligned)
+
         try:
-            metrics['log_loss'] = log_loss(actuals, predictions)
-        except:
+            metrics['log_loss'] = log_loss(actual_aligned, preds_aligned)
+        except Exception:
             metrics['log_loss'] = np.nan
 
-        # Mean predicted vs actual
-        metrics['mean_predicted'] = predictions.mean()
-        metrics['mean_actual'] = actuals.mean()
+        metrics['mean_actual'] = float(actual_aligned.mean())
         metrics['calibration_gap'] = abs(metrics['mean_predicted'] - metrics['mean_actual'])
 
         return metrics
-
     def _calculate_ece(self, predictions: np.ndarray, actuals: pd.Series, n_bins: int = 10) -> float:
         """Calculate Expected Calibration Error."""
 
@@ -554,8 +672,13 @@ class TwoStageCalibrator:
 
         return mce
 
-    def evaluate_calibration(self, model, X: pd.DataFrame, y: pd.Series) -> Dict:
+
+    def evaluate_calibration(self, model, X: pd.DataFrame, y: Optional[pd.Series]) -> Dict:
         """Public method to evaluate calibration of a model."""
+
+        X_filled = X.fillna(0)
+        predictions = predict_positive_proba(model, X_filled)
+        return self._evaluate_calibration_quality(predictions, y)
 
         # Handle NaN values
         X_filled = X.fillna(0)

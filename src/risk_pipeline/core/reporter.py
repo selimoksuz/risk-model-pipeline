@@ -421,7 +421,11 @@ class EnhancedReporter:
         binomial_df = self._binomial_results_to_df(binomial_source)
 
         if not bands_df.empty and not binomial_df.empty and 'band' in binomial_df.columns:
-            bands_df = bands_df.merge(binomial_df, on='band', how='left')
+            bands_df = bands_df.merge(binomial_df, on='band', how='left', suffixes=('', '_binom'))
+            # Remove duplicated columns created by merge if any
+            for col in list(bands_df.columns):
+                if col.endswith('_binom') and col[:-6] in bands_df.columns:
+                    bands_df.drop(columns=col, inplace=True)
 
         bands_df = bands_df.sort_values('band').reset_index(drop=True) if 'band' in bands_df.columns else bands_df
 
@@ -465,11 +469,17 @@ class EnhancedReporter:
             if ks is not None:
                 summary_lines.append(f"KS Statistic: {ks:.4f}")
 
-        if not binomial_df.empty and 'significant' in binomial_df.columns:
-            significant = int(binomial_df['significant'].sum())
-            summary_lines.append(
-                f"Binomial significant bands: {significant}/{len(binomial_df)}"
-            )
+        if not binomial_df.empty:
+            if 'binomial_result' in binomial_df.columns:
+                rejects = int((binomial_df['binomial_result'] == 'Reject').sum())
+                summary_lines.append(
+                    f"Binomial rejects: {rejects}/{len(binomial_df)}"
+                )
+            elif 'binomial_pass' in binomial_df.columns:
+                rejects = int((~binomial_df['binomial_pass'].astype(bool)).sum())
+                summary_lines.append(
+                    f"Binomial rejects: {rejects}/{len(binomial_df)}"
+                )
 
         if summary_lines:
             self.reports_['risk_bands_summary'] = {"Risk Bands Summary": summary_lines}

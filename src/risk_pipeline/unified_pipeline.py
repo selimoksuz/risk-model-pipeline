@@ -987,18 +987,41 @@ class UnifiedRiskPipeline:
             if is_object_dtype(X_stage2[col]) or is_datetime64_any_dtype(X_stage2[col]):
                 X_stage2.loc[:, col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
 
-        y_stage2 = stage2_processed[self.config.target_col]
+        target_col = self.config.target_col
+        y_stage2: Optional[pd.Series] = None
+        X_stage2_cal = X_stage2
+
+        if target_col and target_col in stage2_processed.columns:
+            target_values = stage2_processed[target_col]
+            if target_values.notna().any():
+                y_stage2 = target_values.astype(float)
+                valid_mask = y_stage2.notna()
+                if not valid_mask.all():
+                    X_stage2_cal = X_stage2.loc[valid_mask].copy()
+                    y_stage2 = y_stage2.loc[valid_mask]
+                else:
+                    X_stage2_cal = X_stage2.copy()
+                y_stage2 = y_stage2.reset_index(drop=True)
+                X_stage2_cal = X_stage2_cal.reset_index(drop=True)
+            else:
+                X_stage2_cal = X_stage2.copy()
+        else:
+            X_stage2_cal = X_stage2.copy()
+
+        if y_stage2 is None:
+            print("  Stage 2 calibration: no observed targets; using configured target rates.")
 
         # Apply Stage 2 calibration
         stage2_model = self.calibrator.calibrate_stage2(
             stage1_results['calibrated_model'],
-            X_stage2, y_stage2,
-            method=self.config.stage2_method
+            X_stage2_cal,
+            y_stage2,
+            method=getattr(self.config, 'stage2_method', 'lower_mean')
         )
 
         stage2_metrics = self.calibrator.evaluate_calibration(
-                stage2_model, X_stage2, y_stage2
-            )
+            stage2_model, X_stage2_cal, y_stage2
+        )
         stage2_details = getattr(self.calibrator, 'stage2_metadata_', {}) or {}
 
         response = {

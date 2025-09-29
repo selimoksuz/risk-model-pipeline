@@ -133,10 +133,29 @@ class OptimalRiskBandAnalyzer:
         - ks_stat: Kolmogorov-Smirnov statistic
         """
 
+        df = band_stats.copy() if isinstance(band_stats, pd.DataFrame) else pd.DataFrame()
+        if df.empty:
+            return {}
+
+        if 'pct_count' not in df.columns and {'count'}.issubset(df.columns):
+            total = float(df['count'].sum())
+            if total > 0:
+                df['pct_count'] = df['count'] / total
+        if 'bad_rate' not in df.columns and {'bad_count', 'count'}.issubset(df.columns):
+            counts = df['count'].to_numpy(dtype=float)
+            df['bad_rate'] = np.divide(
+                df['bad_count'],
+                counts,
+                out=np.zeros_like(counts, dtype=float),
+                where=counts > 0,
+            )
+        if not {'pct_count', 'bad_rate'}.issubset(df.columns):
+            return {}
+
         metrics = {}
 
         # Herfindahl-Hirschman Index
-        metrics['herfindahl_index'] = self._calculate_herfindahl_index(band_stats)
+        metrics['herfindahl_index'] = self._calculate_herfindahl_index(df)
         print(f"      Herfindahl Index: {metrics['herfindahl_index']:.4f}")
 
         # Entropy

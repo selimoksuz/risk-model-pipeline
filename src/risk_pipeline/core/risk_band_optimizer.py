@@ -708,13 +708,29 @@ class OptimalRiskBandAnalyzer:
     def _check_monotonicity(self, band_stats: pd.DataFrame) -> bool:
         """Check if bands have monotonic bad rates."""
 
-        bad_rates = band_stats['bad_rate'].values
+        if not isinstance(band_stats, pd.DataFrame) or band_stats.empty:
+            return True
 
-        # Check for monotonic decrease (higher band = lower risk)
-        is_decreasing = all(bad_rates[i] >= bad_rates[i+1]
-                           for i in range(len(bad_rates)-1))
+        df = band_stats.copy()
+        if 'bad_rate' not in df.columns:
+            if {'bad_count', 'count'}.issubset(df.columns):
+                counts = df['count'].to_numpy(dtype=float)
+                df['bad_rate'] = np.divide(
+                    df['bad_count'],
+                    counts,
+                    out=np.zeros_like(counts, dtype=float),
+                    where=counts > 0,
+                )
+            else:
+                return True
 
-        return is_decreasing
+        bad_rates = df['bad_rate'].to_numpy(dtype=float)
+        if bad_rates.size <= 1:
+            return True
+
+        bad_rates = np.nan_to_num(bad_rates, nan=0.0)
+
+        return all(bad_rates[i] >= bad_rates[i + 1] for i in range(len(bad_rates) - 1))
 
     def _calculate_herfindahl_index(self, band_stats: pd.DataFrame) -> float:
         """

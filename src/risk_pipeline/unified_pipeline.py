@@ -31,6 +31,7 @@ from .core.calibration import TwoStageCalibrator
 from .core.risk_band_optimizer import OptimalRiskBandAnalyzer
 from .core.reporter import EnhancedReporter
 from .core.splitter import SmartDataSplitter
+from .core.utils import predict_positive_proba
 
 warnings.filterwarnings('ignore')
 
@@ -1072,7 +1073,11 @@ class UnifiedRiskPipeline:
                 X_test = splits['train'][selected_features]
             y_test = splits['train'][self.config.target_col]
 
-        predictions = model.predict_proba(X_test)[:, 1]
+        predictions = predict_positive_proba(model, X_test)
+        predictions = np.asarray(predictions, dtype=float).ravel()
+        if predictions.size == 0 or np.unique(predictions).size <= 1:
+            warnings.warn('  Risk band optimization skipped: predictions lack variation.', RuntimeWarning)
+            return {}
 
         # Optimize bands
         risk_bands = self.risk_band_optimizer.optimize_bands(

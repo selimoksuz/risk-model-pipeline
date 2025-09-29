@@ -189,6 +189,7 @@ class UnifiedRiskPipeline:
                 # Step 5: Model Training
                 print("\n[Step 5/10] Model Training...")
                 mdl_res = self._train_models(splits, sel_res)
+                mdl_res['mode'] = 'WOE' if use_woe else 'RAW'
 
                 # Step 6: Stage 1 Calibration
                 if self.config.enable_calibration:
@@ -236,6 +237,7 @@ class UnifiedRiskPipeline:
 
                 out = {
                     'use_woe': use_woe,
+                    'mode': 'WOE' if use_woe else 'RAW',
                     'woe_results': woe_res,
                     'selection_results': sel_res,
                     'model_results': mdl_res,
@@ -248,6 +250,8 @@ class UnifiedRiskPipeline:
                     'selected_features': getattr(self, 'selected_features_', []),
                     'selection_history': sel_res.get('selection_history'),
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
+                    'mode': 'WOE' if self.config.enable_woe else 'RAW',
+                    'best_model_mode': 'WOE' if self.config.enable_woe else 'RAW',
                 }
 
                 # Restore state for the next flow
@@ -307,6 +311,9 @@ class UnifiedRiskPipeline:
                     'best_model_name': best_flow['model_results'].get('best_model_name'),
                     'scores': best_flow['model_results'].get('scores', {}),
                     'chosen_flow': chosen,
+                    'chosen_flow_mode': chosen,
+                    'chosen_flow_use_woe': best_flow.get('use_woe'),
+                    'best_model_mode': best_flow['model_results'].get('mode'),
                     'chosen_auc': best_flow['best_auc'],
                 }
 
@@ -415,6 +422,8 @@ class UnifiedRiskPipeline:
                     'scores': model_results.get('scores', {}),
                     'selection_history': selection_results.get('selection_history'),
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
+                    'mode': 'WOE' if self.config.enable_woe else 'RAW',
+                    'best_model_mode': 'WOE' if self.config.enable_woe else 'RAW',
                 }
 
                 band_info = risk_bands or {}
@@ -1776,5 +1785,6 @@ class UnifiedRiskPipeline:
         pipeline = joblib.load(path)
         print(f"Pipeline loaded from {path}")
         return pipeline
+
 
 

@@ -40,6 +40,6 @@ def test_quickstart_demo_runs(tmp_path):
     assert isinstance(results.get('imputation_stats'), dict)
     band_info = results.get('risk_bands') or {}
     assert isinstance(band_info, dict)
-    assert results.get('risk_band_source') in (None, 'override', 'split')
+    assert results.get('risk_band_source') in (None, 'override', 'split', 'override_reference')
     output_files = list(Path(tmp_path).glob('**/*'))
     assert output_files, 'Expected artefacts in output directory'

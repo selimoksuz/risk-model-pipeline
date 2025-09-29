@@ -72,6 +72,7 @@ class UnifiedRiskPipeline:
         self.transformers_ = {}
         self.data_ = {}
         self.feature_name_map: Dict[str, str] = {}
+        self.noise_sentinel_name = 'noise_sentinel'
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
@@ -144,6 +145,25 @@ class UnifiedRiskPipeline:
             else:
                 self.data_['risk_band_reference'] = None
 
+            self.data_['stage2_source'] = stage2_df.copy() if stage2_df is not None else None
+
+            woe_cache: Dict[str, Any] = {}
+            woe_transformer_cache: Optional[EnhancedWOETransformer] = None
+
+            def _ensure_woe_results() -> Dict[str, Any]:
+                nonlocal woe_cache, woe_transformer_cache
+                if not woe_cache:
+                    original_flag = getattr(self.config, 'enable_woe', True)
+                    self.config.enable_woe = True
+                    results_local = self._apply_woe_transformation(splits)
+                    woe_transformer_cache = self.woe_transformer
+                    woe_cache['results'] = results_local
+                    self.config.enable_woe = original_flag
+                if woe_transformer_cache is not None:
+                    self.woe_transformer = woe_transformer_cache
+                    self.transformers_['woe'] = woe_transformer_cache
+                return woe_cache.get('results', {})
+
             def _run_single_flow(use_woe: bool) -> Dict[str, Any]:
                 """Run selection->modeling->calibration->bands for one mode (WOE or RAW)."""
                 original_enable_woe = getattr(self.config, 'enable_woe', True)
@@ -160,7 +180,7 @@ class UnifiedRiskPipeline:
 
                 # Step 3: WOE Transformation & Univariate Analysis
                 print("\n[Step 3/10] WOE Transformation & Univariate Analysis...")
-                woe_res = self._apply_woe_transformation(splits)
+                woe_res = _ensure_woe_results()
 
                 # Step 4: Feature Selection
                 print("\n[Step 4/10] Feature Selection...")
@@ -449,7 +469,7 @@ class UnifiedRiskPipeline:
         categorical_cols = df_processed.select_dtypes(include=['object', 'category']).columns.tolist()
 
         # Remove target and special columns
-        special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month']
+        special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', self.noise_sentinel_name]
         numeric_cols = [c for c in numeric_cols if c not in special_cols]
         categorical_cols = [c for c in categorical_cols if c not in special_cols]
 
@@ -493,7 +513,7 @@ class UnifiedRiskPipeline:
 
     def _sanitize_feature_columns(self, df: pd.DataFrame, create_map: bool) -> pd.DataFrame:
         """Sanitize feature names to avoid characters that break LightGBM/JSON."""
-        exclude = {self.config.target_col, self.config.id_col, self.config.time_col, self.config.weight_column, 'snapshot_month'}
+        exclude = {self.config.target_col, self.config.id_col, self.config.time_col, self.config.weight_column, 'snapshot_month', self.noise_sentinel_name}
         exclude = {col for col in exclude if col}
         mapping = {} if create_map or not getattr(self, 'feature_name_map', None) else dict(self.feature_name_map)
         used = set(mapping.values())
@@ -580,11 +600,13 @@ class UnifiedRiskPipeline:
 
         # Fit WOE on train data
         train_df = splits['train']
-        exclude_cols = {self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'}
+        exclude_cols = {self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', self.noise_sentinel_name}
         feature_cols = [
             c
             for c in train_df.columns
-            if c not in exclude_cols and not is_datetime64_any_dtype(train_df[c])
+            if c not in exclude_cols
+            and c != getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+            and not is_datetime64_any_dtype(train_df[c])
         ]
 
         # Calculate WOE for each variable
@@ -647,7 +669,9 @@ class UnifiedRiskPipeline:
         feature_cols = [
             col
             for col in raw_train.columns
-            if col not in exclude_cols and not is_datetime64_any_dtype(raw_train[col])
+            if col not in exclude_cols
+            and col != getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+            and not is_datetime64_any_dtype(raw_train[col])
         ]
 
         categorical_cols = [
@@ -667,6 +691,10 @@ class UnifiedRiskPipeline:
 
         selected_features = feature_cols.copy()
         selection_history = []
+        noise_name = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+        noise_sentinel_flag = noise_name in raw_train.columns
+        if noise_name in selected_features:
+            selected_features.remove(noise_name)
 
         for method in self.config.selection_order:
             print(f"  Applying {method} selection...")
@@ -723,29 +751,33 @@ class UnifiedRiskPipeline:
                 gini_map = woe_results.get('univariate_gini', {})
                 selected = []
                 uni_details: Dict[str, Any] = {}
+                threshold = float(getattr(self.config, 'min_univariate_gini', 0.0) or 0.0)
                 for col in selected_features:
                     info = gini_map.get(col, {}) or {}
                     gini_woe = info.get('gini_woe')
                     gini_raw = info.get('gini_raw')
-                    gini_val = gini_woe if gini_woe is not None else gini_raw
+                    gini_woe_val = float(gini_woe) if gini_woe is not None else 0.0
+                    gini_raw_val = float(gini_raw) if gini_raw is not None else 0.0
+                    keep_woe = gini_woe is not None and gini_woe_val >= threshold
+                    keep_raw = gini_raw is not None and gini_raw_val >= threshold
                     detail = {
                         'gini_woe': gini_woe,
                         'gini_raw': gini_raw,
-                        'threshold': self.config.min_univariate_gini,
-                        'status': 'kept'
+                        'threshold': threshold,
+                        'status': 'kept',
+                        'meets_woe_threshold': keep_woe,
+                        'meets_raw_threshold': keep_raw
                     }
-                    if gini_val is None:
-                        gini_val = 0.0
-                    if gini_val < self.config.min_univariate_gini:
+                    if keep_woe or keep_raw:
+                        selected.append(col)
+                    else:
                         detail['status'] = 'dropped'
                         detail['drop_reason'] = (
-                            f"univariate gini {gini_val:.3f} < {self.config.min_univariate_gini:.3f}"
+                            f"univariate gini raw={gini_raw_val:.3f}, woe={gini_woe_val:.3f} < {threshold:.3f}"
                         )
                         print(
-                            f"    Removing {col}: univariate gini {gini_val:.3f} < {self.config.min_univariate_gini:.3f}"
+                            f"    Removing {col}: univariate gini raw={gini_raw_val:.3f}, woe={gini_woe_val:.3f} < {threshold:.3f}"
                         )
-                    else:
-                        selected.append(col)
                     uni_details[col] = detail
                 step_details = uni_details
 
@@ -838,6 +870,8 @@ class UnifiedRiskPipeline:
             print(f"    {method}: {len(removed)} degisken cikarildi, {len(selected)} kaldi")
 
             selected_features = selected
+        if noise_sentinel_flag and getattr(self.config, 'use_noise_sentinel', False):
+            print('  Noise sentinel feature removed from processing scope (overfit check only).')
         return {
             'selected_features': selected_features,
             'selection_history': selection_history
@@ -1200,6 +1234,35 @@ class UnifiedRiskPipeline:
                     X_eval.loc[:, col] = pd.to_numeric(X_eval[col], errors='coerce').fillna(0)
             source = 'split'
 
+        min_sample = int(getattr(self.config, 'risk_band_min_sample_size', 0) or 0)
+        if min_sample > 0 and X_eval is not None and len(X_eval) < min_sample:
+            reference_df = self.data_.get('risk_band_reference')
+            if (
+                data_override is None
+                and isinstance(reference_df, pd.DataFrame)
+                and not reference_df.empty
+                and target_col in reference_df.columns
+                and len(reference_df) >= min_sample
+            ):
+                ref_df = reference_df.copy()
+                if self.config.enable_woe:
+                    ref_woe = self.woe_transformer.transform(ref_df)
+                    available_features = [f for f in selected_features if f in ref_woe.columns]
+                    missing = set(selected_features) - set(available_features)
+                    if missing:
+                        print(f"  Warning: Reference dataset missing {len(missing)} selected features; using available subset.")
+                    X_eval = ref_woe[available_features].copy()
+                else:
+                    available_features = [f for f in selected_features if f in ref_df.columns]
+                    missing = set(selected_features) - set(available_features)
+                    if missing:
+                        print(f"  Warning: Reference dataset missing {len(missing)} selected features; using available subset.")
+                    X_eval = ref_df[available_features].copy()
+                y_eval = ref_df[target_col].astype(float)
+                source = 'override_reference'
+            else:
+                print(f"  Warning: Risk band optimisation sample contains {len(X_eval)} records (< {min_sample}); results may be unstable.")
+
         predictions = predict_positive_proba(model, X_eval)
         predictions = np.asarray(predictions, dtype=float).ravel()
 
@@ -1272,6 +1335,7 @@ class UnifiedRiskPipeline:
 
         return {
             'bands': band_frame,
+            'band_stats': band_frame.copy(),
             'band_edges': self.risk_band_optimizer.bands_,
             'metrics': metrics,
             'source': source,
@@ -1612,6 +1676,12 @@ class UnifiedRiskPipeline:
                     json.dump(mapping, handle, default=self._json_default, indent=2)
             except Exception as exc:
                 print(f"  WARNING: Failed to persist WOE mapping: {exc}")
+
+        tsfresh_meta = self.results_.get('tsfresh_metadata')
+        if tsfresh_meta is None or (isinstance(tsfresh_meta, pd.DataFrame) and tsfresh_meta.empty):
+            tsfresh_meta = self.data_.get('tsfresh_metadata')
+        if isinstance(tsfresh_meta, pd.DataFrame) and not tsfresh_meta.empty:
+            _dump_json(f"tsfresh_metadata_{run_id}.json", tsfresh_meta.to_dict(orient='records'))
 
         stage1_details = stage1.get('stage1_details') or {}
         if stage1_details:

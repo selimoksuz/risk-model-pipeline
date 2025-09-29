@@ -180,6 +180,7 @@ class Config:
     risk_band_min_bins: int = 7
     risk_band_max_bins: int = 10
     risk_band_micro_bins: int = 1000
+    risk_band_min_sample_size: int = 20000
     risk_band_min_weight: float = 0.05
     risk_band_max_weight: float = 0.30
     risk_band_hhi_threshold: float = 0.15
@@ -345,6 +346,10 @@ class Config:
         # Validate risk bands
         if self.n_risk_bands < 2:
             raise ValueError("n_risk_bands must be at least 2")
+        min_sample_size = getattr(self, 'risk_band_min_sample_size', 0)
+        if min_sample_size is not None and min_sample_size < 0:
+            raise ValueError('risk_band_min_sample_size must be non-negative')
+
         
         # Check algorithm availability
         valid_algorithms = [

@@ -1226,18 +1226,52 @@ class UnifiedRiskPipeline:
                 print('  Risk band optimization skipped: no suitable model for fallback.')
                 return {}
 
+        band_frame: pd.DataFrame
         risk_bands = self.risk_band_optimizer.optimize_bands(
             predictions, y_eval,
             n_bands=self.config.n_risk_bands,
             method=self.config.band_method
         )
+        if isinstance(risk_bands, pd.DataFrame):
+            band_frame = risk_bands.copy()
+        elif isinstance(risk_bands, dict):
+            band_frame = pd.DataFrame(risk_bands)
+        else:
+            band_frame = pd.DataFrame(risk_bands) if risk_bands is not None else pd.DataFrame()
+
+        if not band_frame.empty:
+            standardized_cols = {}
+            for col in band_frame.columns:
+                if isinstance(col, str):
+                    key = col.strip().lower()
+                    standardized_cols.setdefault(col, col)
+                    if key == 'bad_rate' and col != 'bad_rate':
+                        standardized_cols[col] = 'bad_rate'
+                    elif key == 'observed_dr' and 'bad_rate' not in band_frame.columns:
+                        standardized_cols[col] = 'bad_rate'
+                else:
+                    standardized_cols[col] = col
+            band_frame = band_frame.rename(columns=standardized_cols)
+            if 'bad_rate' not in band_frame.columns:
+                if {'bad_count', 'count'}.issubset(band_frame.columns):
+                    counts = band_frame['count'].to_numpy(dtype=float)
+                    band_frame['bad_rate'] = np.divide(
+                        band_frame['bad_count'],
+                        counts,
+                        out=np.zeros_like(counts, dtype=float),
+                        where=counts > 0,
+                    )
+                elif 'observed_dr' in band_frame.columns:
+                    band_frame['bad_rate'] = band_frame['observed_dr']
+        else:
+            band_frame = pd.DataFrame(columns=['band', 'bad_rate', 'count', 'pct_count'])
 
         metrics = self.risk_band_optimizer.calculate_band_metrics(
-            risk_bands, predictions, y_eval
+            band_frame, predictions, y_eval
         )
 
         return {
-            'bands': risk_bands,
+            'bands': band_frame,
             'band_edges': self.risk_band_optimizer.bands_,
             'metrics': metrics,
             'source': source,

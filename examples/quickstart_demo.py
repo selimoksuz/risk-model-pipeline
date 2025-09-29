@@ -87,6 +87,7 @@ def run_quickstart(output_dir: Path | str) -> Dict[str, Any]:
         data_dictionary=sample.data_dictionary,
         calibration_df=sample.calibration_longrun,
         stage2_df=sample.calibration_recent,
+        risk_band_df=sample.development,
         score_df=sample.scoring_future,
     )
     return results

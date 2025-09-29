@@ -1,4 +1,4 @@
-﻿"""Packaged sample datasets for risk_pipeline."""
+"""Packaged sample datasets for risk_pipeline."""
 from __future__ import annotations
 
 from dataclasses import dataclass

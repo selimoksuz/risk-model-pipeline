@@ -105,11 +105,13 @@ class EnhancedReporter:
     def _binomial_results_to_df(results: Any) -> pd.DataFrame:
         """Normalise binomial test outputs into a DataFrame."""
 
-        if results is None or results == []:
+        if results is None:
             return pd.DataFrame()
 
         if isinstance(results, pd.DataFrame):
             df = results.copy()
+        elif isinstance(results, (list, tuple)) and len(results) == 0:
+            return pd.DataFrame()
         elif isinstance(results, dict):
             rows: List[Dict[str, Any]] = []
             for band, payload in results.items():
@@ -416,7 +418,7 @@ class EnhancedReporter:
                 test_results = inner_tests
 
         binomial_source = metrics.get('binomial_tests')
-        if not binomial_source and isinstance(test_results, dict):
+        if (binomial_source is None or (isinstance(binomial_source, pd.DataFrame) and binomial_source.empty)) and isinstance(test_results, dict):
             binomial_source = test_results.get('binomial')
         binomial_df = self._binomial_results_to_df(binomial_source)
 

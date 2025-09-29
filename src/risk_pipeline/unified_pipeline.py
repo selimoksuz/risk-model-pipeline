@@ -89,6 +89,7 @@ class UnifiedRiskPipeline:
             data_dictionary: Optional[pd.DataFrame] = None,
             calibration_df: Optional[pd.DataFrame] = None,
             stage2_df: Optional[pd.DataFrame] = None,
+            risk_band_df: Optional[pd.DataFrame] = None,
             score_df: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
         Main pipeline execution method.
@@ -103,6 +104,8 @@ class UnifiedRiskPipeline:
             Data for Stage 1 calibration (if None, uses full data)
         stage2_df : pd.DataFrame, optional
             Recent data for Stage 2 calibration
+        risk_band_df : pd.DataFrame, optional
+            Dataset used exclusively for score band optimisation
         score_df : pd.DataFrame, optional
             Data to score (if enable_scoring=True)
 
@@ -132,6 +135,14 @@ class UnifiedRiskPipeline:
             # Step 2: Data Splitting
             print("\n[Step 2/10] Data Splitting...")
             splits = self._split_data(processed_data)
+
+            risk_band_reference: Optional[pd.DataFrame] = None
+            if risk_band_df is not None:
+                print("\n[INFO] Aligning dedicated risk band dataset with learned preprocessing maps...")
+                risk_band_reference = self._process_data(risk_band_df, create_map=False)
+                self.data_['risk_band_reference'] = risk_band_reference
+            else:
+                self.data_['risk_band_reference'] = None
 
             def _run_single_flow(use_woe: bool) -> Dict[str, Any]:
                 """Run selection->modeling->calibration->bands for one mode (WOE or RAW)."""
@@ -181,7 +192,7 @@ class UnifiedRiskPipeline:
 
                 # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
-                bands = self._optimize_risk_bands(stg2, splits)
+                bands = self._optimize_risk_bands(stg2, splits, data_override=risk_band_reference, stage1_results=stg1)
                 self.results_['risk_bands'] = bands
 
                 # Step 9: Scoring (if enabled and data provided)
@@ -279,6 +290,17 @@ class UnifiedRiskPipeline:
                     'chosen_auc': best_flow['best_auc'],
                 }
 
+                band_info = best_flow.get('risk_bands') or {}
+                self.results_.update({
+                    'calibration_stage1_curve': best_flow.get('stage1', {}).get('calibration_curve') if isinstance(best_flow.get('stage1'), dict) else None,
+                    'calibration_stage2_curve': best_flow.get('stage2', {}).get('stage2_curve') if isinstance(best_flow.get('stage2'), dict) else None,
+                    'feature_name_map': self.data_.get('feature_name_map', getattr(self, 'feature_name_map', {})),
+                    'imputation_stats': getattr(self.data_processor, 'imputation_stats_', {}),
+                    'risk_band_source': band_info.get('source'),
+                    'risk_band_n_records': band_info.get('n_records'),
+                    'risk_band_edges': band_info.get('band_edges'),
+                })
+
                 self._persist_model_artifacts()
             else:
                 # Single-flow path (default behaviour)
@@ -329,7 +351,7 @@ class UnifiedRiskPipeline:
 
                 # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
-                risk_bands = self._optimize_risk_bands(stage2_results, splits)
+                risk_bands = self._optimize_risk_bands(stage2_results, splits, data_override=risk_band_reference, stage1_results=stage1_results)
                 self.results_['risk_bands'] = risk_bands
                 scoring_output = {'dataframe': None, 'metrics': None, 'reports': {}}
 
@@ -374,6 +396,17 @@ class UnifiedRiskPipeline:
                     'selection_history': selection_results.get('selection_history'),
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
                 }
+
+                band_info = risk_bands or {}
+                self.results_.update({
+                    'calibration_stage1_curve': stage1_results.get('calibration_curve') if isinstance(stage1_results, dict) else None,
+                    'calibration_stage2_curve': stage2_results.get('stage2_curve') if isinstance(stage2_results, dict) else None,
+                    'feature_name_map': self.data_.get('feature_name_map', getattr(self, 'feature_name_map', {})),
+                    'imputation_stats': getattr(self.data_processor, 'imputation_stats_', {}),
+                    'risk_band_source': band_info.get('source'),
+                    'risk_band_n_records': band_info.get('n_records'),
+                    'risk_band_edges': band_info.get('band_edges'),
+                })
 
                 self._persist_model_artifacts()
 
@@ -938,15 +971,33 @@ class UnifiedRiskPipeline:
         metrics = self.calibrator.evaluate_calibration(
             calibrated_model, X_cal, y_cal
         )
+
+        X_cal_filled = X_cal.fillna(0) if hasattr(X_cal, 'fillna') else X_cal
+        base_scores = predict_positive_proba(best_model, X_cal_filled)
+        calibrated_scores = predict_positive_proba(calibrated_model, X_cal_filled)
+        calibration_curve = None
+        if base_scores.size and calibrated_scores.size:
+            quantiles = np.linspace(0, 1, 101)
+            calibration_curve = pd.DataFrame({
+                'quantile': quantiles.tolist(),
+                'pre_calibrated': np.quantile(base_scores, quantiles).tolist(),
+                'post_calibrated': np.quantile(calibrated_scores, quantiles).tolist(),
+            })
+
         stage1_details = {
             'method': self.config.calibration_method,
             'long_run_rate': float(metrics.get('long_run_rate', y_cal.mean())),
-            'base_rate': float(metrics.get('base_rate', y_cal.mean()))
+            'base_rate': float(metrics.get('base_rate', y_cal.mean())),
+            'n_samples': int(len(X_cal)),
         }
+        if calibration_curve is not None:
+            stage1_details['curve_points'] = len(calibration_curve)
+
         return {
             'calibrated_model': calibrated_model,
             'calibration_metrics': metrics,
-            'stage1_details': stage1_details
+            'stage1_details': stage1_details,
+            'calibration_curve': calibration_curve
         }
 
     def _apply_stage2_calibration(self, stage1_results: Dict, stage2_df: pd.DataFrame) -> Dict:
@@ -966,11 +1017,17 @@ class UnifiedRiskPipeline:
 
         stage2_input = stage2_df.copy()
         target_col = self.config.target_col
-        if target_col and target_col not in stage2_input.columns:
+        y_stage2_source: Optional[pd.Series] = None
+        if target_col and target_col in stage2_input.columns:
+            y_stage2_source = stage2_input[target_col].astype(float)
+        elif target_col:
             stage2_input[target_col] = np.nan
 
         # Process Stage 2 data
         stage2_processed = self._process_data(stage2_input, create_map=False)
+        stage2_processed = stage2_processed.reset_index(drop=True)
+        if y_stage2_source is not None:
+            y_stage2_source = y_stage2_source.reset_index(drop=True)
 
         if self.config.enable_woe:
             stage2_woe = self.woe_transformer.transform(stage2_processed)
@@ -992,10 +1049,20 @@ class UnifiedRiskPipeline:
         for col in X_stage2.columns:
             if is_object_dtype(X_stage2[col]) or is_datetime64_any_dtype(X_stage2[col]):
                 X_stage2.loc[:, col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
+        X_stage2 = X_stage2.reset_index(drop=True)
 
-        target_col = self.config.target_col
         y_stage2: Optional[pd.Series] = None
         X_stage2_cal = X_stage2
+        if y_stage2_source is not None:
+            y_stage2_aligned = y_stage2_source.loc[X_stage2.index]
+            valid_mask = y_stage2_aligned.notna()
+            if valid_mask.any():
+                if not valid_mask.all():
+                    X_stage2_cal = X_stage2.loc[valid_mask].copy()
+                    y_stage2 = y_stage2_aligned.loc[valid_mask].reset_index(drop=True)
+                else:
+                    y_stage2 = y_stage2_aligned.reset_index(drop=True)
+
 
         if target_col and target_col in stage2_processed.columns:
             target_values = stage2_processed[target_col]
@@ -1029,12 +1096,31 @@ class UnifiedRiskPipeline:
             stage2_model, X_stage2_cal, y_stage2
         )
         stage2_details = getattr(self.calibrator, 'stage2_metadata_', {}) or {}
+        if isinstance(X_stage2_cal, pd.DataFrame):
+            stage2_details.setdefault('n_recent_samples', int(len(X_stage2_cal)))
+
+        X_stage2_eval = X_stage2_cal if isinstance(X_stage2_cal, pd.DataFrame) else X_stage2
+        stage2_curve = None
+        if X_stage2_eval is not None and hasattr(X_stage2_eval, 'fillna'):
+            X_eval_filled = X_stage2_eval.fillna(0)
+            stage1_scores = predict_positive_proba(stage1_results['calibrated_model'], X_eval_filled)
+            stage2_scores = predict_positive_proba(stage2_model, X_eval_filled)
+            if stage1_scores.size and stage2_scores.size:
+                quantiles = np.linspace(0, 1, 101)
+                stage2_curve = pd.DataFrame({
+                    'quantile': quantiles.tolist(),
+                    'stage1_score': np.quantile(stage1_scores, quantiles).tolist(),
+                    'stage2_score': np.quantile(stage2_scores, quantiles).tolist(),
+                })
+                stage2_details['curve_points'] = len(stage2_curve)
 
         response = {
             'calibrated_model': stage2_model,
-            'stage1_metrics': stage1_results['calibration_metrics'],
+            'stage1_metrics': stage1_results.get('calibration_metrics'),
             'stage2_metrics': stage2_metrics,
-            'stage2_details': stage2_details
+            'stage2_details': stage2_details,
+            'stage2_curve': stage2_curve,
+            'stage1_model': stage1_results.get('calibrated_model') if isinstance(stage1_results, dict) else None
         }
 
         for key in ['target_rate', 'recent_rate', 'stage1_rate', 'adjustment_factor', 'lower_ci', 'upper_ci', 'confidence_level', 'achieved_rate']:
@@ -1044,57 +1130,118 @@ class UnifiedRiskPipeline:
         return response
 
 
-    def _optimize_risk_bands(self, model_results: Dict, splits: Dict) -> Dict:
+    def _optimize_risk_bands(self, model_results: Dict, splits: Dict, *, data_override: Optional[pd.DataFrame] = None, stage1_results: Optional[Dict] = None) -> Dict:
         """Optimize risk bands with multiple metrics."""
 
-        # Check if we have a model
         if 'calibrated_model' not in model_results or model_results['calibrated_model'] is None:
             print("  Skipping risk bands: No model available")
             return {}
 
-        # Get predictions
         model = model_results['calibrated_model']
         selected_features = self.selected_features_
+        target_col = self.config.target_col
 
         if not selected_features:
             print("  Skipping risk bands: No features selected")
             return {}
 
-        if 'test' in splits:
-            if self.config.enable_woe:
-                X_test = splits['test_woe'][selected_features]
-            else:
-                X_test = splits['test'][selected_features]
-            y_test = splits['test'][self.config.target_col]
-        else:
-            if self.config.enable_woe:
-                X_test = splits['train_woe'][selected_features]
-            else:
-                X_test = splits['train'][selected_features]
-            y_test = splits['train'][self.config.target_col]
+        X_eval: Optional[pd.DataFrame] = None
+        y_eval: Optional[pd.Series] = None
+        source = 'split'
 
-        predictions = predict_positive_proba(model, X_test)
+        if data_override is not None and isinstance(data_override, pd.DataFrame) and not data_override.empty:
+            override_df = data_override.copy()
+            if target_col not in override_df.columns:
+                print('  Risk band override dataset missing target column; falling back to split data.')
+            else:
+                if self.config.enable_woe:
+                    transformed = self.woe_transformer.transform(override_df)
+                else:
+                    transformed = override_df
+                missing = [col for col in selected_features if col not in transformed.columns]
+                if missing:
+                    print(f"  Risk band override dataset missing {len(missing)} selected features; falling back to split data.")
+                else:
+                    X_eval = transformed[selected_features].copy()
+                    for col in X_eval.columns:
+                        if is_object_dtype(X_eval[col]) or is_datetime64_any_dtype(X_eval[col]):
+                            X_eval.loc[:, col] = pd.to_numeric(X_eval[col], errors='coerce').fillna(0)
+                    y_eval = override_df[target_col].astype(float)
+                    valid_mask = y_eval.notna()
+                    if valid_mask.any():
+                        if not valid_mask.all():
+                            X_eval = X_eval.loc[valid_mask].copy()
+                            y_eval = y_eval.loc[valid_mask]
+                        else:
+                            y_eval = y_eval.copy()
+                        source = 'override'
+                    else:
+                        print('  Risk band override dataset has no valid targets; falling back to split data.')
+                        X_eval = None
+                        y_eval = None
+
+        if X_eval is None or y_eval is None or X_eval.empty:
+            if 'test' in splits:
+                if self.config.enable_woe:
+                    X_eval = splits['test_woe'][selected_features]
+                else:
+                    X_eval = splits['test'][selected_features]
+                y_eval = splits['test'][target_col]
+            else:
+                if self.config.enable_woe:
+                    X_eval = splits['train_woe'][selected_features]
+                else:
+                    X_eval = splits['train'][selected_features]
+                y_eval = splits['train'][target_col]
+            X_eval = X_eval.copy()
+            y_eval = y_eval.astype(float)
+            for col in X_eval.columns:
+                if is_object_dtype(X_eval[col]) or is_datetime64_any_dtype(X_eval[col]):
+                    X_eval.loc[:, col] = pd.to_numeric(X_eval[col], errors='coerce').fillna(0)
+            source = 'split'
+
+        predictions = predict_positive_proba(model, X_eval)
         predictions = np.asarray(predictions, dtype=float).ravel()
-        if predictions.size == 0 or np.unique(predictions).size <= 1:
-            warnings.warn('  Risk band optimization skipped: predictions lack variation.', RuntimeWarning)
-            return {}
 
-        # Optimize bands
+        if np.unique(predictions).size <= 1:
+            print('  Stage 2 predictions lack variation; falling back to Stage 1 for risk bands.')
+            fallback_stage1 = stage1_results if isinstance(stage1_results, dict) else {}
+            stage1_model = fallback_stage1.get('calibrated_model') if fallback_stage1 else None
+            if stage1_model is None:
+                stage1_model = model_results.get('stage1_model')
+            if stage1_model is None:
+                cached_stage1 = self.results_.get('calibration_stage1') or {}
+                stage1_model = cached_stage1.get('calibrated_model')
+            if stage1_model is None:
+                base_results = self.results_.get('model_results', {})
+                stage1_model = base_results.get('calibrated_model') or base_results.get('best_model')
+            if stage1_model is not None:
+                predictions = predict_positive_proba(stage1_model, X_eval)
+                predictions = np.asarray(predictions, dtype=float).ravel()
+                if np.unique(predictions).size <= 1:
+                    print('  Risk band optimization skipped: predictions still lack variation.')
+                    return {}
+                model = stage1_model
+            else:
+                print('  Risk band optimization skipped: no suitable model for fallback.')
+                return {}
+
         risk_bands = self.risk_band_optimizer.optimize_bands(
-            predictions, y_test,
+            predictions, y_eval,
             n_bands=self.config.n_risk_bands,
             method=self.config.band_method
         )
 
-        # Calculate metrics
         metrics = self.risk_band_optimizer.calculate_band_metrics(
-            risk_bands, predictions, y_test
+            risk_bands, predictions, y_eval
         )
 
         return {
             'bands': risk_bands,
             'band_edges': self.risk_band_optimizer.bands_,
-            'metrics': metrics
+            'metrics': metrics,
+            'source': source,
+            'n_records': int(len(predictions))
         }
 
     def _build_woe_mapping(self, woe_results: Optional[Dict]) -> Dict[str, Any]:
@@ -1192,6 +1339,19 @@ class UnifiedRiskPipeline:
         scores = raw_scores
 
         result_df = score_df.copy()
+        if self.config.enable_woe:
+            for col in final_features:
+                result_df['{}_woe'.format(col)] = score_matrix[col].to_numpy()
+
+        stage1_model = (self.results_.get('calibration_stage1') or {}).get('calibrated_model')
+        stage1_scores = None
+        if stage1_model is not None and stage1_model is not final_model:
+            try:
+                stage1_scores = predict_positive_proba(stage1_model, score_matrix)
+                result_df['stage1_score'] = np.asarray(stage1_scores, dtype=float).ravel()
+            except Exception:
+                stage1_scores = None
+
         result_df['risk_score'] = scores
         band_edges = None
         if 'risk_bands' in self.results_ and self.results_['risk_bands']:
@@ -1231,6 +1391,8 @@ class UnifiedRiskPipeline:
             'psi_score': None,
             'calibration_applied': bool(stage_results.get('method') or stage_results is not model_results),
         }
+        if stage1_scores is not None:
+            metrics['stage1_scores_preview'] = self._describe_scores(np.asarray(stage1_scores, dtype=float).ravel())
 
         if training_scores is not None and training_scores.size > 0:
             try:
@@ -1374,6 +1536,15 @@ class UnifiedRiskPipeline:
         os.makedirs(output_dir, exist_ok=True)
         run_id = getattr(self.config, 'run_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
 
+        def _dump_json(name: str, payload: Any) -> None:
+            if payload is None:
+                return
+            try:
+                with open(os.path.join(output_dir, name), 'w', encoding='utf-8') as handle:
+                    json.dump(payload, handle, default=self._json_default, indent=2)
+            except Exception as exc:
+                print(f"  WARNING: Failed to persist {name}: {exc}")
+
         final_model_path = os.path.join(output_dir, f"final_model_{run_id}.joblib")
         try:
             joblib.dump(final_model, final_model_path)
@@ -1408,13 +1579,48 @@ class UnifiedRiskPipeline:
             except Exception as exc:
                 print(f"  WARNING: Failed to persist WOE mapping: {exc}")
 
+        stage1_details = stage1.get('stage1_details') or {}
+        if stage1_details:
+            _dump_json(f"stage1_details_{run_id}.json", stage1_details)
+
         stage2_details = stage2.get('stage2_details') or {}
         if stage2_details:
-            try:
-                with open(os.path.join(output_dir, f"stage2_details_{run_id}.json"), 'w', encoding='utf-8') as handle:
-                    json.dump(stage2_details, handle, default=self._json_default, indent=2)
-            except Exception as exc:
-                print(f"  WARNING: Failed to persist stage 2 metadata: {exc}")
+            _dump_json(f"stage2_details_{run_id}.json", stage2_details)
+
+        stage1_curve = stage1.get('calibration_curve')
+        if isinstance(stage1_curve, pd.DataFrame):
+            stage1_curve_payload = stage1_curve.to_dict(orient='records')
+        else:
+            stage1_curve_payload = stage1_curve
+        if stage1_curve_payload:
+            _dump_json(f"stage1_curve_{run_id}.json", stage1_curve_payload)
+
+        stage2_curve = stage2.get('stage2_curve')
+        if isinstance(stage2_curve, pd.DataFrame):
+            stage2_curve_payload = stage2_curve.to_dict(orient='records')
+        else:
+            stage2_curve_payload = stage2_curve
+        if stage2_curve_payload:
+            _dump_json(f"stage2_curve_{run_id}.json", stage2_curve_payload)
+
+        feature_map = self.data_.get('feature_name_map', getattr(self, 'feature_name_map', {}))
+        if feature_map:
+            _dump_json(f"feature_map_{run_id}.json", feature_map)
+
+        imputation_stats = getattr(self.data_processor, 'imputation_stats_', {})
+        if imputation_stats:
+            _dump_json(f"imputation_stats_{run_id}.json", imputation_stats)
+
+        band_info = self.results_.get('risk_bands') or {}
+        if band_info:
+            band_payload = {
+                'bands': band_info.get('bands'),
+                'band_edges': band_info.get('band_edges'),
+                'metrics': band_info.get('metrics'),
+                'source': band_info.get('source'),
+                'n_records': band_info.get('n_records'),
+            }
+            _dump_json(f"risk_bands_{run_id}.json", band_payload)
 
     @staticmethod
     def _json_default(value):

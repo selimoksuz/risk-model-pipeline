@@ -77,6 +77,9 @@ class Config:
     woe_monotonic_numeric: bool = True  # Enforce monotonicity for numeric
     woe_merge_insignificant: bool = True  # Merge insignificant bins for categorical
     woe_special_values: Optional[List] = None  # Special values to handle separately
+    exclude_woe_features: List[str] = field(default_factory=list)
+    exclude_woe_suffixes: List[str] = field(default_factory=lambda: ['_id', '_dt'])
+
     
     # ==================== UNIVARIATE ANALYSIS ====================
     calculate_univariate_gini: bool = True  # Calculate uni gini for all variables

@@ -750,13 +750,18 @@ class UnifiedRiskPipeline:
 
         # Fit WOE on train data
         train_df = splits['train']
-        exclude_cols = {self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', self.noise_sentinel_name}
+        exclude_cols = {c for c in [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'] if c}
+        noise_name = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+        exclude_cols.add(noise_name)
+        exclude_cols.update(getattr(self.config, 'exclude_woe_features', []) or [])
+        suffix_blocklist = [s.lower() for s in getattr(self.config, 'exclude_woe_suffixes', []) or []]
+
         feature_cols = [
             c
             for c in train_df.columns
             if c not in exclude_cols
-            and c != getattr(self, 'noise_sentinel_name', 'noise_sentinel')
             and not is_datetime64_any_dtype(train_df[c])
+            and not any(c.lower().endswith(suffix) for suffix in suffix_blocklist)
         ]
 
         # Calculate WOE for each variable
@@ -815,13 +820,18 @@ class UnifiedRiskPipeline:
         """
 
         raw_train = splits['train']
-        exclude_cols = {self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'}
+        exclude_cols = {c for c in [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'] if c}
+        noise_name = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+        exclude_cols.add(noise_name)
+        exclude_cols.update(getattr(self.config, 'exclude_woe_features', []) or [])
+        suffix_blocklist = [s.lower() for s in getattr(self.config, 'exclude_woe_suffixes', []) or []]
+
         feature_cols = [
             col
             for col in raw_train.columns
             if col not in exclude_cols
-            and col != getattr(self, 'noise_sentinel_name', 'noise_sentinel')
             and not is_datetime64_any_dtype(raw_train[col])
+            and not any(col.lower().endswith(suffix) for suffix in suffix_blocklist)
         ]
 
         categorical_cols = [

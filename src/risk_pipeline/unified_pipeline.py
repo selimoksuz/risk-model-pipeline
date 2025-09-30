@@ -496,8 +496,10 @@ class UnifiedRiskPipeline:
             print(f"\nERROR: Pipeline failed at step: {str(e)}")
             raise
 
+
+
     def _process_data(self, df: pd.DataFrame, create_map: bool = False, *, include_noise: Optional[bool] = None) -> pd.DataFrame:
-        """Process raw data with separate handling for numeric/categorical."""
+        """Process raw data while preserving raw, numeric-prepped, and WOE layers."""
 
         df_processed = self.data_processor.validate_and_freeze(df.copy())
 
@@ -520,54 +522,31 @@ class UnifiedRiskPipeline:
         if tsfresh_meta is not None:
             self.data_['tsfresh_metadata'] = tsfresh_meta.copy()
 
-        # Identify variable types
         numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_cols = df_processed.select_dtypes(include=['object', 'category']).columns.tolist()
 
         noise_col = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
-
-        # Remove target and special columns
         special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', noise_col]
         numeric_cols = [c for c in numeric_cols if c not in special_cols]
         categorical_cols = [c for c in categorical_cols if c not in special_cols]
 
         print(f"  Found {len(numeric_cols)} numeric and {len(categorical_cols)} categorical features")
 
-        # Impute missing values for numeric columns
-        if numeric_cols:
-            from sklearn.impute import SimpleImputer
-            numeric_imputer = SimpleImputer(strategy=self.config.numeric_imputation)
-            df_processed[numeric_cols] = numeric_imputer.fit_transform(df_processed[numeric_cols])
-
-        # Handle categorical missing values
-        if categorical_cols:
-            for col in categorical_cols:
-                df_processed[col] = df_processed[col].fillna('MISSING')
-
-                # Group rare categories
-                if hasattr(self.config, 'min_category_freq'):
-                    freq = df_processed[col].value_counts(normalize=True)
-                    rare = freq[freq < self.config.min_category_freq].index.tolist()
-                    if rare:
-                        df_processed.loc[df_processed[col].isin(rare), col] = 'RARE'
-
-        # Outlier handling for numeric columns
-        if numeric_cols and self.config.outlier_method == 'clip':
-            for col in numeric_cols:
-                p1 = df_processed[col].quantile(0.01)
-                p99 = df_processed[col].quantile(0.99)
-                df_processed[col] = df_processed[col].clip(p1, p99)
-
         if noise_col in df_processed.columns:
             df_processed = df_processed.drop(columns=noise_col)
 
+        df_processed = self._sanitize_feature_columns(df_processed, create_map=create_map)
+
+        mapping = self.feature_name_map or {}
+        numeric_sanitized = [mapping.get(col, col) for col in numeric_cols]
+        categorical_sanitized = [mapping.get(col, col) for col in categorical_cols]
+        self.data_['numeric_features'] = numeric_sanitized
+        self.data_['categorical_features'] = categorical_sanitized
+
         include_noise = self.config.enable_noise_sentinel if include_noise is None else bool(include_noise)
-        # Add noise sentinel only when explicitly requested (final diagnostics)
         if include_noise:
             df_processed = df_processed.copy()
-            df_processed[noise_col] = np.random.normal(0, 1, len(df_processed))
-
-        df_processed = self._sanitize_feature_columns(df_processed, create_map=create_map)
+            df_processed[self.noise_sentinel_name] = np.random.normal(0, 1, len(df_processed))
 
         self.data_['processed'] = df_processed
         return df_processed
@@ -635,10 +614,11 @@ class UnifiedRiskPipeline:
         return splits
 
 
+
     def _build_raw_numeric_layers(self, splits: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """Create an imputed/clipped version of numeric features for RAW models."""
 
-        numeric_cols = self.data_.get('numeric_features', [])
+        numeric_cols = [col for col in self.data_.get('numeric_features', []) if col]
         if not numeric_cols:
             return splits
 
@@ -650,36 +630,45 @@ class UnifiedRiskPipeline:
         if not available_train:
             return splits
 
-        train_numeric = train_df[available_train]
-        medians = train_numeric.median()
+        strategy = getattr(self.config, 'numeric_imputation_strategy', 'median') or 'median'
+        allowed_strategies = {'mean', 'median', 'most_frequent', 'constant'}
+        if strategy not in allowed_strategies:
+            strategy = 'median'
+
+        from sklearn.impute import SimpleImputer
+
+        imputer_kwargs: Dict[str, Any] = {'strategy': strategy}
+        if strategy == 'constant':
+            imputer_kwargs['fill_value'] = getattr(self.config, 'numeric_imputation_fill_value', 0.0)
+        imputer = SimpleImputer(**imputer_kwargs)
+        imputer.fit(train_df[available_train])
 
         outlier_method = getattr(self.config, 'numeric_outlier_method', 'clip')
         lower_bounds = upper_bounds = None
         if outlier_method == 'clip':
             lower_q = float(getattr(self.config, 'outlier_lower_quantile', 0.01) or 0.01)
             upper_q = float(getattr(self.config, 'outlier_upper_quantile', 0.99) or 0.99)
-            lower_bounds = train_numeric.quantile(lower_q)
-            upper_bounds = train_numeric.quantile(upper_q)
+            base_numeric = train_df[available_train]
+            lower_bounds = base_numeric.quantile(lower_q)
+            upper_bounds = base_numeric.quantile(upper_q)
 
         processed_layers: Dict[str, pd.DataFrame] = {}
         for split_name, split_df in list(splits.items()):
             if split_df is None or getattr(split_df, 'empty', False):
                 continue
-
-            available_cols = [col for col in numeric_cols if col in split_df.columns]
-            if not available_cols:
+            if split_name.endswith('_raw_prepped'):
+                continue
+            if not all(col in split_df.columns for col in available_train):
                 continue
 
-            medians_subset = medians.reindex(available_cols)
             updated_df = split_df.copy()
-            filled = updated_df[available_cols].fillna(medians_subset)
-            if lower_bounds is not None and upper_bounds is not None:
-                filled = filled.clip(
-                    lower=lower_bounds.reindex(available_cols),
-                    upper=upper_bounds.reindex(available_cols),
-                    axis=1,
-                )
-            updated_df[available_cols] = filled
+            transformed = imputer.transform(updated_df[available_train])
+            transformed_df = pd.DataFrame(transformed, columns=available_train, index=updated_df.index)
+
+            if outlier_method == 'clip' and lower_bounds is not None and upper_bounds is not None:
+                transformed_df = transformed_df.clip(lower=lower_bounds, upper=upper_bounds, axis=1)
+
+            updated_df.loc[:, available_train] = transformed_df
 
             layer_key = f"{split_name}_raw_prepped"
             splits[layer_key] = updated_df
@@ -688,11 +677,47 @@ class UnifiedRiskPipeline:
         if processed_layers:
             self.data_['raw_numeric_layers'] = processed_layers
             self.data_['raw_numeric_statistics'] = {
-                'medians': medians.to_dict(),
-                'lower_bounds': lower_bounds.to_dict() if lower_bounds is not None else None,
-                'upper_bounds': upper_bounds.to_dict() if upper_bounds is not None else None,
+                'strategy': strategy,
+                'lower_bounds': lower_bounds.copy() if lower_bounds is not None else None,
+                'upper_bounds': upper_bounds.copy() if upper_bounds is not None else None,
+            }
+            self._current_raw_preprocessor = {
+                'columns': available_train,
+                'imputer': imputer,
+                'outlier_method': outlier_method,
+                'lower_bounds': lower_bounds.copy() if lower_bounds is not None else None,
+                'upper_bounds': upper_bounds.copy() if upper_bounds is not None else None,
             }
         return splits
+
+
+    def _transform_raw_numeric(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply stored raw numeric preprocessing (impute + clip) to a dataframe."""
+
+        preprocessor = getattr(self, '_current_raw_preprocessor', None)
+        if not preprocessor:
+            return df
+
+        columns = [col for col in preprocessor.get('columns', []) if col in df.columns]
+        if not columns:
+            return df
+
+        imputer = preprocessor.get('imputer')
+        transformed_df = df.copy()
+        transformed_values = imputer.transform(transformed_df[columns])
+        numeric_df = pd.DataFrame(transformed_values, columns=columns, index=transformed_df.index)
+
+        if preprocessor.get('outlier_method') == 'clip':
+            lower = preprocessor.get('lower_bounds')
+            upper = preprocessor.get('upper_bounds')
+            if lower is not None and upper is not None:
+                lower = lower.reindex(columns)
+                upper = upper.reindex(columns)
+                numeric_df = numeric_df.clip(lower=lower, upper=upper, axis=1)
+
+        transformed_df.loc[:, columns] = numeric_df
+        return transformed_df
+
 
     def _inject_categorical_woe(self, splits: Dict, categorical_cols: List[str]) -> None:
         """Replace categorical columns with their WOE-transformed values."""
@@ -701,17 +726,21 @@ class UnifiedRiskPipeline:
             return
 
         for split_name, split_df in list(splits.items()):
-            if split_name.endswith('_woe') or split_df is None:
+            if split_df is None or split_name.endswith('_woe'):
                 continue
 
-            woe_df = splits.get(f'{split_name}_woe')
-            if woe_df is None:
+            target_woe = splits.get(f'{split_name}_woe')
+            base_name = split_name
+            if target_woe is None and split_name.endswith('_raw_prepped'):
+                base_name = split_name[:-len('_raw_prepped')]
+                target_woe = splits.get(f'{base_name}_woe')
+            if target_woe is None:
                 continue
 
             updated = split_df.copy()
             for col in categorical_cols:
-                if col in woe_df.columns:
-                    updated[col] = woe_df[col]
+                if col in target_woe.columns and col in updated.columns:
+                    updated[col] = target_woe[col]
             splits[split_name] = updated
 
     def _apply_woe_transformation(self, splits: Dict) -> Dict:
@@ -803,11 +832,14 @@ class UnifiedRiskPipeline:
 
         if not self.config.enable_woe:
             self._inject_categorical_woe(splits, categorical_cols)
-            train_df = splits['train']
+            train_df = splits.get('train_raw_prepped', splits['train'])
         else:
             train_df = splits['train_woe']
 
-        train_woe_df = splits.get('train_woe', train_df)
+        if self.config.enable_woe:
+            reference_df = splits.get('train_woe', train_df)
+        else:
+            reference_df = train_df
         psi_monthly_frames = self._prepare_monthly_frames(splits)
 
         selected_features = feature_cols.copy()
@@ -833,20 +865,29 @@ class UnifiedRiskPipeline:
             step_details: Optional[Dict[str, Any]] = None
 
             if method == 'psi':
-                train_for_psi = train_woe_df[selected_features]
+                train_for_psi = reference_df[selected_features]
 
-                test_candidate = splits.get('test_woe')
-                if test_candidate is None:
-                    test_candidate = splits.get('test')
+                if self.config.enable_woe:
+                    test_candidate = splits.get('test_woe')
+                    if test_candidate is None:
+                        test_candidate = splits.get('test')
+                    oot_candidate = splits.get('oot_woe')
+                    if oot_candidate is None:
+                        oot_candidate = splits.get('oot')
+                else:
+                    test_candidate = splits.get('test_raw_prepped')
+                    if test_candidate is None:
+                        test_candidate = splits.get('test')
+                    oot_candidate = splits.get('oot_raw_prepped')
+                    if oot_candidate is None:
+                        oot_candidate = splits.get('oot')
+
                 test_for_psi = (
                     test_candidate[selected_features]
                     if test_candidate is not None and not test_candidate.empty
                     else None
                 )
 
-                oot_candidate = splits.get('oot_woe')
-                if oot_candidate is None:
-                    oot_candidate = splits.get('oot')
                 oot_for_psi = (
                     oot_candidate[selected_features]
                     if oot_candidate is not None and not oot_candidate.empty
@@ -953,7 +994,10 @@ class UnifiedRiskPipeline:
 
             elif method == 'stepwise':
                 if self.config.selection_method == 'forward':
-                    test_df = splits.get('test_woe' if self.config.enable_woe else 'test', train_df)
+                    if self.config.enable_woe:
+                        test_df = splits.get('test_woe', train_df)
+                    else:
+                        test_df = splits.get('test_raw_prepped', splits.get('test', train_df))
                     selected = self.feature_selector.forward_selection(
                         train_df[selected_features],
                         train_df[self.config.target_col],
@@ -1011,12 +1055,15 @@ class UnifiedRiskPipeline:
         if not time_col or time_col not in train_df.columns:
             return frames
 
-        woe_df = splits.get('train_woe', train_df)
+        if self.config.enable_woe:
+            reference_df = splits.get('train_woe', train_df)
+        else:
+            reference_df = splits.get('train_raw_prepped', train_df)
         time_series = train_df[time_col]
 
         for label in time_series.dropna().unique():
             mask = time_series == label
-            frames[str(label)] = woe_df.loc[mask].reset_index(drop=True)
+            frames[str(label)] = reference_df.loc[mask].reset_index(drop=True)
 
         return frames
 
@@ -1033,11 +1080,17 @@ class UnifiedRiskPipeline:
             y_test = splits.get('test', pd.DataFrame())[self.config.target_col] if 'test' in splits else None
             oot_source = splits.get('oot_woe')
         else:
-            X_train = splits['train'][selected_features]
+            train_source = splits.get('train_raw_prepped', splits['train'])
+            X_train = train_source[selected_features]
             y_train = splits['train'][self.config.target_col]
-            X_test = splits.get('test', pd.DataFrame())[selected_features] if 'test' in splits else None
+            test_source = splits.get('test_raw_prepped')
+            if test_source is None:
+                test_source = splits.get('test', pd.DataFrame())
+            X_test = test_source[selected_features] if isinstance(test_source, pd.DataFrame) and not test_source.empty else None
             y_test = splits.get('test', pd.DataFrame())[self.config.target_col] if 'test' in splits else None
-            oot_source = splits.get('oot')
+            oot_source = splits.get('oot_raw_prepped')
+            if oot_source is None:
+                oot_source = splits.get('oot')
 
         X_oot = None
         if oot_source is not None and not oot_source.empty:
@@ -1107,15 +1160,23 @@ class UnifiedRiskPipeline:
                     # Convert to numeric or fill with 0
                     X_cal.loc[:, col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
         else:
-            # Only for non-WOE case, process data
             cal_processed = self._process_data(calibration_df, create_map=False, include_noise=False)
-            X_cal = cal_processed[selected_features].copy()
+            cal_prepped = self._transform_raw_numeric(cal_processed)
+            categorical_feats = self.data_.get('categorical_features', [])
+            if categorical_feats:
+                try:
+                    cal_woe = self.woe_transformer.transform(cal_processed)
+                except Exception:
+                    cal_woe = None
+                if cal_woe is not None:
+                    for col in categorical_feats:
+                        if col in cal_prepped.columns and col in cal_woe.columns:
+                            cal_prepped[col] = cal_woe[col]
+            X_cal = cal_prepped[selected_features].copy()
 
-            # Ensure all columns are numeric
             for col in X_cal.columns:
                 if X_cal[col].dtype == 'object' or pd.api.types.is_datetime64_any_dtype(X_cal[col]):
                     X_cal.loc[:, col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
-
         y_cal = calibration_df[self.config.target_col]
 
         # Calibrate best model
@@ -1191,23 +1252,22 @@ class UnifiedRiskPipeline:
             available_features = [f for f in selected_features if f in stage2_woe.columns]
             X_stage2 = stage2_woe[available_features].copy()
         else:
-            stage2_woe = self.woe_transformer.transform(stage2_processed)
-            categorical_cols = [
-                col
-                for col in selected_features
-                if col in stage2_processed.columns
-                and (is_object_dtype(stage2_processed[col]) or is_categorical_dtype(stage2_processed[col]))
-            ]
-            for col in categorical_cols:
-                if col in stage2_woe.columns:
-                    stage2_processed[col] = stage2_woe[col]
-            X_stage2 = stage2_processed[selected_features].copy()
+            stage2_prepped = self._transform_raw_numeric(stage2_processed)
+            categorical_feats = self.data_.get('categorical_features', [])
+            try:
+                stage2_woe = self.woe_transformer.transform(stage2_processed)
+            except Exception:
+                stage2_woe = None
+            if stage2_woe is not None:
+                for col in categorical_feats:
+                    if col in stage2_prepped.columns and col in stage2_woe.columns:
+                        stage2_prepped[col] = stage2_woe[col]
+            X_stage2 = stage2_prepped[selected_features].copy()
 
         for col in X_stage2.columns:
             if is_object_dtype(X_stage2[col]) or is_datetime64_any_dtype(X_stage2[col]):
                 X_stage2.loc[:, col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
         X_stage2 = X_stage2.reset_index(drop=True)
-
         y_stage2: Optional[pd.Series] = None
         X_stage2_cal = X_stage2
         if y_stage2_source is not None:
@@ -1314,7 +1374,16 @@ class UnifiedRiskPipeline:
                 if self.config.enable_woe:
                     transformed = self.woe_transformer.transform(override_df)
                 else:
-                    transformed = override_df
+                    transformed = self._transform_raw_numeric(override_df)
+                    categorical_feats = self.data_.get('categorical_features', [])
+                    try:
+                        transformed_woe = self.woe_transformer.transform(override_df)
+                    except Exception:
+                        transformed_woe = None
+                    if transformed_woe is not None:
+                        for col in categorical_feats:
+                            if col in transformed.columns and col in transformed_woe.columns:
+                                transformed[col] = transformed_woe[col]
                 missing = [col for col in selected_features if col not in transformed.columns]
                 if missing:
                     print(f"  Risk band override dataset missing {len(missing)} selected features; falling back to split data.")
@@ -1336,21 +1405,20 @@ class UnifiedRiskPipeline:
                         print('  Risk band override dataset has no valid targets; falling back to split data.')
                         X_eval = None
                         y_eval = None
-
         if X_eval is None or y_eval is None or X_eval.empty:
             if 'test' in splits:
                 if self.config.enable_woe:
-                    X_eval = splits['test_woe'][selected_features]
+                    X_eval_source = splits['test_woe']
                 else:
-                    X_eval = splits['test'][selected_features]
+                    X_eval_source = splits.get('test_raw_prepped', splits['test'])
                 y_eval = splits['test'][target_col]
             else:
                 if self.config.enable_woe:
-                    X_eval = splits['train_woe'][selected_features]
+                    X_eval_source = splits['train_woe']
                 else:
-                    X_eval = splits['train'][selected_features]
+                    X_eval_source = splits.get('train_raw_prepped', splits['train'])
                 y_eval = splits['train'][target_col]
-            X_eval = X_eval.copy()
+            X_eval = X_eval_source[selected_features].copy()
             y_eval = y_eval.astype(float)
             for col in X_eval.columns:
                 if is_object_dtype(X_eval[col]) or is_datetime64_any_dtype(X_eval[col]):
@@ -1376,16 +1444,24 @@ class UnifiedRiskPipeline:
                         print(f"  Warning: Reference dataset missing {len(missing)} selected features; using available subset.")
                     X_eval = ref_woe[available_features].copy()
                 else:
-                    available_features = [f for f in selected_features if f in ref_df.columns]
+                    ref_prepped = self._transform_raw_numeric(ref_df)
+                    try:
+                        ref_woe = self.woe_transformer.transform(ref_df)
+                    except Exception:
+                        ref_woe = None
+                    if ref_woe is not None:
+                        for col in self.data_.get('categorical_features', []):
+                            if col in ref_prepped.columns and col in ref_woe.columns:
+                                ref_prepped[col] = ref_woe[col]
+                    available_features = [f for f in selected_features if f in ref_prepped.columns]
                     missing = set(selected_features) - set(available_features)
                     if missing:
                         print(f"  Warning: Reference dataset missing {len(missing)} selected features; using available subset.")
-                    X_eval = ref_df[available_features].copy()
+                    X_eval = ref_prepped[available_features].copy()
                 y_eval = ref_df[target_col].astype(float)
                 source = 'override_reference'
             else:
                 print(f"  Warning: Risk band optimisation sample contains {len(X_eval)} records (< {min_sample}); results may be unstable.")
-
         predictions = predict_positive_proba(model, X_eval)
         predictions = np.asarray(predictions, dtype=float).ravel()
 
@@ -1555,7 +1631,17 @@ class UnifiedRiskPipeline:
         if self.config.enable_woe:
             score_matrix = self.woe_transformer.transform(score_processed)[final_features]
         else:
-            score_matrix = score_processed[final_features]
+            score_prepped = self._transform_raw_numeric(score_processed)
+            categorical_feats = self.data_.get('categorical_features', [])
+            try:
+                score_woe = self.woe_transformer.transform(score_processed)
+            except Exception:
+                score_woe = None
+            if score_woe is not None:
+                for col in categorical_feats:
+                    if col in score_prepped.columns and col in score_woe.columns:
+                        score_prepped[col] = score_woe[col]
+            score_matrix = score_prepped[final_features]
         score_matrix = score_matrix.apply(pd.to_numeric, errors='coerce').fillna(0)
 
         try:
@@ -1592,11 +1678,13 @@ class UnifiedRiskPipeline:
         result_df['risk_band'] = self.risk_band_optimizer.assign_bands(scores, band_edges)
 
         training_scores = None
+
         if isinstance(splits, dict) and 'train' in splits:
             if self.config.enable_woe and 'train_woe' in splits:
-                train_matrix = splits['train_woe'][final_features]
+                train_source = splits['train_woe']
             else:
-                train_matrix = splits['train'][final_features]
+                train_source = splits.get('train_raw_prepped', splits['train'])
+            train_matrix = train_source[final_features]
             train_matrix = train_matrix.apply(pd.to_numeric, errors='coerce').fillna(0)
             try:
                 train_proba = final_model.predict_proba(train_matrix)

@@ -314,7 +314,7 @@ class Config:
         if self.test_size <= 0 or self.test_size >= 1:
             raise ValueError("test_size must be between 0 and 1")
         
-        if self.oot_size <= 0 or self.oot_size >= 1:
+        if self.oot_size < 0 or self.oot_size >= 1:
             raise ValueError("oot_size must be between 0 and 1")
         
         if self.test_size + self.oot_size >= 0.8:

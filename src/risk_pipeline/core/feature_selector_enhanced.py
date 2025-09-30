@@ -164,61 +164,36 @@ class AdvancedFeatureSelector:
 
         return float(psi)
 
+    def select_by_vif(self, X: pd.DataFrame, threshold: float = 10) -> List[str]:
+        """Select features with low multicollinearity."""
 
-def select_by_vif(self, X: pd.DataFrame, threshold: float = 10) -> List[str]:
-    """Select features with low multicollinearity."""
+        features = list(X.columns)
+        removed = set()
 
-    features = [col for col in X.columns if col]
-    if not features:
-        print("    VIF skipped: No numeric features available")
-        return []
+        sample_size = getattr(self.config, 'vif_sample_size', None)
+        X_work = X.copy()
+        if sample_size and len(X_work) > sample_size:
+            X_work = X_work.sample(sample_size, random_state=getattr(self.config, 'random_state', None))
+            print(f"    VIF subsample: using {len(X_work)} of {len(X)} rows")
+        X_work = X_work.reset_index(drop=True).apply(pd.to_numeric, errors='coerce').fillna(0.0)
 
-    removed: Set[str] = set()
-    sample_size = getattr(self.config, 'vif_sample_size', None)
-    X_work = X.copy()
-    if sample_size and len(X_work) > sample_size:
-        X_work = X_work.sample(sample_size, random_state=getattr(self.config, 'random_state', None))
-        print(f"    VIF subsample: using {len(X_work)} of {len(X)} rows")
-    X_work = X_work.reset_index(drop=True).apply(pd.to_numeric, errors='coerce').fillna(0.0)
-
-    while len(features) > 1:
-        subset = X_work[features]
-        zero_var = subset.var(axis=0)
-        zero_cols = zero_var[zero_var < 1e-8].index.tolist()
-        if zero_cols:
-            for col in zero_cols:
-                print(f"    Removing {col}: zero or near-zero variance")
-                removed.add(col)
-            features = [f for f in features if f not in zero_cols]
-            if len(features) <= 1:
-                break
-            continue
-
-        values = subset.values
-        try:
+        while len(features) > 1:
+            subset = X_work[features]
+            values = subset.values
             vif_scores = [variance_inflation_factor(values, i) for i in range(values.shape[1])]
-        except np.linalg.LinAlgError as exc:
-            print(f"    VIF calculation stopped: singular matrix ({exc})")
-            break
 
-        vif_data = pd.DataFrame({'Feature': features, 'VIF': vif_scores})
-        max_vif = vif_data['VIF'].max()
+            vif_data = pd.DataFrame({'Feature': features, 'VIF': vif_scores})
+            max_vif = vif_data["VIF"].max()
 
-        if np.isnan(max_vif) or max_vif < threshold:
-            break
+            if np.isnan(max_vif) or max_vif < threshold:
+                break
 
-        if not np.isfinite(max_vif):
-            worst_rows = vif_data[~np.isfinite(vif_data['VIF'])]
-            worst_feature = worst_rows.iloc[0]['Feature']
-            print(f"    Removing {worst_feature}: VIF is non-finite")
-        else:
-            worst_feature = vif_data.loc[vif_data['VIF'].idxmax(), 'Feature']
+            worst_feature = vif_data.loc[vif_data["VIF"].idxmax(), "Feature"]
+            features.remove(worst_feature)
+            removed.add(worst_feature)
             print(f"    Removing {worst_feature}: VIF={max_vif:.2f}")
 
-        features.remove(worst_feature)
-        removed.add(worst_feature)
-
-    return features
+        return features
 
     def select_by_correlation(self, X: pd.DataFrame, y: pd.Series,
                              threshold: float = 0.9, max_per_cluster: int = 1) -> List[str]:

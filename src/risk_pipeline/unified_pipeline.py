@@ -73,6 +73,8 @@ class UnifiedRiskPipeline:
         self.data_ = {}
         self.feature_name_map: Dict[str, str] = {}
         self.noise_sentinel_name = 'noise_sentinel'
+        self._noise_counter = 0
+        self._current_raw_preprocessor: Optional[Dict[str, Any]] = None
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
@@ -131,7 +133,7 @@ class UnifiedRiskPipeline:
         try:
             # Step 1: Data Processing
             print("\n[Step 1/10] Data Processing...")
-            processed_data = self._process_data(df, create_map=True)
+            processed_data = self._process_data(df, create_map=True, include_noise=False)
 
             # Step 2: Data Splitting
             print("\n[Step 2/10] Data Splitting...")
@@ -140,7 +142,7 @@ class UnifiedRiskPipeline:
             risk_band_reference: Optional[pd.DataFrame] = None
             if risk_band_df is not None:
                 print("\n[INFO] Aligning dedicated risk band dataset with learned preprocessing maps...")
-                risk_band_reference = self._process_data(risk_band_df, create_map=False)
+                risk_band_reference = self._process_data(risk_band_df, create_map=False, include_noise=False)
                 self.data_['risk_band_reference'] = risk_band_reference
             else:
                 self.data_['risk_band_reference'] = None
@@ -167,7 +169,7 @@ class UnifiedRiskPipeline:
             def _run_single_flow(use_woe: bool) -> Dict[str, Any]:
                 """Run selection->modeling->calibration->bands for one mode (WOE or RAW)."""
                 original_enable_woe = getattr(self.config, 'enable_woe', True)
-                # Backup state
+                mode_label = 'WOE' if use_woe else 'RAW'
                 state_backup = {
                     'models_': self.models_.copy(),
                     'transformers_': self.transformers_.copy(),
@@ -178,20 +180,16 @@ class UnifiedRiskPipeline:
 
                 self.config.enable_woe = use_woe
 
-                # Step 3: WOE Transformation & Univariate Analysis
                 print("\n[Step 3/10] WOE Transformation & Univariate Analysis...")
                 woe_res = _ensure_woe_results()
 
-                # Step 4: Feature Selection
                 print("\n[Step 4/10] Feature Selection...")
                 sel_res = self._select_features(splits, woe_res)
 
-                # Step 5: Model Training
                 print("\n[Step 5/10] Model Training...")
-                mdl_res = self._train_models(splits, sel_res)
-                mdl_res['mode'] = 'WOE' if use_woe else 'RAW'
+                mdl_res = self._train_models(splits, sel_res, mode_label=mode_label)
+                mdl_res['mode'] = mode_label
 
-                # Step 6: Stage 1 Calibration
                 if self.config.enable_calibration:
                     print("\n[Step 6/10] Stage 1 Calibration...")
                     stg1 = self._apply_stage1_calibration(
@@ -203,7 +201,6 @@ class UnifiedRiskPipeline:
                     stg1 = {'calibrated_model': mdl_res.get('best_model')}
                     mdl_res['calibrated_model'] = mdl_res.get('best_model')
 
-                # Step 7: Stage 2 Calibration (if data provided)
                 if stage2_df is not None:
                     print("\n[Step 7/10] Stage 2 Calibration...")
                     stg2 = self._apply_stage2_calibration(stg1, stage2_df)
@@ -211,22 +208,19 @@ class UnifiedRiskPipeline:
                     print("\n[Step 7/10] Stage 2 Calibration... Skipped (no data)")
                     stg2 = stg1
 
-                # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
                 bands = self._optimize_risk_bands(stg2, splits, data_override=risk_band_reference, stage1_results=stg1)
-                self.results_['risk_bands'] = bands
 
-                # Step 9: Scoring (if enabled and data provided)
                 if self.config.enable_scoring and score_df is not None:
                     print("\n[Step 9/10] Scoring...")
                     score_out = self._score_data(score_df, stg2, sel_res, woe_res, mdl_res, splits)
                 else:
                     print("\n[Step 9/10] Scoring... Skipped")
-                    score_out = {'dataframe': None, 'metrics': None, 'reports': {}}
+                    score_out = {'dataframe': None, 'metrics': None, 'reports': {}, 'noise_sentinel': None}
 
-                # Evaluate best score
                 best_name = mdl_res.get('best_model_name')
                 scores = mdl_res.get('scores', {})
+
                 def _score_of(name: Optional[str]) -> float:
                     if not name or name not in scores:
                         return -1e9
@@ -237,7 +231,8 @@ class UnifiedRiskPipeline:
 
                 out = {
                     'use_woe': use_woe,
-                    'mode': 'WOE' if use_woe else 'RAW',
+                    'mode': mode_label,
+                    'mode_label': mode_label,
                     'woe_results': woe_res,
                     'selection_results': sel_res,
                     'model_results': mdl_res,
@@ -247,14 +242,15 @@ class UnifiedRiskPipeline:
                     'scoring_output': score_out,
                     'scoring_results': score_out.get('dataframe'),
                     'best_auc': best_auc,
-                    'selected_features': getattr(self, 'selected_features_', []),
+                    'selected_features': sel_res.get('selected_features', []),
                     'selection_history': sel_res.get('selection_history'),
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
-                    'mode': 'WOE' if self.config.enable_woe else 'RAW',
-                    'best_model_mode': 'WOE' if self.config.enable_woe else 'RAW',
+                    'best_model_mode': mode_label,
+                    'noise_sentinel_diagnostics': score_out.get('noise_sentinel'),
+                    'model_registry': mdl_res.get('models', {}),
+                    'model_scores': mdl_res.get('scores', {}),
                 }
 
-                # Restore state for the next flow
                 self.models_ = state_backup['models_']
                 self.transformers_ = state_backup['transformers_']
                 self.data_ = state_backup['data_']
@@ -262,18 +258,35 @@ class UnifiedRiskPipeline:
                 self.selected_features_ = state_backup['selected_features_']
                 self.config.enable_woe = original_enable_woe
                 return out
-
             if getattr(self.config, 'enable_dual_pipeline', False):
                 print("\n[DUAL] Running RAW and WOE flows and selecting the best by AUC...")
                 flow_raw = _run_single_flow(False)
                 flow_woe = _run_single_flow(True)
+                flows_by_mode = {flow_raw['mode']: flow_raw, flow_woe['mode']: flow_woe}
                 best_flow = flow_woe if flow_woe['best_auc'] >= flow_raw['best_auc'] else flow_raw
                 chosen = 'WOE' if best_flow['use_woe'] else 'RAW'
                 print(f"[DUAL] Selected {chosen} flow with AUC={best_flow['best_auc']:.4f}")
 
-                # Step 10: Generate Reports for chosen flow
+                flow_registry = {
+                    label: {
+                        'mode': flow['mode'],
+                        'best_auc': flow['best_auc'],
+                        'best_model_name': flow['model_results'].get('best_model_name'),
+                        'selected_features': flow.get('selected_features', []),
+                        'noise_sentinel': flow.get('noise_sentinel_diagnostics'),
+                    }
+                    for label, flow in flows_by_mode.items()
+                }
+                model_registry = {
+                    label: flow['model_results'].get('models', {})
+                    for label, flow in flows_by_mode.items()
+                }
+                model_scores_registry = {
+                    label: flow['model_results'].get('scores', {})
+                    for label, flow in flows_by_mode.items()
+                }
+
                 print("\n[Step 10/10] Generating Reports...")
-                # Set current state to chosen flow for reporter
                 self.models_ = best_flow['model_results'].get('models', {})
                 self.selected_features_ = best_flow.get('selected_features', [])
                 self.results_ = {
@@ -285,10 +298,10 @@ class UnifiedRiskPipeline:
                     'calibration_stage1': best_flow['stage1'],
                     'calibration_stage2': best_flow['stage2'],
                     'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
+                    'noise_sentinel_diagnostics': best_flow.get('noise_sentinel_diagnostics'),
                 }
                 reports = self._generate_reports()
 
-                # Compile final results (chosen flow)
                 self.results_ = {
                     'processed_data': processed_data,
                     'splits': splits,
@@ -315,6 +328,13 @@ class UnifiedRiskPipeline:
                     'chosen_flow_use_woe': best_flow.get('use_woe'),
                     'best_model_mode': best_flow['model_results'].get('mode'),
                     'chosen_auc': best_flow['best_auc'],
+                    'flow_registry': flow_registry,
+                    'model_registry': model_registry,
+                    'model_scores_registry': model_scores_registry,
+                    'chosen_flow_selected_features': best_flow.get('selected_features', []),
+                    'chosen_flow_scores': best_flow['model_results'].get('scores', {}),
+                    'noise_sentinel_diagnostics': best_flow.get('noise_sentinel_diagnostics'),
+                    'chosen_flow_noise_sentinel': best_flow.get('noise_sentinel_diagnostics'),
                 }
 
                 band_info = best_flow.get('risk_bands') or {}
@@ -331,19 +351,17 @@ class UnifiedRiskPipeline:
                 self._persist_model_artifacts()
             else:
                 # Single-flow path (default behaviour)
-                # Step 3: WOE Transformation & Univariate Analysis
                 print("\n[Step 3/10] WOE Transformation & Univariate Analysis...")
                 woe_results = self._apply_woe_transformation(splits)
 
-                # Step 4: Feature Selection
                 print("\n[Step 4/10] Feature Selection...")
                 selection_results = self._select_features(splits, woe_results)
 
-                # Step 5: Model Training
-                print("\n[Step 5/10] Model Training...")
-                model_results = self._train_models(splits, selection_results)
+                mode_label = 'WOE' if self.config.enable_woe else 'RAW'
 
-                # Step 6: Stage 1 Calibration
+                print("\n[Step 5/10] Model Training...")
+                model_results = self._train_models(splits, selection_results, mode_label=mode_label)
+
                 if self.config.enable_calibration:
                     print("\n[Step 6/10] Stage 1 Calibration...")
                     stage1_results = self._apply_stage1_calibration(
@@ -355,7 +373,6 @@ class UnifiedRiskPipeline:
                     stage1_results = {'calibrated_model': model_results.get('best_model')}
                     model_results['calibrated_model'] = model_results.get('best_model')
 
-                # Step 7: Stage 2 Calibration (if data provided)
                 if stage2_df is not None:
                     print("\n[Step 7/10] Stage 2 Calibration...")
                     stage2_results = self._apply_stage2_calibration(
@@ -376,20 +393,19 @@ class UnifiedRiskPipeline:
                     'stage2_details': stage2_results.get('stage2_details') if isinstance(stage2_results, dict) else None,
                 })
 
-                # Step 8: Risk Band Optimization
                 print("\n[Step 8/10] Risk Band Optimization...")
                 risk_bands = self._optimize_risk_bands(stage2_results, splits, data_override=risk_band_reference, stage1_results=stage1_results)
                 self.results_['risk_bands'] = risk_bands
-                scoring_output = {'dataframe': None, 'metrics': None, 'reports': {}}
+                scoring_output = {'dataframe': None, 'metrics': None, 'reports': {}, 'noise_sentinel': None}
 
-                # Step 9: Scoring (if enabled and data provided)
                 if self.config.enable_scoring and score_df is not None:
                     print("\n[Step 9/10] Scoring...")
                     scoring_output = self._score_data(score_df, stage2_results, selection_results, woe_results, model_results, splits)
                 else:
                     print("\n[Step 9/10] Scoring... Skipped")
 
-                # Step 10: Generate Reports
+                noise_diag = scoring_output.get('noise_sentinel') if isinstance(scoring_output, dict) else None
+
                 print("\n[Step 10/10] Generating Reports...")
                 self.results_.update({
                     'model_results': model_results,
@@ -397,10 +413,29 @@ class UnifiedRiskPipeline:
                     'calibration_stage1': stage1_results,
                     'calibration_stage2': stage2_results,
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
+                    'noise_sentinel_diagnostics': noise_diag,
                 })
                 reports = self._generate_reports()
 
-                # Compile final results
+                scores_dict = model_results.get('scores', {}) or {}
+                best_model_name = model_results.get('best_model_name')
+                best_auc = None
+                if best_model_name and best_model_name in scores_dict:
+                    best_entry = scores_dict[best_model_name] or {}
+                    best_auc = best_entry.get('test_auc') or best_entry.get('train_auc') or best_entry.get('oot_auc') or 0.0
+
+                flow_registry = {
+                    mode_label: {
+                        'mode': mode_label,
+                        'best_auc': best_auc,
+                        'best_model_name': best_model_name,
+                        'selected_features': self.selected_features_,
+                        'noise_sentinel': noise_diag,
+                    }
+                }
+                model_registry = {mode_label: model_results.get('models', {})}
+                model_scores_registry = {mode_label: scores_dict}
+
                 self.results_ = {
                     'processed_data': processed_data,
                     'splits': splits,
@@ -419,11 +454,22 @@ class UnifiedRiskPipeline:
                     'config': self.config.__dict__,
                     'selected_features': self.selected_features_,
                     'best_model_name': model_results.get('best_model_name'),
-                    'scores': model_results.get('scores', {}),
+                    'scores': scores_dict,
                     'selection_history': selection_results.get('selection_history'),
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
-                    'mode': 'WOE' if self.config.enable_woe else 'RAW',
-                    'best_model_mode': 'WOE' if self.config.enable_woe else 'RAW',
+                    'mode': mode_label,
+                    'best_model_mode': mode_label,
+                    'flow_registry': flow_registry,
+                    'model_registry': model_registry,
+                    'model_scores_registry': model_scores_registry,
+                    'chosen_flow': mode_label,
+                    'chosen_flow_mode': mode_label,
+                    'chosen_flow_use_woe': self.config.enable_woe,
+                    'chosen_auc': best_auc,
+                    'chosen_flow_selected_features': self.selected_features_,
+                    'chosen_flow_scores': scores_dict,
+                    'noise_sentinel_diagnostics': noise_diag,
+                    'chosen_flow_noise_sentinel': noise_diag,
                 }
 
                 band_info = risk_bands or {}
@@ -439,6 +485,7 @@ class UnifiedRiskPipeline:
 
                 self._persist_model_artifacts()
 
+
             print("\n" + "="*80)
             print("PIPELINE EXECUTION COMPLETED SUCCESSFULLY")
             print("="*80)
@@ -449,7 +496,7 @@ class UnifiedRiskPipeline:
             print(f"\nERROR: Pipeline failed at step: {str(e)}")
             raise
 
-    def _process_data(self, df: pd.DataFrame, create_map: bool = False) -> pd.DataFrame:
+    def _process_data(self, df: pd.DataFrame, create_map: bool = False, *, include_noise: Optional[bool] = None) -> pd.DataFrame:
         """Process raw data with separate handling for numeric/categorical."""
 
         df_processed = self.data_processor.validate_and_freeze(df.copy())
@@ -477,8 +524,10 @@ class UnifiedRiskPipeline:
         numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_cols = df_processed.select_dtypes(include=['object', 'category']).columns.tolist()
 
+        noise_col = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+
         # Remove target and special columns
-        special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', self.noise_sentinel_name]
+        special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', noise_col]
         numeric_cols = [c for c in numeric_cols if c not in special_cols]
         categorical_cols = [c for c in categorical_cols if c not in special_cols]
 
@@ -509,17 +558,19 @@ class UnifiedRiskPipeline:
                 p99 = df_processed[col].quantile(0.99)
                 df_processed[col] = df_processed[col].clip(p1, p99)
 
-        # Add noise sentinel if enabled
-        if self.config.enable_noise_sentinel:
-            df_processed = df_processed.copy()
-            df_processed['noise_sentinel'] = np.random.normal(0, 1, len(df_processed))
+        if noise_col in df_processed.columns:
+            df_processed = df_processed.drop(columns=noise_col)
 
+        include_noise = self.config.enable_noise_sentinel if include_noise is None else bool(include_noise)
+        # Add noise sentinel only when explicitly requested (final diagnostics)
+        if include_noise:
+            df_processed = df_processed.copy()
+            df_processed[noise_col] = np.random.normal(0, 1, len(df_processed))
 
         df_processed = self._sanitize_feature_columns(df_processed, create_map=create_map)
 
         self.data_['processed'] = df_processed
         return df_processed
-
     def _sanitize_feature_columns(self, df: pd.DataFrame, create_map: bool) -> pd.DataFrame:
         """Sanitize feature names to avoid characters that break LightGBM/JSON."""
         exclude = {self.config.target_col, self.config.id_col, self.config.time_col, self.config.weight_column, 'snapshot_month', self.noise_sentinel_name}
@@ -579,7 +630,68 @@ class UnifiedRiskPipeline:
                 default_rate = split_df[self.config.target_col].mean()
                 print(f"  {split_name}: {len(split_df)} samples, default rate: {default_rate:.2%}")
 
+        splits = self._build_raw_numeric_layers(splits)
         self.data_['splits'] = splits
+        return splits
+
+
+    def _build_raw_numeric_layers(self, splits: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        """Create an imputed/clipped version of numeric features for RAW models."""
+
+        numeric_cols = self.data_.get('numeric_features', [])
+        if not numeric_cols:
+            return splits
+
+        train_df = splits.get('train')
+        if train_df is None or train_df.empty:
+            return splits
+
+        available_train = [col for col in numeric_cols if col in train_df.columns]
+        if not available_train:
+            return splits
+
+        train_numeric = train_df[available_train]
+        medians = train_numeric.median()
+
+        outlier_method = getattr(self.config, 'numeric_outlier_method', 'clip')
+        lower_bounds = upper_bounds = None
+        if outlier_method == 'clip':
+            lower_q = float(getattr(self.config, 'outlier_lower_quantile', 0.01) or 0.01)
+            upper_q = float(getattr(self.config, 'outlier_upper_quantile', 0.99) or 0.99)
+            lower_bounds = train_numeric.quantile(lower_q)
+            upper_bounds = train_numeric.quantile(upper_q)
+
+        processed_layers: Dict[str, pd.DataFrame] = {}
+        for split_name, split_df in list(splits.items()):
+            if split_df is None or getattr(split_df, 'empty', False):
+                continue
+
+            available_cols = [col for col in numeric_cols if col in split_df.columns]
+            if not available_cols:
+                continue
+
+            medians_subset = medians.reindex(available_cols)
+            updated_df = split_df.copy()
+            filled = updated_df[available_cols].fillna(medians_subset)
+            if lower_bounds is not None and upper_bounds is not None:
+                filled = filled.clip(
+                    lower=lower_bounds.reindex(available_cols),
+                    upper=upper_bounds.reindex(available_cols),
+                    axis=1,
+                )
+            updated_df[available_cols] = filled
+
+            layer_key = f"{split_name}_raw_prepped"
+            splits[layer_key] = updated_df
+            processed_layers[layer_key] = updated_df
+
+        if processed_layers:
+            self.data_['raw_numeric_layers'] = processed_layers
+            self.data_['raw_numeric_statistics'] = {
+                'medians': medians.to_dict(),
+                'lower_bounds': lower_bounds.to_dict() if lower_bounds is not None else None,
+                'upper_bounds': upper_bounds.to_dict() if upper_bounds is not None else None,
+            }
         return splits
 
     def _inject_categorical_woe(self, splits: Dict, categorical_cols: List[str]) -> None:
@@ -908,10 +1020,11 @@ class UnifiedRiskPipeline:
 
         return frames
 
-    def _train_models(self, splits: Dict, selection_results: Dict) -> Dict:
+    def _train_models(self, splits: Dict, selection_results: Dict, mode_label: Optional[str] = None) -> Dict:
         """Train all configured models."""
 
         selected_features = selection_results['selected_features']
+        mode_label = (mode_label or ('WOE' if self.config.enable_woe else 'RAW')).upper()
 
         if self.config.enable_woe:
             X_train = splits['train_woe'][selected_features]
@@ -944,17 +1057,18 @@ class UnifiedRiskPipeline:
                 print("  Warning: OOT dataset missing target column; skipping OOT evaluation.")
 
         model_results = self.model_builder.train_all_models(
-            X_train, y_train, X_test, y_test, X_oot, y_oot
+            X_train, y_train, X_test, y_test, X_oot, y_oot,
+            mode=mode_label,
+            name_prefix=f"{mode_label}_"
         )
 
-        # Check noise sentinel if enabled
         if self.config.enable_noise_sentinel and 'noise_sentinel' in selected_features:
             print("  WARNING: Noise sentinel was selected - feature selection may be overfitting!")
 
+        model_results['mode'] = mode_label
         self.models_ = model_results['models']
         self.selected_features_ = model_results.get('selected_features', [])
         return model_results
-
     def _apply_stage1_calibration(self, model_results: Dict, calibration_df: pd.DataFrame) -> Dict:
         """Apply Stage 1 calibration (long-run average)."""
 
@@ -974,7 +1088,7 @@ class UnifiedRiskPipeline:
         # Process calibration data
         if self.config.enable_woe:
             # First process the data to add snapshot_month etc
-            cal_processed = self._process_data(calibration_df, create_map=False)
+            cal_processed = self._process_data(calibration_df, create_map=False, include_noise=False)
             # WOE transformer handles processed data
             cal_woe = self.woe_transformer.transform(cal_processed)
 
@@ -994,7 +1108,7 @@ class UnifiedRiskPipeline:
                     X_cal.loc[:, col] = pd.to_numeric(X_cal[col], errors='coerce').fillna(0)
         else:
             # Only for non-WOE case, process data
-            cal_processed = self._process_data(calibration_df, create_map=False)
+            cal_processed = self._process_data(calibration_df, create_map=False, include_noise=False)
             X_cal = cal_processed[selected_features].copy()
 
             # Ensure all columns are numeric
@@ -1067,7 +1181,7 @@ class UnifiedRiskPipeline:
             stage2_input[target_col] = np.nan
 
         # Process Stage 2 data
-        stage2_processed = self._process_data(stage2_input, create_map=False)
+        stage2_processed = self._process_data(stage2_input, create_map=False, include_noise=False)
         stage2_processed = stage2_processed.reset_index(drop=True)
         if y_stage2_source is not None:
             y_stage2_source = y_stage2_source.reset_index(drop=True)
@@ -1406,6 +1520,7 @@ class UnifiedRiskPipeline:
         return mapping
 
 
+
     def _score_data(
             self,
             score_df: pd.DataFrame,
@@ -1419,16 +1534,23 @@ class UnifiedRiskPipeline:
 
         if not stage_results or stage_results.get('calibrated_model') is None:
             print("  Skipping scoring: No calibrated model available")
-            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}}
+            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}, 'noise_sentinel': None}
 
         final_model = stage_results.get('calibrated_model')
         final_features = selection_results.get('selected_features') or getattr(self, 'selected_features_', [])
 
         if not final_features:
             print("  Skipping scoring: No features selected")
-            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}}
+            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}, 'noise_sentinel': None}
 
-        score_processed = self._process_data(score_df, create_map=False)
+        noise_col = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
+        score_processed = self._process_data(score_df, create_map=False, include_noise=False)
+
+        noise_series: Optional[np.ndarray] = None
+        if getattr(self.config, 'enable_noise_sentinel', False):
+            noise_series = np.random.normal(0, 1, len(score_processed))
+            score_processed = score_processed.copy()
+            score_processed[noise_col] = noise_series
 
         if self.config.enable_woe:
             score_matrix = self.woe_transformer.transform(score_processed)[final_features]
@@ -1448,7 +1570,9 @@ class UnifiedRiskPipeline:
         result_df = score_df.copy()
         if self.config.enable_woe:
             for col in final_features:
-                result_df['{}_woe'.format(col)] = score_matrix[col].to_numpy()
+                result_df[f"{col}_woe"] = score_matrix[col].to_numpy()
+        if noise_series is not None:
+            result_df[noise_col] = noise_series
 
         stage1_model = (self.results_.get('calibration_stage1') or {}).get('calibrated_model')
         stage1_scores = None
@@ -1537,14 +1661,86 @@ class UnifiedRiskPipeline:
                 'score_stats': self._describe_scores(scores[mask]),
             }
 
+        noise_report = None
+        if noise_series is not None:
+            noise_report = self._compute_noise_sentinel_report(noise_series, scores)
+            noise_report['selected_in_features'] = noise_col in final_features
+            metrics['noise_sentinel_column'] = noise_col
+            metrics['noise_sentinel'] = noise_report
+        else:
+            metrics['noise_sentinel_column'] = None
+            metrics['noise_sentinel'] = None
+
         reports = create_scoring_report(metrics)
 
         return {
             'dataframe': result_df,
             'metrics': metrics,
             'reports': reports,
+            'noise_sentinel': noise_report,
         }
 
+    def _compute_noise_sentinel_report(self, noise_values: np.ndarray, score_values: np.ndarray) -> Dict[str, Any]:
+        """Summarise noise sentinel behaviour against model scores."""
+
+        report: Dict[str, Any] = {}
+        noise_arr = np.asarray(noise_values, dtype=float)
+        score_arr = np.asarray(score_values, dtype=float)
+        if noise_arr.size == 0:
+            return {'n': 0}
+
+        report['n'] = int(noise_arr.size)
+        report['mean'] = float(np.mean(noise_arr))
+        report['std'] = float(np.std(noise_arr))
+        report['min'] = float(np.min(noise_arr))
+        report['max'] = float(np.max(noise_arr))
+        report['quantiles'] = {
+            'p10': float(np.percentile(noise_arr, 10)),
+            'p50': float(np.percentile(noise_arr, 50)),
+            'p90': float(np.percentile(noise_arr, 90)),
+        }
+
+        if score_arr.size > 1:
+            try:
+                pearson = float(np.corrcoef(noise_arr, score_arr)[0, 1])
+            except Exception:
+                pearson = float('nan')
+            if np.isfinite(pearson):
+                report['pearson_correlation'] = pearson
+            try:
+                spearman, pvalue = stats.spearmanr(noise_arr, score_arr)
+            except Exception:
+                spearman, pvalue = float('nan'), float('nan')
+            if np.isfinite(spearman):
+                report['spearman_correlation'] = float(spearman)
+            if np.isfinite(pvalue):
+                report['spearman_p_value'] = float(pvalue)
+
+            alert_threshold = max(0.1, float(getattr(self.config, 'noise_threshold', 0.5)))
+            alerts = []
+            if np.isfinite(pearson) and abs(pearson) >= alert_threshold:
+                alerts.append({'metric': 'pearson', 'value': pearson, 'threshold': alert_threshold})
+            if np.isfinite(spearman) and abs(spearman) >= alert_threshold:
+                alerts.append({'metric': 'spearman', 'value': float(spearman), 'threshold': alert_threshold})
+            if alerts:
+                report['alerts'] = alerts
+
+            order = np.argsort(score_arr)
+            bucket = max(1, order.size // 10)
+            if bucket > 0 and order.size >= bucket:
+                top_idx = order[-bucket:]
+                bottom_idx = order[:bucket]
+                report['noise_decile_mean'] = {
+                    'top': float(np.mean(noise_arr[top_idx])),
+                    'bottom': float(np.mean(noise_arr[bottom_idx])),
+                }
+                report['score_deciles'] = {
+                    'p10': float(np.percentile(score_arr, 10)),
+                    'p50': float(np.percentile(score_arr, 50)),
+                    'p90': float(np.percentile(score_arr, 90)),
+                }
+
+        return report
     def _generate_reports(self) -> Dict:
         """Generate comprehensive reports."""
 
@@ -1735,6 +1931,164 @@ class UnifiedRiskPipeline:
             }
             _dump_json(f"risk_bands_{run_id}.json", band_payload)
 
+
+
+    def run_process(self, df: pd.DataFrame, *, create_map: bool = True, include_noise: bool = False, force: bool = False) -> pd.DataFrame:
+        """Execute the processing step and cache the result."""
+
+        if not force and 'processed_data' in self.results_:
+            return self.results_['processed_data']
+        processed = self._process_data(df, create_map=create_map, include_noise=include_noise)
+        self.results_['processed_data'] = processed
+        return processed
+
+    def run_split(self, df: Optional[pd.DataFrame] = None, *, force: bool = False) -> Dict[str, pd.DataFrame]:
+        """Execute splitting and cache the resulting partitions."""
+
+        if not force and 'splits' in self.results_:
+            return self.results_['splits']
+        if df is None:
+            df = self.results_.get('processed_data')
+            if df is None:
+                raise ValueError('No processed data available. Call run_process first.')
+        splits = self._split_data(df)
+        self.results_['splits'] = splits
+        return splits
+
+    def run_woe(self, splits: Optional[Dict[str, pd.DataFrame]] = None, *, force: bool = False) -> Dict[str, Any]:
+        """Execute WOE transformation and cache the derived values."""
+
+        if not force and 'woe_results' in self.results_:
+            return self.results_['woe_results']
+        splits = splits or self.results_.get('splits')
+        if splits is None:
+            raise ValueError('No data splits available. Call run_split first.')
+        woe = self._apply_woe_transformation(splits)
+        self.results_['woe_results'] = woe
+        return woe
+
+    def run_selection(self, mode: str = 'WOE', *, splits: Optional[Dict[str, pd.DataFrame]] = None,
+                      woe_results: Optional[Dict[str, Any]] = None, force: bool = False) -> Dict[str, Any]:
+        """Run feature selection for the requested mode and cache the output."""
+
+        mode_label = str(mode or 'RAW').upper()
+        cache_key = f'selection_results_{mode_label}'
+        if not force and cache_key in self.results_:
+            return self.results_[cache_key]
+        splits = splits or self.results_.get('splits')
+        if splits is None:
+            raise ValueError('No data splits available. Call run_split first.')
+        woe_results = woe_results or self.results_.get('woe_results', {})
+        original_flag = getattr(self.config, 'enable_woe', True)
+        self.config.enable_woe = (mode_label == 'WOE')
+        try:
+            selection = self._select_features(splits, woe_results)
+        finally:
+            self.config.enable_woe = original_flag
+        self.results_[cache_key] = selection
+        self.results_['selection_results'] = selection
+        return selection
+
+    def run_modeling(self, mode: str = 'WOE', *, splits: Optional[Dict[str, pd.DataFrame]] = None,
+                     selection_results: Optional[Dict[str, Any]] = None, force: bool = False) -> Dict[str, Any]:
+        """Train models for the requested mode and cache the results."""
+
+        mode_label = str(mode or 'RAW').upper()
+        cache_key = f'model_results_{mode_label}'
+        if not force and cache_key in self.results_:
+            return self.results_[cache_key]
+        splits = splits or self.results_.get('splits')
+        if splits is None:
+            raise ValueError('No data splits available. Call run_split first.')
+        selection_results = selection_results or self.results_.get(f'selection_results_{mode_label}')
+        if selection_results is None:
+            selection_results = self.run_selection(mode=mode_label, splits=splits, woe_results=self.results_.get('woe_results', {}), force=force)
+        original_flag = getattr(self.config, 'enable_woe', True)
+        self.config.enable_woe = (mode_label == 'WOE')
+        try:
+            model_results = self._train_models(splits, selection_results, mode_label=mode_label)
+        finally:
+            self.config.enable_woe = original_flag
+        model_results['mode'] = mode_label
+        self.results_[cache_key] = model_results
+        self.results_['model_results'] = model_results
+        return model_results
+
+    def run_stage1_calibration(self, model_results: Optional[Dict[str, Any]] = None,
+                               calibration_df: Optional[pd.DataFrame] = None, *, force: bool = False) -> Dict[str, Any]:
+        """Run stage-1 calibration and cache the output."""
+
+        if not force and 'calibration_stage1' in self.results_:
+            return self.results_['calibration_stage1']
+        model_results = model_results or self.results_.get('model_results')
+        if model_results is None:
+            raise ValueError('Model results required for calibration. Call run_modeling first.')
+        calibration_df = calibration_df if calibration_df is not None else self.results_.get('processed_data')
+        if calibration_df is None:
+            raise ValueError('Calibration dataframe unavailable. Provide calibration_df or run run_process first.')
+        stage1 = self._apply_stage1_calibration(model_results, calibration_df)
+        self.results_['calibration_stage1'] = stage1
+        return stage1
+
+    def run_stage2_calibration(self, stage1_results: Optional[Dict[str, Any]] = None,
+                               recent_df: Optional[pd.DataFrame] = None, *, force: bool = False) -> Dict[str, Any]:
+        """Run stage-2 calibration on recent data and cache the output."""
+
+        if not force and 'calibration_stage2' in self.results_:
+            return self.results_['calibration_stage2']
+        stage1_results = stage1_results or self.results_.get('calibration_stage1')
+        if stage1_results is None:
+            raise ValueError('Stage-1 calibration results missing. Call run_stage1_calibration first.')
+        recent_df = recent_df if recent_df is not None else self.data_.get('stage2_source')
+        if recent_df is None:
+            raise ValueError('Recent dataframe required for stage-2 calibration.')
+        stage2 = self._apply_stage2_calibration(stage1_results, recent_df)
+        self.results_['calibration_stage2'] = stage2
+        return stage2
+
+    def run_risk_bands(self, stage2_results: Optional[Dict[str, Any]] = None,
+                       splits: Optional[Dict[str, pd.DataFrame]] = None, *, force: bool = False) -> Dict[str, Any]:
+        """Optimise risk bands using cached artifacts."""
+
+        if not force and 'risk_bands' in self.results_:
+            return self.results_['risk_bands']
+        stage2_results = stage2_results or self.results_.get('calibration_stage2')
+        if stage2_results is None:
+            raise ValueError('Stage-2 calibration results missing. Call run_stage2_calibration first.')
+        splits = splits or self.results_.get('splits')
+        if splits is None:
+            raise ValueError('Data splits missing. Call run_split first.')
+        bands = self._optimize_risk_bands(stage2_results, splits)
+        self.results_['risk_bands'] = bands
+        return bands
+
+    def run_scoring(self, score_df: pd.DataFrame, *, stage2_results: Optional[Dict[str, Any]] = None,
+                     selection_results: Optional[Dict[str, Any]] = None, woe_results: Optional[Dict[str, Any]] = None,
+                     model_results: Optional[Dict[str, Any]] = None, splits: Optional[Dict[str, pd.DataFrame]] = None,
+                     force: bool = False) -> Dict[str, Any]:
+        """Score new data using existing artifacts and cache the outcome."""
+
+        if not force and self.results_.get('scoring_output'):
+            return self.results_['scoring_output']
+        stage2_results = stage2_results or self.results_.get('calibration_stage2')
+        model_results = model_results or self.results_.get('model_results')
+        selection_results = selection_results or self.results_.get('selection_results')
+        woe_results = woe_results or self.results_.get('woe_results')
+        splits = splits or self.results_.get('splits')
+        scoring = self._score_data(score_df, stage2_results, selection_results, woe_results, model_results, splits or {})
+        self.results_['scoring_output'] = scoring
+        if isinstance(scoring, dict):
+            self.results_['noise_sentinel_diagnostics'] = scoring.get('noise_sentinel')
+        return scoring
+
+    def run_reporting(self, *, force: bool = False) -> Dict[str, Any]:
+        """Generate reports using cached artifacts."""
+
+        if not force and 'reports' in self.results_:
+            return self.results_['reports']
+        reports = self._generate_reports()
+        self.results_['reports'] = reports
+        return reports
     @staticmethod
     def _json_default(value):
         if isinstance(value, (np.integer,)):

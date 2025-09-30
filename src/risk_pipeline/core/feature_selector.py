@@ -105,10 +105,7 @@ class FeatureSelector:
                 _log_tsfresh(method, tsfresh_before, _tsfresh_count(features))
 
         if self.config.use_noise_sentinel:
-            tsfresh_before = _tsfresh_count(features)
-            features = self._noise_sentinel_check(X[features], y)
-            print(f"  After noise sentinel: {len(features)} features")
-            _log_tsfresh('noise_sentinel', tsfresh_before, _tsfresh_count(features))
+            print('  Noise sentinel analysis deferred to final model evaluation stage.')
 
         tsfresh_final = _tsfresh_count(features)
         print(f"Final selected features: {len(features)} (reduced from {initial_count})")

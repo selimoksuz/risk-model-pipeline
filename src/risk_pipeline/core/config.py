@@ -124,6 +124,7 @@ class Config:
     # Noise sentinel
     use_noise_sentinel: bool = True
     noise_threshold: float = 0.5  # Drop if noise ranks higher than this percentile
+    enable_woe_boost_scorecard: bool = True
     
     # ==================== MODEL TRAINING ====================
     # Algorithms to use
@@ -565,6 +566,11 @@ class Config:
         self.enable_dual_pipeline = getattr(self, 'enable_dual_pipeline', getattr(self, 'enable_dual', False))
         if not hasattr(self, 'enable_woe'):
             self.enable_woe = getattr(self, 'use_woe', True)
+        alias_flag = getattr(self, 'woe_boost_scorecard', None)
+        if alias_flag is not None:
+            self.enable_woe_boost_scorecard = bool(alias_flag)
+        else:
+            self.enable_woe_boost_scorecard = bool(getattr(self, 'enable_woe_boost_scorecard', True))
 
         if not hasattr(self, 'enable_calibration'):
             self.enable_calibration = getattr(self, 'enable_stage2_calibration', False)

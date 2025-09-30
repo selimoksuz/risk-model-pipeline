@@ -559,11 +559,18 @@ class ComprehensiveModelBuilder:
                          X_test: Optional[pd.DataFrame] = None,
                          y_test: Optional[pd.Series] = None,
                          X_oot: Optional[pd.DataFrame] = None,
-                         y_oot: Optional[pd.Series] = None) -> Dict:
+                         y_oot: Optional[pd.Series] = None,
+                         mode: str = 'RAW',
+                         name_prefix: Optional[str] = None) -> Dict:
         """Train all configured models and select the best."""
 
-        print(f"  Training models on {X_train.shape[1]} features...")
+        mode_label = str(mode or 'RAW').upper()
+        prefix = name_prefix if name_prefix is not None else (f"{mode_label}_" if mode_label else '')
+        print(f"  Training {mode_label} models on {X_train.shape[1]} features...")
 
+        self.models_ = {}
+        self.scores_ = {}
+        self.feature_importance_ = {}
         self.interpretability_ = {}
         self.n_features_in_ = X_train.shape[1]
         if hasattr(X_train, 'columns'):
@@ -580,13 +587,33 @@ class ComprehensiveModelBuilder:
                 'best_model_name': None,
                 'feature_importance': {},
                 'interpretability': {},
-                'selected_features': []
+                'selected_features': [],
+                'mode': mode_label
             }
 
         models_to_train = self._get_models_to_train()
+        name_alias = {
+            'LogisticRegression': 'logistic',
+            'RandomForest': 'randomforest',
+            'ExtraTrees': 'extratrees',
+            'LightGBM': 'lightgbm',
+            'XGBoost': 'xgboost',
+            'CatBoost': 'catboost',
+            'XBooster': 'xbooster',
+            'GAM': 'gam',
+            'WoeBoost': 'woe_boost',
+            'WoeLogisticInteraction': 'woe_li',
+            'ShaoLogit': 'shao',
+        }
+
+        def _qualify_name(base_name: str) -> str:
+            slug = name_alias.get(base_name, base_name.lower())
+            return f"{prefix}{slug}" if prefix else slug
+
 
         for model_name in models_to_train:
-            print(f"    Training {model_name}...")
+            qualified_name = _qualify_name(model_name)
+            print(f"    Training {qualified_name} ({model_name})...")
 
             try:
                 if self.config.use_optuna and self._supports_optuna(model_name):
@@ -598,7 +625,7 @@ class ComprehensiveModelBuilder:
                         model_name, X_train, y_train
                     )
 
-                self.models_[model_name] = model
+                self.models_[qualified_name] = model
 
                 train_score = self._evaluate_model(model, X_train, y_train)
                 test_score = None
@@ -623,7 +650,7 @@ class ComprehensiveModelBuilder:
                 gap_reference = oot_gini if oot_gini is not None else test_gini
                 gap_value = abs(train_gini - gap_reference) if train_gini is not None and gap_reference is not None else None
 
-                self.scores_[model_name] = {
+                self.scores_[qualified_name] = {
                     'train_auc': train_score,
                     'test_auc': test_score,
                     'oot_auc': oot_score,
@@ -633,10 +660,10 @@ class ComprehensiveModelBuilder:
                     'train_oot_gap': gap_value,
                 }
 
-                self.feature_importance_[model_name] = self._get_feature_importance(
+                self.feature_importance_[qualified_name] = self._get_feature_importance(
                     model, X_train.columns, model_name
                 )
-                self.interpretability_[model_name] = self._collect_interpretability(
+                self.interpretability_[qualified_name] = self._collect_interpretability(
                     model, model_name
                 )
 
@@ -663,7 +690,8 @@ class ComprehensiveModelBuilder:
                 'best_model_name': None,
                 'feature_importance': self.feature_importance_,
                 'interpretability': self.interpretability_,
-                'selected_features': list(X_train.columns) if X_train is not None and len(X_train.columns) > 0 else []
+                'selected_features': list(X_train.columns) if X_train is not None and len(X_train.columns) > 0 else [],
+                'mode': mode_label
             }
 
         return {
@@ -673,7 +701,8 @@ class ComprehensiveModelBuilder:
             'best_model_name': best_model_name,
             'feature_importance': self.feature_importance_,
             'interpretability': self.interpretability_,
-            'selected_features': list(X_train.columns)
+            'selected_features': list(X_train.columns),
+            'mode': mode_label
         }
 
     def _supports_optuna(self, model_name: str) -> bool:
@@ -775,6 +804,9 @@ class ComprehensiveModelBuilder:
             if canonical not in seen and self._is_model_available(canonical):
                 seen.add(canonical)
                 result.append(canonical)
+
+        if not getattr(self.config, 'enable_woe_boost_scorecard', True):
+            result = [name for name in result if name != 'WoeBoost']
 
         if not result:
             for name in all_models:

@@ -70,6 +70,12 @@ class EnhancedReporter:
         history = None
         if isinstance(selection_results, dict):
             history = selection_results.get('selection_history')
+            vif_summary = selection_results.get('vif_summary')
+            if isinstance(vif_summary, pd.DataFrame) and not vif_summary.empty:
+                self.reports_['vif_summary'] = vif_summary.copy()
+            corr_clusters = selection_results.get('correlation_clusters')
+            if isinstance(corr_clusters, pd.DataFrame) and not corr_clusters.empty:
+                self.reports_['correlation_clusters'] = corr_clusters.copy()
         if not history:
             self.selection_history = None
             self.reports_.pop('selection_history', None)
@@ -501,25 +507,38 @@ class EnhancedReporter:
 
         report: Dict[str, Any] = {}
 
+        metrics_rows: List[Dict[str, Any]] = []
         if stage1_results:
+            stage1_metrics = stage1_results.get("calibration_metrics", {})
             report["stage1"] = {
                 "method": getattr(self.config, "calibration_method", "unknown"),
-                "metrics": stage1_results.get("calibration_metrics", {}),
+                "metrics": stage1_metrics,
             }
+            if stage1_metrics:
+                metrics_rows.append({"stage": "stage1", **stage1_metrics})
             details = stage1_results.get("stage1_details") or {}
             if details:
                 report["stage1"]["details"] = details
                 self.reports_["stage1_details"] = details
 
         if stage2_results:
+            stage2_metrics = stage2_results.get("stage2_metrics", {})
             report["stage2"] = {
                 "method": getattr(self.config, "stage2_method", "unknown"),
-                "metrics": stage2_results.get("stage2_metrics", {}),
+                "metrics": stage2_metrics,
             }
+            if stage2_metrics:
+                metrics_rows.append({"stage": "stage2", **stage2_metrics})
+                hl_stats = stage2_metrics.get('hosmer_lemeshow')
+                if isinstance(hl_stats, dict):
+                    self.reports_['hosmer_lemeshow'] = pd.DataFrame([hl_stats])
             details = stage2_results.get("stage2_details") or {}
             if details:
                 report["stage2"]["details"] = details
                 self.reports_["stage2_details"] = details
+
+        if metrics_rows:
+            self.reports_["calibration_metrics"] = pd.DataFrame(metrics_rows)
 
         self.reports_["calibration"] = report
         return report
@@ -544,6 +563,7 @@ class EnhancedReporter:
         scored_df = scoring_output.get('dataframe')
         self.reports_['scoring_summary'] = summary_df
         self.reports_['scoring_reports'] = reports
+        self.reports_['monitor_report'] = summary_df
         if isinstance(scored_df, pd.DataFrame):
             self.reports_['scored_data'] = scored_df
         return {'summary': summary_df, 'reports': reports, 'metrics': metrics, 'dataframe': scored_df}
@@ -593,111 +613,163 @@ class EnhancedReporter:
         return "\n".join(lines)
 
 
-    def export_to_excel(self, filepath: str) -> None:
-        """Persist collected reports to an Excel workbook."""
 
-        used_names: set[str] = set()
+def export_to_excel(self, filepath: str) -> None:
+    """Persist collected reports to an Excel workbook following the required structure."""
 
-        def safe_sheet_name(name: str) -> str:
-            cleaned = re.sub(r"[^0-9A-Za-z _-]", "_", str(name)).strip()
-            cleaned = cleaned or "Sheet"
-            cleaned = cleaned[:31]
-            base = cleaned
-            counter = 1
-            while cleaned in used_names:
-                suffix = f"_{counter}"
-                cleaned = (base[: 31 - len(suffix)] + suffix).strip() or f"Sheet_{counter}"
-                counter += 1
-            used_names.add(cleaned)
-            return cleaned
+    used_names: set[str] = set()
 
-        with pd.ExcelWriter(filepath, engine="xlsxwriter") as writer:
-            def write_df(name: str, df: pd.DataFrame, *, index: bool = False) -> None:
-                if not isinstance(df, pd.DataFrame) or df.empty:
-                    return
-                sheet = safe_sheet_name(name)
-                df.to_excel(writer, sheet_name=sheet, index=index)
+    def safe_sheet_name(name: str) -> str:
+        cleaned = re.sub(r"[^0-9A-Za-z _-]", "_", str(name)).strip()
+        cleaned = cleaned or "Sheet"
+        cleaned = cleaned[:31]
+        base = cleaned
+        counter = 1
+        while cleaned in used_names:
+            suffix = f"_{counter}"
+            cleaned = (base[: 31 - len(suffix)] + suffix).strip() or f"Sheet_{counter}"
+            counter += 1
+        used_names.add(cleaned)
+        return cleaned
 
-            features = self.reports_.get("features")
-            write_df("Features", features)
+    def ensure_df(candidate: Any, message: str) -> pd.DataFrame:
+        if isinstance(candidate, pd.DataFrame) and not candidate.empty:
+            return candidate
+        return pd.DataFrame([{'message': message}])
 
-            tsfresh_meta = self.reports_.get("tsfresh_metadata")
-            write_df("TSFresh_Metadata", tsfresh_meta)
+    model_perf = self.reports_.get('model_performance', {}) if isinstance(self.reports_.get('model_performance'), dict) else {}
+    model_scores = model_perf.get('model_scores') if isinstance(model_perf, dict) else None
+    if isinstance(model_scores, dict) and model_scores:
+        models_summary_df = pd.DataFrame(model_scores).T.reset_index().rename(columns={'index': 'model_name'})
+    else:
+        models_summary_df = None
 
-            selection_history = self.reports_.get("selection_history")
-            write_df("Selection_History", selection_history)
+    best_model_df = None
+    if isinstance(model_perf, dict) and model_perf:
+        best_model_df = pd.DataFrame([{key: model_perf.get(key) for key in ['timestamp', 'best_model', 'feature_count']}])
 
-            final_vars = self.reports_.get("final_variables")
-            write_df("Final_Variables", final_vars)
+    final_vars = self.reports_.get('final_variables')
+    features_df = self.reports_.get('features')
+    shap_df = self.reports_.get('shap_importance')
 
-            best_bins = self.reports_.get("best_model_bins")
-            write_df("Best_Model_Bins", best_bins)
+    top20_iv = None
+    if isinstance(final_vars, pd.DataFrame) and 'iv' in final_vars.columns:
+        top20_iv = final_vars[['feature', 'iv']].dropna().sort_values('iv', ascending=False).head(20)
 
-            woe_mapping = self.reports_.get("woe_mapping")
-            write_df("WOE_Mapping", woe_mapping)
+    top50_univariate = None
+    if isinstance(features_df, pd.DataFrame):
+        score_cols = [col for col in ['gini_raw', 'gini_woe', 'gini_drop'] if col in features_df.columns]
+        if score_cols:
+            top50_univariate = features_df[['feature', *score_cols]].copy().sort_values(score_cols[0], ascending=False).head(50)
 
-            woe_tables = self.reports_.get("woe_tables", {})
-            if isinstance(woe_tables, dict):
-                for idx, (feature, table) in enumerate(woe_tables.items(), 1):
-                    write_df(f"WOE_{idx:02d}_{feature}", table)
+    woe_degradation = None
+    if isinstance(features_df, pd.DataFrame) and {'feature', 'gini_raw', 'gini_woe'} <= set(features_df.columns):
+        temp = features_df[['feature', 'gini_raw', 'gini_woe']].copy()
+        temp['gini_drop'] = temp['gini_raw'] - temp['gini_woe']
+        woe_degradation = temp
 
-            risk_bands = self.reports_.get("risk_bands")
-            write_df("Risk_Bands", risk_bands)
+    psi_summary = None
+    if isinstance(self.selection_history, pd.DataFrame):
+        psi_rows = self.selection_history[self.selection_history['method'] == 'psi']
+        if not psi_rows.empty:
+            psi_summary = psi_rows[['method', 'before', 'after', 'removed_features']]
 
-            risk_band_tests = self.reports_.get("risk_bands_tests")
-            write_df("Risk_Bands_Tests", risk_band_tests)
+    psi_dropped = None
+    if isinstance(psi_summary, pd.DataFrame):
+        psi_dropped = psi_summary[['removed_features']].rename(columns={'removed_features': 'psi_removed'})
 
-            risk_band_metrics = self.reports_.get("risk_bands_metrics")
-            write_df("Risk_Band_Metrics", risk_band_metrics)
+    run_meta_rows = [
+        {'parameter': 'target_column', 'value': getattr(self.config, 'target_column', None)},
+        {'parameter': 'id_column', 'value': getattr(self.config, 'id_column', None)},
+        {'parameter': 'time_column', 'value': getattr(self.config, 'time_column', None)},
+        {'parameter': 'enable_tsfresh_features', 'value': getattr(self.config, 'enable_tsfresh_features', False)},
+        {'parameter': 'selection_steps', 'value': ', '.join(getattr(self.config, 'selection_steps', []))},
+        {'parameter': 'algorithms', 'value': ', '.join(getattr(self.config, 'algorithms', []))},
+        {'parameter': 'random_state', 'value': getattr(self.config, 'random_state', None)},
+    ]
+    run_meta_df = pd.DataFrame(run_meta_rows)
 
-            risk_summary_table = self.reports_.get("risk_bands_summary_table")
-            if isinstance(risk_summary_table, pd.DataFrame):
-                write_df("Risk_Bands_Summary", risk_summary_table)
+    risk_mapping_sql = None
+    risk_bands = self.reports_.get('risk_bands')
+    if isinstance(risk_bands, pd.DataFrame) and {'band', 'min_score', 'max_score'} <= set(risk_bands.columns):
+        risk_mapping_sql = risk_bands[['band', 'min_score', 'max_score']].copy()
 
-            model_perf = self.reports_.get("model_performance", {})
-            if isinstance(model_perf, dict) and model_perf:
-                summary = {k: v for k, v in model_perf.items() if k != "model_scores"}
-                if summary:
-                    write_df("Model_Performance", pd.DataFrame([summary]))
-                scores = model_perf.get("model_scores")
-                if isinstance(scores, dict) and scores:
-                    write_df("Model_Scores", pd.DataFrame(scores).T)
+    scoring_summary = None
+    scoring_reports = self.reports_.get('scoring_reports')
+    if isinstance(scoring_reports, dict):
+        summary = scoring_reports.get('summary')
+        if isinstance(summary, pd.DataFrame):
+            scoring_summary = summary
+        elif isinstance(summary, dict):
+            scoring_summary = pd.DataFrame([summary])
 
-            calibration = self.reports_.get("calibration", {})
-            if isinstance(calibration, dict):
-                stage1 = calibration.get("stage1", {})
-                if stage1.get("metrics"):
-                    write_df("Calibration_Stage1", pd.DataFrame([stage1["metrics"]]))
-                if stage1.get("details"):
-                    write_df("Calibration_Stage1_Details", pd.DataFrame([stage1["details"]]))
-                stage2 = calibration.get("stage2", {})
-                if stage2.get("metrics"):
-                    write_df("Calibration_Stage2", pd.DataFrame([stage2["metrics"]]))
-                if stage2.get("details"):
-                    write_df("Calibration_Stage2_Details", pd.DataFrame([stage2["details"]]))
+    scored_data = None
+    scoring_output = self.reports_.get('scored_data')
+    if isinstance(scoring_output, pd.DataFrame):
+        limit = getattr(self.config, 'report_scored_rows', 5000)
+        scored_data = scoring_output.head(limit)
 
-            scoring_summary = self.reports_.get("scoring_summary")
-            write_df("Scoring_Summary", scoring_summary)
+    sheet_map = {
+        'models_summary': ensure_df(models_summary_df, 'Model performance summary not available'),
+        'best_model': ensure_df(best_model_df, 'Best model details not available'),
+        'best_model_vars_df': ensure_df(final_vars, 'Final variables not available'),
+        'confusion_matrix': ensure_df(self.reports_.get('confusion_matrix'), 'Confusion matrix not available'),
+        'performance_report': ensure_df(self.reports_.get('performance_report'), 'Performance metrics not available'),
+        'lift_table': ensure_df(self.reports_.get('lift_table'), 'Lift table not available'),
+        'baseline_metrics': ensure_df(self.reports_.get('baseline_metrics'), 'Baseline metrics unavailable'),
+        'baseline_lift_table': ensure_df(self.reports_.get('baseline_lift_table'), 'Baseline lift table unavailable'),
+        'shap_importance': ensure_df(shap_df, 'SHAP importance not available'),
+        'final_vars': ensure_df(final_vars, 'Final variable list not available'),
+        'top20_iv': ensure_df(top20_iv, 'IV ranking not available'),
+        'top50_univariate': ensure_df(top50_univariate, 'Univariate ranking not available'),
+        'selection_history': ensure_df(self.reports_.get('selection_history'), 'Selection history unavailable'),
+        'correlation_clusters': ensure_df(self.reports_.get('correlation_clusters'), 'Correlation clusters unavailable'),
+        'vif_summary': ensure_df(self.reports_.get('vif_summary'), 'VIF summary unavailable'),
+        'noise_sentinel_check': ensure_df(self.reports_.get('noise_sentinel_check'), 'Noise sentinel diagnostics unavailable'),
+        'variable_dictionary': ensure_df(self.reports_.get('data_dictionary'), 'Data dictionary unavailable'),
+        'shap_summary': ensure_df(shap_df, 'SHAP summary not available'),
+        'woe_mapping': ensure_df(self.reports_.get('woe_mapping'), 'WOE mapping unavailable'),
+        'woe_bins': ensure_df(self.reports_.get('best_model_bins'), 'WOE bins unavailable'),
+        'best_model_details': ensure_df(self.reports_.get('best_model_bins'), 'Best model binning unavailable'),
+        'woe_degradation': ensure_df(woe_degradation, 'WOE vs raw gini comparison unavailable'),
+        'psi_summary': ensure_df(psi_summary, 'PSI summary unavailable'),
+        'psi_dropped_features': ensure_df(psi_dropped, 'PSI dropped features unavailable'),
+        'WOE_PSI': ensure_df(self.reports_.get('woe_psi'), 'WOE PSI report unavailable'),
+        'Score_PSI': ensure_df(self.reports_.get('score_psi'), 'Score PSI report unavailable'),
+        'Quantile_PSI': ensure_df(self.reports_.get('quantile_psi'), 'Quantile PSI report unavailable'),
+        'run_meta': run_meta_df,
+        'monitor_report': ensure_df(self.reports_.get('monitor_report'), 'Monitoring report unavailable'),
+        'calibration_metrics': ensure_df(self.reports_.get('calibration_metrics'), 'Calibration metrics unavailable'),
+        'calibration_tables': ensure_df(self.reports_.get('calibration_tables'), 'Calibration tables unavailable'),
+        'stage1': ensure_df(self.reports_.get('stage1_details'), 'Stage 1 details unavailable'),
+        'stage2': ensure_df(self.reports_.get('stage2_details'), 'Stage 2 details unavailable'),
+        'hosmer_lemeshow': ensure_df(self.reports_.get('hosmer_lemeshow'), 'Hosmer-Lemeshow results unavailable'),
+        'risk_bands': ensure_df(self.reports_.get('risk_bands'), 'Risk bands unavailable'),
+        'band_tests': ensure_df(self.reports_.get('risk_bands_tests'), 'Band test results unavailable'),
+        'band_metrics': ensure_df(self.reports_.get('risk_bands_metrics'), 'Risk band metrics unavailable'),
+        'risk_band_summary': ensure_df(self.reports_.get('risk_bands_summary_table'), 'Risk band summary unavailable'),
+        'risk_score_mapping': ensure_df(risk_mapping_sql, 'Risk score mapping unavailable'),
+        'scoring_summary': ensure_df(scoring_summary, 'Scoring summary unavailable'),
+        'scored_data': ensure_df(scored_data, 'Scored data unavailable'),
+        'micro_bins': ensure_df(self.reports_.get('micro_bins'), 'Micro bin results unavailable'),
+        'evaluate_bins': ensure_df(self.reports_.get('evaluate_bins'), 'Bin evaluation unavailable'),
+        'calculate_penalty': ensure_df(self.reports_.get('calculate_penalty'), 'Penalty breakdown unavailable'),
+        'multi_start_optimization': ensure_df(self.reports_.get('multi_start_optimization'), 'Multi-start optimisation log unavailable'),
+        'report_results': ensure_df(self.reports_.get('report_results'), 'Optimisation results unavailable'),
+        'pipeline_overview': ensure_df(self.reports_.get('pipeline_overview'), 'Pipeline overview unavailable'),
+        'operations_notes': ensure_df(self.reports_.get('operations_notes'), 'Operations notes unavailable'),
+        'git_notes': ensure_df(self.reports_.get('git_notes'), 'Git structure notes unavailable'),
+    }
 
-            scoring_reports = self.reports_.get("scoring_reports", {})
-            if isinstance(scoring_reports, dict):
-                for name, data in scoring_reports.items():
-                    if isinstance(data, pd.DataFrame):
-                        write_df(f"Scoring_{name}", data)
-                    elif isinstance(data, dict):
-                        write_df(f"Scoring_{name}", pd.DataFrame([data]))
+    with pd.ExcelWriter(filepath, engine="xlsxwriter") as writer:
+        def write_df(name: str, df: pd.DataFrame, *, index: bool = False) -> None:
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                return
+            sheet = safe_sheet_name(name)
+            df.to_excel(writer, sheet_name=sheet, index=index)
 
-            scored_df = self.reports_.get("scored_data")
-            if isinstance(scored_df, pd.DataFrame) and not scored_df.empty:
-                limit = getattr(self.config, 'report_scored_rows', 5000)
-                write_df("Scored_Data", scored_df.head(limit))
-
-            data_dictionary = self.reports_.get("data_dictionary")
-            write_df("Data_Dictionary", data_dictionary)
-
-            summary_text = self.generate_final_summary()
-            if summary_text:
-                write_df("Run_Summary", pd.DataFrame({'summary': summary_text.splitlines()}))
+        for sheet_name, df in sheet_map.items():
+            write_df(sheet_name, df)
 
     def create_model_comparison_plot(self, models: Dict[str, Any]):
         """Visualise train/test AUC for compared models."""
@@ -774,53 +846,91 @@ class EnhancedReporter:
                 return feature[: -len(suffix)]
         return feature
 
-    def _resolve_woe_key(
-        self,
-        raw_feature: str,
-        feature: str,
-        woe_values: Dict[str, Any],
-    ) -> Optional[str]:
-        if not woe_values:
-            return None
 
-        candidates = [raw_feature, raw_feature.lower(), raw_feature.upper(), feature]
-        for candidate in candidates:
-            if candidate in woe_values:
-                return candidate
-        return feature if feature in woe_values else raw_feature
+def _resolve_woe_key(
+    self,
+    raw_feature: str,
+    feature: str,
+    woe_values: Dict[str, Any],
+) -> Optional[str]:
+    if not woe_values:
+        return None
 
-    @staticmethod
-    def _normalize_data_dictionary(
-        data_dictionary: Optional[pd.DataFrame],
-    ) -> Optional[pd.DataFrame]:
-        if data_dictionary is None or data_dictionary.empty:
-            return None
+    candidates = [raw_feature, raw_feature.lower(), raw_feature.upper(), feature]
+    for candidate in candidates:
+        if candidate in woe_values:
+            return candidate
+    return feature if feature in woe_values else raw_feature
 
-        dictionary = data_dictionary.copy()
-        rename_map: Dict[str, str] = {}
-        for column in dictionary.columns:
-            key = column.strip().lower()
-            if key in {"variable", "feature", "field", "column", "raw_feature", "var_name"}:
-                rename_map[column] = "variable"
-            elif key in {"description", "desc", "desc_text", "feature_description"}:
-                rename_map[column] = "description"
-            elif key in {"category", "segment", "group"}:
-                rename_map[column] = "category"
-        dictionary = dictionary.rename(columns=rename_map)
+@staticmethod
+def _normalize_data_dictionary(
+    data_dictionary: Optional[pd.DataFrame],
+) -> Optional[pd.DataFrame]:
+    if data_dictionary is None or data_dictionary.empty:
+        return None
 
-        if "variable" not in dictionary.columns:
-            return None
+    dictionary = data_dictionary.copy()
+    rename_map: Dict[str, str] = {}
+    for column in dictionary.columns:
+        key = column.strip().lower()
+        if key in {"variable", "feature", "field", "column", "raw_feature", "var_name"}:
+            rename_map[column] = "variable"
+        elif key in {"description", "desc", "desc_text", "feature_description"}:
+            rename_map[column] = "description"
+        elif key in {"category", "segment", "group"}:
+            rename_map[column] = "category"
+    dictionary = dictionary.rename(columns=rename_map)
 
-        dictionary["variable"] = dictionary["variable"].astype(str)
-        dictionary["variable_key"] = dictionary["variable"].str.strip().str.lower()
-        dictionary = dictionary.drop_duplicates(subset="variable_key")
+    if "variable" not in dictionary.columns:
+        return None
 
-        for column in ("description", "category"):
-            if column in dictionary.columns:
-                dictionary[column] = dictionary[column].fillna("")
+    dictionary["variable"] = dictionary["variable"].astype(str)
+    dictionary["variable_key"] = dictionary["variable"].str.strip().str.lower()
+    dictionary = dictionary.drop_duplicates(subset="variable_key")
 
-        return dictionary
+    for column in ("description", "category"):
+        if column in dictionary.columns:
+            dictionary[column] = dictionary[column].fillna("")
 
+    return dictionary
+
+def _lookup_dictionary_value(
+    self,
+    raw_feature: str,
+    dictionary: Optional[pd.DataFrame],
+    column: str,
+) -> str:
+    if dictionary is None or column not in dictionary.columns:
+        return ""
+
+    key = (raw_feature or "").strip().lower()
+    if not key:
+        return ""
+
+    match = dictionary[dictionary["variable_key"] == key]
+    if match.empty:
+        match = dictionary[dictionary["variable"] == raw_feature]
+    if match.empty:
+        return ""
+
+    value = match.iloc[0][column]
+    if pd.isna(value):
+        return ""
+    return str(value)
+
+def _get_feature_description(
+    self,
+    raw_feature: str,
+    dictionary: Optional[pd.DataFrame],
+) -> str:
+    return self._lookup_dictionary_value(raw_feature, dictionary, "description")
+
+def _get_feature_category(
+    self,
+    raw_feature: str,
+    dictionary: Optional[pd.DataFrame],
+) -> str:
+    return self._lookup_dictionary_value(raw_feature, dictionary, "category")
     def _lookup_dictionary_value(
         self,
         raw_feature: str,
@@ -860,3 +970,102 @@ class EnhancedReporter:
         return self._lookup_dictionary_value(raw_feature, dictionary, "category")
 
 
+
+
+
+def _enhanced_reporter_resolve_woe_key(self, raw_feature: str, feature: str, woe_values: Dict[str, Any]) -> Optional[str]:
+    if not woe_values:
+        return None
+    candidates = [raw_feature, raw_feature.lower(), raw_feature.upper(), feature]
+    for candidate in candidates:
+        if candidate in woe_values:
+            return candidate
+    return feature if feature in woe_values else raw_feature
+
+
+def _enhanced_reporter_normalize_dictionary(data_dictionary: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    if data_dictionary is None or data_dictionary.empty:
+        return None
+    dictionary = data_dictionary.copy()
+    rename_map: Dict[str, str] = {}
+    for column in dictionary.columns:
+        key = column.strip().lower()
+        if key in {"variable", "feature", "field", "column", "raw_feature", "var_name"}:
+            rename_map[column] = "variable"
+        elif key in {"description", "desc", "desc_text", "feature_description"}:
+            rename_map[column] = "description"
+        elif key in {"category", "segment", "group"}:
+            rename_map[column] = "category"
+    dictionary = dictionary.rename(columns=rename_map)
+    if "variable" not in dictionary.columns:
+        return None
+    dictionary["variable"] = dictionary["variable"].astype(str)
+    dictionary["variable_key"] = dictionary["variable"].str.strip().str.lower()
+    dictionary = dictionary.drop_duplicates(subset="variable_key")
+    for column in ("description", "category"):
+        if column in dictionary.columns:
+            dictionary[column] = dictionary[column].fillna("")
+    return dictionary
+
+
+def _enhanced_reporter_lookup_dictionary_value(self, raw_feature: str, dictionary: Optional[pd.DataFrame], column: str) -> str:
+    if dictionary is None or column not in dictionary.columns:
+        return ""
+    key = (raw_feature or "").strip().lower()
+    if not key:
+        return ""
+    match = dictionary[dictionary["variable_key"] == key]
+    if match.empty:
+        match = dictionary[dictionary["variable"] == raw_feature]
+    if match.empty:
+        return ""
+    value = match.iloc[0][column]
+    if pd.isna(value):
+        return ""
+    return str(value)
+
+
+def _enhanced_reporter_get_feature_description(self, raw_feature: str, dictionary: Optional[pd.DataFrame]) -> str:
+    return _enhanced_reporter_lookup_dictionary_value(self, raw_feature, dictionary, "description")
+
+
+def _enhanced_reporter_get_feature_category(self, raw_feature: str, dictionary: Optional[pd.DataFrame]) -> str:
+    return _enhanced_reporter_lookup_dictionary_value(self, raw_feature, dictionary, "category")
+
+EnhancedReporter._resolve_woe_key = _enhanced_reporter_resolve_woe_key
+EnhancedReporter._normalize_data_dictionary = staticmethod(_enhanced_reporter_normalize_dictionary)
+EnhancedReporter._lookup_dictionary_value = _enhanced_reporter_lookup_dictionary_value
+EnhancedReporter._get_feature_description = _enhanced_reporter_get_feature_description
+EnhancedReporter._get_feature_category = _enhanced_reporter_get_feature_category
+
+
+
+def _enhanced_reporter_extract_raw_feature(feature: str) -> str:
+    if not feature:
+        return feature
+    for suffix in ["_woe", "_bin", "_scaled", "_bucketed"]:
+        if feature.endswith(suffix):
+            return feature[: -len(suffix)]
+    return feature
+
+EnhancedReporter._extract_raw_feature = staticmethod(_enhanced_reporter_extract_raw_feature)
+EnhancedReporter._get_feature_description = _enhanced_reporter_get_feature_description
+EnhancedReporter._get_feature_category = _enhanced_reporter_get_feature_category
+EnhancedReporter._lookup_dictionary_value = _enhanced_reporter_lookup_dictionary_value
+
+
+
+def _enhanced_reporter_infer_bin_count(woe_info: Dict[str, Any]) -> int:
+    if not woe_info:
+        return 0
+    stats = woe_info.get("stats")
+    if isinstance(stats, list) and stats:
+        return len(stats)
+    if woe_info.get("type") == "numeric" and woe_info.get("bins"):
+        return len(woe_info.get("bins", []))
+    categories = woe_info.get("categories")
+    if isinstance(categories, list):
+        return len(categories)
+    return 0
+
+EnhancedReporter._infer_bin_count = staticmethod(_enhanced_reporter_infer_bin_count)

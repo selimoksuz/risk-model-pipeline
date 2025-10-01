@@ -958,7 +958,16 @@ class UnifiedRiskPipeline:
                     train_df[selected_features],
                     threshold=self.config.vif_threshold
                 )
-                step_details = {'threshold': self.config.vif_threshold}
+                vif_summary_df = getattr(self.feature_selector, 'last_vif_summary_', None)
+                if isinstance(vif_summary_df, pd.DataFrame):
+                    preview = vif_summary_df.head(10).to_dict(orient='records')
+                    step_details = {
+                        'threshold': self.config.vif_threshold,
+                        'removed': int((vif_summary_df.get('status') == 'dropped').sum()),
+                        'summary_preview': preview,
+                    }
+                else:
+                    step_details = {'threshold': self.config.vif_threshold}
 
             elif method == 'correlation':
                 selected = self.feature_selector.select_by_correlation(
@@ -967,10 +976,19 @@ class UnifiedRiskPipeline:
                     threshold=self.config.correlation_threshold,
                     max_per_cluster=self.config.max_features_per_cluster
                 )
-                step_details = {
-                    'threshold': self.config.correlation_threshold,
-                    'max_per_cluster': self.config.max_features_per_cluster
-                }
+                corr_clusters = getattr(self.feature_selector, 'last_correlation_clusters_', None)
+                if isinstance(corr_clusters, pd.DataFrame):
+                    step_details = {
+                        'threshold': self.config.correlation_threshold,
+                        'max_per_cluster': self.config.max_features_per_cluster,
+                        'clusters_preview': corr_clusters.head(10).to_dict(orient='records'),
+                        'cluster_count': int(len(corr_clusters))
+                    }
+                else:
+                    step_details = {
+                        'threshold': self.config.correlation_threshold,
+                        'max_per_cluster': self.config.max_features_per_cluster
+                    }
 
             elif method == 'iv':
                 iv_details: Dict[str, Any] = {}
@@ -1049,7 +1067,9 @@ class UnifiedRiskPipeline:
             print('  Noise sentinel feature removed from processing scope (overfit check only).')
         return {
             'selected_features': selected_features,
-            'selection_history': selection_history
+            'selection_history': selection_history,
+            'vif_summary': getattr(self.feature_selector, 'last_vif_summary_', None),
+            'correlation_clusters': getattr(self.feature_selector, 'last_correlation_clusters_', None)
         }
 
     def _prepare_monthly_frames(self, splits: Dict) -> Dict[str, pd.DataFrame]:
@@ -1839,6 +1859,120 @@ class UnifiedRiskPipeline:
                 }
 
         return report
+
+    def _compute_performance_artifacts(self, model_results: Dict[str, Any], splits: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        """Derive confusion matrices, lift tables, and metric summaries for major splits."""
+
+        from .utils.metrics import calculate_metrics
+        from .monitoring import _build_lift_table
+
+        artifacts: Dict[str, pd.DataFrame] = {}
+        if not model_results or not splits:
+            return artifacts
+
+        best_model = model_results.get('best_model')
+        if best_model is None:
+            return artifacts
+
+        selected_features = model_results.get('selected_features', [])
+        if not selected_features:
+            return artifacts
+
+        mode = str(model_results.get('mode') or ('WOE' if self.config.enable_woe else 'RAW')).upper()
+        dataset_specs = []
+
+        def _append_dataset(label: str, feature_key: str, target_key: str) -> None:
+            x_source = splits.get(feature_key)
+            target_df = splits.get(target_key)
+            if x_source is None or target_df is None:
+                return
+            if self.config.target_col not in target_df.columns:
+                return
+            available = [feat for feat in selected_features if feat in x_source.columns]
+            if not available:
+                return
+            X_matrix = x_source[available].copy()
+            y_series = target_df[self.config.target_col].astype(float)
+            if y_series.empty:
+                return
+            dataset_specs.append((label, X_matrix, y_series))
+
+        if mode == 'WOE':
+            _append_dataset('train', 'train_woe', 'train')
+            _append_dataset('test', 'test_woe', 'test')
+            _append_dataset('oot', 'oot_woe', 'oot')
+        else:
+            _append_dataset('train', 'train_raw_prepped', 'train')
+            _append_dataset('test', 'test_raw_prepped', 'test')
+            _append_dataset('oot', 'oot_raw_prepped', 'oot')
+
+        if not dataset_specs:
+            return artifacts
+
+        performance_rows: List[Dict[str, Any]] = []
+        confusion_rows: List[Dict[str, Any]] = []
+        lift_frames: List[pd.DataFrame] = []
+        baseline_metrics_row: Optional[Dict[str, Any]] = None
+        baseline_lift = None
+
+        for label, X_matrix, y_series in dataset_specs:
+            try:
+                predictions = predict_positive_proba(best_model, X_matrix)
+            except Exception:
+                continue
+            if len(predictions) != len(y_series):
+                continue
+            metrics = calculate_metrics(y_series.values, predictions)
+            performance_rows.append({
+                'dataset': label,
+                'auc': float(metrics.get('auc', float('nan'))),
+                'gini': float(metrics.get('gini', float('nan'))),
+                'ks': float(metrics.get('ks_statistic', float('nan'))),
+                'brier': float(metrics.get('brier_score', float('nan'))),
+                'log_loss': float(metrics.get('log_loss', float('nan'))),
+                'accuracy': float(metrics.get('accuracy', float('nan'))),
+                'precision': float(metrics.get('precision', float('nan'))),
+                'recall': float(metrics.get('recall', float('nan'))),
+                'f1': float(metrics.get('f1', float('nan'))),
+            })
+            confusion_rows.append({
+                'dataset': label,
+                'true_negatives': int(metrics.get('true_negatives', 0)),
+                'false_positives': int(metrics.get('false_positives', 0)),
+                'false_negatives': int(metrics.get('false_negatives', 0)),
+                'true_positives': int(metrics.get('true_positives', 0)),
+            })
+            try:
+                lift_df = _build_lift_table(y_series.values, predictions)
+            except Exception:
+                lift_df = pd.DataFrame()
+            if isinstance(lift_df, pd.DataFrame) and not lift_df.empty:
+                lift_df = lift_df.copy()
+                lift_df.insert(0, 'dataset', label)
+                lift_frames.append(lift_df)
+                if label == 'train':
+                    baseline_lift = lift_df
+            if label == 'train':
+                baseline_metrics_row = {
+                    'dataset': label,
+                    **{key: float(metrics.get(key, float('nan'))) for key in (
+                        'auc', 'gini', 'ks_statistic', 'brier_score', 'log_loss', 'accuracy', 'precision', 'recall', 'f1'
+                    )}
+                }
+
+        if performance_rows:
+            artifacts['performance_report'] = pd.DataFrame(performance_rows)
+        if confusion_rows:
+            artifacts['confusion_matrix'] = pd.DataFrame(confusion_rows)
+        if lift_frames:
+            artifacts['lift_table'] = pd.concat(lift_frames, ignore_index=True)
+        if baseline_metrics_row is not None:
+            artifacts['baseline_metrics'] = pd.DataFrame([baseline_metrics_row])
+        if baseline_lift is not None:
+            artifacts['baseline_lift_table'] = baseline_lift
+
+        return artifacts
+
     def _generate_reports(self) -> Dict:
         """Generate comprehensive reports."""
 
@@ -1858,6 +1992,11 @@ class UnifiedRiskPipeline:
             reports['model_performance'] = self.reporter.generate_model_report(
                 model_results, self.data_dictionary
             )
+            perf_artifacts = self._compute_performance_artifacts(model_results, self.results_.get('splits', {}))
+            for key, value in perf_artifacts.items():
+                if isinstance(value, pd.DataFrame):
+                    reports[key] = value
+                    self.reporter.reports_[key] = value
 
         # Feature importance & best model reports
         if model_results and woe_results:
@@ -1870,6 +2009,17 @@ class UnifiedRiskPipeline:
                 model_results, woe_results, self.data_dictionary
             )
             reports.update(best_reports)
+
+            feature_importance = model_results.get('feature_importance', {})
+            best_model_name = model_results.get('best_model_name')
+            shap_df = None
+            if isinstance(feature_importance, dict) and best_model_name in feature_importance:
+                shap_candidate = feature_importance.get(best_model_name)
+                if isinstance(shap_candidate, pd.DataFrame):
+                    shap_df = shap_candidate.copy()
+            if isinstance(shap_df, pd.DataFrame) and not shap_df.empty:
+                reports['shap_importance'] = shap_df
+                self.reporter.reports_['shap_importance'] = shap_df
 
             woe_tables = self.reporter.generate_woe_tables(
                 woe_results, model_results.get('selected_features', [])
@@ -1902,8 +2052,42 @@ class UnifiedRiskPipeline:
             if scoring_reports:
                 reports['scoring'] = scoring_reports
 
+        noise_diag = self.results_.get('noise_sentinel_diagnostics')
+        if noise_diag:
+            if isinstance(noise_diag, dict):
+                reports['noise_sentinel_check'] = pd.DataFrame([noise_diag])
+            elif isinstance(noise_diag, pd.DataFrame):
+                reports['noise_sentinel_check'] = noise_diag
+            self.reporter.reports_['noise_sentinel_check'] = reports['noise_sentinel_check']
+
         if 'data_dictionary' in self.reporter.reports_:
             reports['data_dictionary'] = self.reporter.reports_['data_dictionary']
+
+        if 'pipeline_overview' not in self.reporter.reports_:
+            overview_rows = [
+                {'item': 'target_column', 'value': getattr(self.config, 'target_col', None)},
+                {'item': 'id_column', 'value': getattr(self.config, 'id_col', None)},
+                {'item': 'time_column', 'value': getattr(self.config, 'time_col', None)},
+                {'item': 'selection_steps', 'value': ', '.join(getattr(self.config, 'selection_steps', []))},
+                {'item': 'algorithms', 'value': ', '.join(getattr(self.config, 'algorithms', []))},
+                {'item': 'enable_woe', 'value': getattr(self.config, 'enable_woe', True)},
+                {'item': 'enable_scoring', 'value': getattr(self.config, 'enable_scoring', False)},
+            ]
+            self.reporter.reports_['pipeline_overview'] = pd.DataFrame(overview_rows)
+        if 'operations_notes' not in self.reporter.reports_:
+            ops_rows = [
+                {'item': 'psi_threshold', 'value': getattr(self.config, 'psi_threshold', None)},
+                {'item': 'iv_threshold', 'value': getattr(self.config, 'iv_threshold', None)},
+                {'item': 'risk_band_method', 'value': getattr(self.config, 'risk_band_method', None)},
+                {'item': 'risk_band_hhi_threshold', 'value': getattr(self.config, 'risk_band_hhi_threshold', None)},
+            ]
+            self.reporter.reports_['operations_notes'] = pd.DataFrame(ops_rows)
+        if 'git_notes' not in self.reporter.reports_:
+            git_rows = [
+                {'item': 'branch', 'value': 'development'},
+                {'item': 'latest_run', 'value': self.config.__dict__.get('run_id')},
+            ]
+            self.reporter.reports_['git_notes'] = pd.DataFrame(git_rows)
 
         if reports:
             output_dir = getattr(self.config, 'output_folder', None) or '.'

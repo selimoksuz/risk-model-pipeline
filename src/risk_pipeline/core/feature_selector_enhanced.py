@@ -29,6 +29,8 @@ class AdvancedFeatureSelector:
     def __init__(self, config):
         self.config = config
         self.selection_history_ = []
+        self.last_vif_summary_ = None
+        self.last_correlation_clusters_ = None
 
     def _prepare_features_for_boruta(self, X: pd.DataFrame) -> pd.DataFrame:
         """Convert categorical/datetime columns into numeric form for Boruta."""
@@ -164,40 +166,118 @@ class AdvancedFeatureSelector:
 
         return float(psi)
 
+
     def select_by_vif(self, X: pd.DataFrame, threshold: float = 10) -> List[str]:
-        """Select features with low multicollinearity."""
+        """Select features with low multicollinearity using a fast correlation inversion."""
 
-        features = list(X.columns)
-        removed = set()
+        if X is None or X.empty:
+            self.last_vif_summary_ = pd.DataFrame()
+            return []
 
-        sample_size = getattr(self.config, 'vif_sample_size', None)
-        X_work = X.copy()
-        if sample_size and len(X_work) > sample_size:
-            X_work = X_work.sample(sample_size, random_state=getattr(self.config, 'random_state', None))
-            print(f"    VIF subsample: using {len(X_work)} of {len(X)} rows")
-        X_work = X_work.reset_index(drop=True).apply(pd.to_numeric, errors='coerce').fillna(0.0)
+        working = X.apply(pd.to_numeric, errors="coerce")
+        sample_size = getattr(self.config, "vif_sample_size", None)
+        if sample_size and len(working) > sample_size:
+            rng = getattr(self.config, "random_state", None)
+            working = working.sample(sample_size, random_state=rng)
+            print(f"    VIF subsample: using {len(working)} of {len(X)} rows")
+        working = working.reset_index(drop=True).fillna(0.0)
 
-        while len(features) > 1:
-            subset = X_work[features]
-            values = subset.values
-            vif_scores = [variance_inflation_factor(values, i) for i in range(values.shape[1])]
+        features = list(working.columns)
+        if len(features) <= 1:
+            self.last_vif_summary_ = pd.DataFrame({
+                "feature": features,
+                "vif": [1.0 for _ in features],
+                "status": ["kept" for _ in features],
+                "iteration": [0 for _ in features]
+            })
+            return features
 
-            vif_data = pd.DataFrame({'Feature': features, 'VIF': vif_scores})
-            max_vif = vif_data["VIF"].max()
+        variances = working.var(axis=0)
+        near_constant = variances[variances <= 1e-9].index.tolist()
+        if near_constant:
+            print(f"    Dropping {len(near_constant)} near-constant features before VIF")
+        current = [f for f in features if f not in near_constant]
 
-            if np.isnan(max_vif) or max_vif < threshold:
+        latest_vif: Dict[str, float] = {}
+        status: Dict[str, str] = {f: "candidate" for f in current}
+        iteration_map: Dict[str, int] = {f: 0 for f in current}
+        summary_rows: List[Dict[str, Any]] = []
+        iteration = 0
+
+        def _compute_vif_matrix(frame: pd.DataFrame) -> pd.Series:
+            if frame.shape[1] == 1:
+                return pd.Series([1.0], index=frame.columns, dtype=float)
+            values = frame.to_numpy(dtype=float, copy=False)
+            corr = np.corrcoef(values, rowvar=False)
+            corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+            corr += np.eye(corr.shape[0]) * 1e-6
+            try:
+                inv = np.linalg.inv(corr)
+            except np.linalg.LinAlgError:
+                inv = np.linalg.pinv(corr)
+            vif_values = np.diag(inv)
+            vif_values = np.clip(vif_values, 1.0, None)
+            return pd.Series(vif_values, index=frame.columns, dtype=float)
+
+        while len(current) > 1:
+            subset = working[current]
+            vif_scores = _compute_vif_matrix(subset)
+            for feat, value in vif_scores.items():
+                latest_vif[feat] = float(value)
+                iteration_map[feat] = iteration
+            max_feature = vif_scores.idxmax()
+            max_vif = float(vif_scores.loc[max_feature])
+            if not np.isfinite(max_vif) or max_vif < threshold:
+                break
+            print(f"    Removing {max_feature}: VIF={max_vif:.2f}")
+            status[max_feature] = "dropped"
+            summary_rows.append({
+                "feature": max_feature,
+                "vif": max_vif,
+                "status": "dropped",
+                "iteration": iteration,
+                "reason": f"VIF>{threshold}"
+            })
+            current.remove(max_feature)
+            iteration += 1
+            if len(current) == 1:
                 break
 
-            worst_feature = vif_data.loc[vif_data["VIF"].idxmax(), "Feature"]
-            features.remove(worst_feature)
-            removed.add(worst_feature)
-            print(f"    Removing {worst_feature}: VIF={max_vif:.2f}")
+        if current:
+            final_scores = _compute_vif_matrix(working[current])
+            for feat, value in final_scores.items():
+                latest_vif[feat] = float(value)
+                status[feat] = "kept"
+                iteration_map[feat] = iteration
+                summary_rows.append({
+                    "feature": feat,
+                    "vif": float(value),
+                    "status": "kept",
+                    "iteration": iteration,
+                    "reason": ""
+                })
 
-        return features
+        for feat in near_constant:
+            summary_rows.append({
+                "feature": feat,
+                "vif": np.nan,
+                "status": "dropped_constant",
+                "iteration": 0,
+                "reason": "variance~0"
+            })
+
+        summary_df = pd.DataFrame(summary_rows, columns=["feature", "vif", "status", "iteration", "reason"])
+        if not summary_df.empty:
+            summary_df = summary_df.sort_values(["status", "vif"], ascending=[True, False]).reset_index(drop=True)
+        self.last_vif_summary_ = summary_df
+
+        kept_features = [feat for feat, state in status.items() if state == "kept"]
+        preserved = [f for f in features if f not in status]
+        return kept_features + preserved if kept_features or preserved else current
 
     def select_by_correlation(self, X: pd.DataFrame, y: pd.Series,
                              threshold: float = 0.9, max_per_cluster: int = 1) -> List[str]:
-        """Select best features from correlated clusters."""
+        """Select best features from correlated clusters and store diagnostics."""
 
         corr_matrix = X.corr().abs()
         upper_tri = corr_matrix.where(
@@ -207,6 +287,7 @@ class AdvancedFeatureSelector:
         to_remove: Set[str] = set()
         processed: Set[str] = set()
         keep_count = max(1, int(max_per_cluster))
+        clusters: List[Dict[str, Any]] = []
 
         for column in upper_tri.columns:
             if column in processed:
@@ -220,11 +301,12 @@ class AdvancedFeatureSelector:
             processed.update(cluster)
 
             target_corrs = {
-                feat: abs(X[feat].corr(y))
+                feat: abs(X[feat].corr(y)) if feat in X.columns else 0.0
                 for feat in cluster
             }
             ordered = sorted(target_corrs.items(), key=lambda item: item[1], reverse=True)
             keep_features = {feat for feat, _ in ordered[:keep_count]}
+            dropped_features = []
 
             for feat in cluster:
                 if feat not in keep_features:
@@ -233,8 +315,26 @@ class AdvancedFeatureSelector:
                     print(
                         f"    Removing {feat}: Correlated with {leader} (|corr|>{threshold})"
                     )
+                    dropped_features.append(feat)
 
+            if cluster:
+                sub_corr = corr_matrix.loc[list(cluster), list(cluster)].replace(1.0, 0.0)
+                max_corr_value = float(sub_corr.values.max()) if not sub_corr.empty else 0.0
+            else:
+                max_corr_value = 0.0
+
+            clusters.append({
+                "cluster_lead": ordered[0][0] if ordered else column,
+                "members": ", ".join(sorted(cluster)),
+                "kept": ", ".join(sorted(keep_features)) if keep_features else "",
+                "dropped": ", ".join(sorted(dropped_features)) if dropped_features else "",
+                "max_correlation": max_corr_value,
+                "threshold": threshold,
+            })
+
+        self.last_correlation_clusters_ = pd.DataFrame(clusters)
         return [col for col in X.columns if col not in to_remove]
+
     def select_by_iv(self, woe_values: Dict, features: List[str],
                      threshold: float = 0.02) -> List[str]:
         """Select features with high Information Value."""

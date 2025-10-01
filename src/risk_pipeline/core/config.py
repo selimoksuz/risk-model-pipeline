@@ -232,6 +232,7 @@ class Config:
     
     # ==================== OUTPUT ====================
     output_folder: str = 'outputs'
+    output_excel_path: Optional[str] = None
     model_name_prefix: str = 'risk_model'
     save_models: bool = True
     save_reports: bool = True

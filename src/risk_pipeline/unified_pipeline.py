@@ -229,6 +229,7 @@ class UnifiedRiskPipeline:
 
                 best_auc = _score_of(best_name)
 
+                registry_records = self._build_model_registry(mode_label, mdl_res)
                 out = {
                     'use_woe': use_woe,
                     'mode': mode_label,
@@ -247,7 +248,7 @@ class UnifiedRiskPipeline:
                     'tsfresh_metadata': self.data_.get('tsfresh_metadata'),
                     'best_model_mode': mode_label,
                     'noise_sentinel_diagnostics': score_out.get('noise_sentinel'),
-                    'model_registry': mdl_res.get('models', {}),
+                    'model_registry': registry_records,
                     'model_scores': mdl_res.get('scores', {}),
                 }
 
@@ -277,14 +278,14 @@ class UnifiedRiskPipeline:
                     }
                     for label, flow in flows_by_mode.items()
                 }
-                model_registry = {
-                    label: flow['model_results'].get('models', {})
-                    for label, flow in flows_by_mode.items()
-                }
-                model_scores_registry = {
-                    label: flow['model_results'].get('scores', {})
-                    for label, flow in flows_by_mode.items()
-                }
+                model_registry_records: List[Dict[str, Any]] = []
+                model_object_registry: Dict[str, Any] = {}
+                model_scores_registry: Dict[str, Any] = {}
+
+                for label, flow in flows_by_mode.items():
+                    model_registry_records.extend(flow.get('model_registry', []))
+                    model_object_registry[label] = flow['model_results'].get('models', {})
+                    model_scores_registry[label] = flow['model_results'].get('scores', {})
 
                 print("\n[Step 10/10] Generating Reports...")
                 self.models_ = best_flow['model_results'].get('models', {})
@@ -329,7 +330,8 @@ class UnifiedRiskPipeline:
                     'best_model_mode': best_flow['model_results'].get('mode'),
                     'chosen_auc': best_flow['best_auc'],
                     'flow_registry': flow_registry,
-                    'model_registry': model_registry,
+                    'model_registry': model_registry_records,
+                    'model_object_registry': model_object_registry,
                     'model_scores_registry': model_scores_registry,
                     'chosen_flow_selected_features': best_flow.get('selected_features', []),
                     'chosen_flow_scores': best_flow['model_results'].get('scores', {}),
@@ -419,6 +421,7 @@ class UnifiedRiskPipeline:
 
                 scores_dict = model_results.get('scores', {}) or {}
                 best_model_name = model_results.get('best_model_name')
+                registry_records = self._build_model_registry(mode_label, model_results)
                 best_auc = None
                 if best_model_name and best_model_name in scores_dict:
                     best_entry = scores_dict[best_model_name] or {}
@@ -433,7 +436,7 @@ class UnifiedRiskPipeline:
                         'noise_sentinel': noise_diag,
                     }
                 }
-                model_registry = {mode_label: model_results.get('models', {})}
+                model_object_registry = {mode_label: model_results.get('models', {})}
                 model_scores_registry = {mode_label: scores_dict}
 
                 self.results_ = {
@@ -460,7 +463,8 @@ class UnifiedRiskPipeline:
                     'mode': mode_label,
                     'best_model_mode': mode_label,
                     'flow_registry': flow_registry,
-                    'model_registry': model_registry,
+                    'model_registry': registry_records,
+                    'model_object_registry': model_object_registry,
                     'model_scores_registry': model_scores_registry,
                     'chosen_flow': mode_label,
                     'chosen_flow_mode': mode_label,
@@ -2101,6 +2105,74 @@ class UnifiedRiskPipeline:
                 print(f"Failed to export report to Excel: {exc}")
 
         return reports
+
+    def _build_model_registry(self, mode_label: str, model_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Summarise trained models for reporting tables."""
+        if not isinstance(model_results, dict):
+            return []
+        scores = model_results.get('scores', {}) or {}
+        selected_features = model_results.get('selected_features') or []
+        if not isinstance(selected_features, list):
+            try:
+                selected_features = list(selected_features)
+            except TypeError:
+                selected_features = []
+        selected_features = selected_features.copy() if isinstance(selected_features, list) else []
+
+        records: List[Dict[str, Any]] = []
+        for model_name, metrics in scores.items():
+            if not isinstance(metrics, dict):
+                continue
+            train_auc = metrics.get('train_auc')
+            test_auc = metrics.get('test_auc')
+            oot_auc_raw = metrics.get('oot_auc')
+            if oot_auc_raw is not None:
+                oot_auc = oot_auc_raw
+                auc_source = 'oot'
+            elif test_auc is not None:
+                oot_auc = test_auc
+                auc_source = 'test'
+            elif train_auc is not None:
+                oot_auc = train_auc
+                auc_source = 'train'
+            else:
+                oot_auc = None
+                auc_source = 'none'
+
+            train_gini = metrics.get('train_gini')
+            test_gini = metrics.get('test_gini')
+            oot_gini_raw = metrics.get('oot_gini')
+            if oot_gini_raw is not None:
+                oot_gini = oot_gini_raw
+                gini_source = 'oot'
+            elif test_gini is not None:
+                oot_gini = test_gini
+                gini_source = 'test'
+            elif train_gini is not None:
+                oot_gini = train_gini
+                gini_source = 'train'
+            else:
+                oot_gini = None
+                gini_source = 'none'
+
+            records.append({
+                'mode': mode_label,
+                'model_name': model_name,
+                'train_auc': train_auc,
+                'test_auc': test_auc,
+                'oot_auc': oot_auc,
+                'oot_auc_source': auc_source,
+                'oot_auc_raw': oot_auc_raw,
+                'train_gini': train_gini,
+                'test_gini': test_gini,
+                'oot_gini': oot_gini,
+                'oot_gini_source': gini_source,
+                'oot_gini_raw': oot_gini_raw,
+                'train_oot_gap': metrics.get('train_oot_gap'),
+                'n_features': len(selected_features),
+                'selected_features': selected_features.copy(),
+            })
+        return records
 
     def _persist_model_artifacts(self) -> None:
         """Persist final model artifacts when configuration allows."""

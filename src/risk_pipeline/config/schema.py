@@ -58,7 +58,7 @@ class RiskBandConfig(BaseModel):
     min_bins: int = 7
     max_bins: int = 10
     micro_bins: int = 1000
-    min_sample_size: int = 20000
+    min_sample_size: int = 50000
     min_weight: float = 0.05
     max_weight: float = 0.30
     hhi_threshold: float = 0.15

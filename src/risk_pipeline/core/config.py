@@ -184,7 +184,7 @@ class Config:
     risk_band_min_bins: int = 7
     risk_band_max_bins: int = 10
     risk_band_micro_bins: int = 1000
-    risk_band_min_sample_size: int = 20000
+    risk_band_min_sample_size: int = 50000
     risk_band_min_weight: float = 0.05
     risk_band_max_weight: float = 0.30
     risk_band_hhi_threshold: float = 0.15

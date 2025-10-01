@@ -44,6 +44,8 @@ class DataProcessor:
         self.imputation_stats_ = {}  # Store imputation statistics
 
         self.tsfresh_metadata_ = pd.DataFrame()
+        self.tsfresh_merge_mode = "id"
+        self.tsfresh_coverage_ = pd.DataFrame()
 
 
 
@@ -112,6 +114,8 @@ class DataProcessor:
 
 
         self.tsfresh_metadata_ = pd.DataFrame()
+        self.tsfresh_merge_mode = 'id'
+        self.tsfresh_coverage_ = pd.DataFrame()
 
 
 
@@ -138,6 +142,16 @@ class DataProcessor:
         if not numeric_cols:
 
             return pd.DataFrame()
+        rolling_enabled = bool(getattr(self.cfg, "enable_tsfresh_rolling", False))
+        if rolling_enabled:
+            if not time_col or time_col not in df.columns:
+                warnings.warn(
+                    "Rolling tsfresh features enabled but time column is missing; falling back to legacy tsfresh.",
+                    RuntimeWarning,
+                )
+            else:
+                return self._generate_rolling_tsfresh_features(df, id_col, time_col, numeric_cols)
+
 
 
 
@@ -596,16 +610,406 @@ class DataProcessor:
 
 
 
-    def _generate_simple_tsfresh_features(
 
+    def _sanitize_feature_names(self, columns: List[str]) -> Dict[str, str]:
+        """Return a mapping with sanitized, unique feature names."""
+        mapping: Dict[str, str] = {}
+        used: set = set()
+        for original in columns:
+            base = re.sub(r"[^0-9A-Za-z_]+", "_", str(original)).strip("_") or "feature"
+            candidate = base
+            suffix = 1
+            while candidate in used:
+                suffix += 1
+                candidate = f"{base}_{suffix}"
+            used.add(candidate)
+            mapping[str(original)] = candidate
+        return mapping
+
+    def _resolve_rolling_settings(self) -> Dict[str, Any]:
+        """Normalize rolling TSFresh configuration with safety guards."""
+        window_months = int(max(1, getattr(self.cfg, "tsfresh_window_months", 12) or 12))
+        include_current = bool(getattr(self.cfg, "tsfresh_include_current_record", False))
+        min_events = int(max(0, getattr(self.cfg, "tsfresh_min_events", 0) or 0))
+        min_unique_months = int(max(0, getattr(self.cfg, "tsfresh_min_unique_months", 0) or 0))
+        min_unique_months = min(min_unique_months, window_months)
+        raw_ratio = getattr(self.cfg, "tsfresh_min_coverage_ratio", 0.0)
+        try:
+            min_coverage_ratio = float(raw_ratio if raw_ratio is not None else 0.0)
+        except (TypeError, ValueError):
+            min_coverage_ratio = 0.0
+        if not np.isfinite(min_coverage_ratio):
+            min_coverage_ratio = 0.0
+        min_coverage_ratio = min(max(min_coverage_ratio, 0.0), 1.0)
+        return {
+            "window_months": window_months,
+            "include_current": include_current,
+            "min_events": min_events,
+            "min_unique_months": min_unique_months,
+            "min_coverage_ratio": min_coverage_ratio,
+        }
+
+    def _build_rolling_windows(
         self,
-
         df: pd.DataFrame,
-
         id_col: str,
+        time_col: str,
+        numeric_cols: List[str],
+        settings: Dict[str, Any],
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Index]:
+        """Prepare rolling windows and coverage statistics per observation."""
+        work = df[[id_col, time_col] + numeric_cols].copy()
+        work["__tsfresh_time__"] = pd.to_datetime(work[time_col], errors="coerce")
+        work["__tsfresh_row_id__"] = np.arange(len(work))
+        coverage_records: Dict[int, Dict[str, Any]] = {
+            int(row_id): {
+                "tsfresh_events_count": 0,
+                "tsfresh_months_present": 0,
+                "tsfresh_months_missing": settings["window_months"],
+                "tsfresh_coverage_ratio": 0.0,
+                "tsfresh_history_span_months": 0,
+                "tsfresh_has_gap": 0,
+                "tsfresh_window_ready": 0,
+            }
+            for row_id in work["__tsfresh_row_id__"]
+        }
+        valid = work[work["__tsfresh_time__"].notna()].copy()
+        valid = valid.sort_values([id_col, "__tsfresh_time__", "__tsfresh_row_id__"])
+        window_delta = pd.DateOffset(months=settings["window_months"])
+        window_chunks: List[pd.DataFrame] = []
+        if not valid.empty:
+            for _, group in valid.groupby(id_col, sort=False):
+                times = group["__tsfresh_time__"].to_numpy()
+                periods = group["__tsfresh_time__"].dt.to_period("M")
+                row_ids = group["__tsfresh_row_id__"].to_numpy()
+                start_idx = 0
+                for idx in range(len(group)):
+                    current_time = times[idx]
+                    row_id = int(row_ids[idx])
+                    lower_bound = current_time - window_delta
+                    while start_idx < len(group) and times[start_idx] < lower_bound:
+                        start_idx += 1
+                    if settings["include_current"]:
+                        window_slice = group.iloc[start_idx : idx + 1]
+                        slice_periods = periods.iloc[start_idx : idx + 1]
+                    else:
+                        window_slice = group.iloc[start_idx:idx]
+                        slice_periods = periods.iloc[start_idx:idx]
+                    events_count = len(window_slice)
+                    if events_count:
+                        chunk = window_slice.loc[:, numeric_cols].copy()
+                        chunk["__window_id__"] = str(row_id)
+                        chunk["__tsfresh_time__"] = window_slice["__tsfresh_time__"].values
+                        window_chunks.append(chunk)
+                        periods_present = {p for p in slice_periods}
+                    else:
+                        periods_present = set()
+                    months_present = len(periods_present)
+                    missing_months = max(settings["window_months"] - months_present, 0)
+                    if months_present:
+                        ordered = sorted(period.ordinal for period in periods_present)
+                        has_gap = int(any((ordered[i] - ordered[i - 1]) > 1 for i in range(1, len(ordered))))
+                        history_span = ordered[-1] - ordered[0] + 1 if len(ordered) > 1 else 1
+                    else:
+                        has_gap = 0
+                        history_span = 0
+                    coverage_ratio = (
+                        min(1.0, months_present / float(settings["window_months"]))
+                        if settings["window_months"]
+                        else 0.0
+                    )
+                    ready = (
+                        events_count > 0
+                        and events_count >= max(settings["min_events"], 1)
+                        and months_present >= settings["min_unique_months"]
+                        and coverage_ratio >= settings["min_coverage_ratio"]
+                    )
+                    coverage_records[row_id].update(
+                        {
+                            "tsfresh_events_count": int(events_count),
+                            "tsfresh_months_present": int(months_present),
+                            "tsfresh_months_missing": int(missing_months),
+                            "tsfresh_coverage_ratio": float(coverage_ratio),
+                            "tsfresh_history_span_months": int(history_span),
+                            "tsfresh_has_gap": int(has_gap),
+                            "tsfresh_window_ready": int(ready),
+                        }
+                    )
+        window_df = (
+            pd.concat(window_chunks, ignore_index=True)
+            if window_chunks
+            else pd.DataFrame(columns=numeric_cols + ["__window_id__", "__tsfresh_time__"])
+        )
+        coverage_df = pd.DataFrame.from_dict(coverage_records, orient="index")
+        coverage_df.index.name = "row_id"
+        coverage_df = coverage_df.sort_index()
+        row_order = work["__tsfresh_row_id__"].astype(int)
+        coverage_df = coverage_df.reindex(row_order, fill_value=0)
+        coverage_df["tsfresh_has_gap"] = coverage_df["tsfresh_has_gap"].astype(int)
+        coverage_df["tsfresh_window_ready"] = coverage_df["tsfresh_window_ready"].astype(int)
+        coverage_df.index = coverage_df.index.astype(str)
+        return window_df, coverage_df, row_order.astype(str)
 
-        numeric_cols: List[str]
+    def _extract_rolling_feature_frame(
+        self,
+        window_df: pd.DataFrame,
+        numeric_cols: List[str],
+        settings: Dict[str, Any],
+    ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Extract tsfresh features on rolling windows with graceful fallback."""
+        if window_df.empty:
+            return pd.DataFrame(), None
+        runtime = None
+        try:
+            from tsfresh import extract_features
+            from tsfresh.feature_extraction import (
+                ComprehensiveFCParameters,
+                EfficientFCParameters,
+                MinimalFCParameters,
+            )
+        except Exception as exc:  # pragma: no cover - optional dependency
+            warnings.warn(
+                f"tsfresh cannot be imported ({exc}); falling back to rolling simple aggregates.",
+                RuntimeWarning,
+            )
+        else:
+            raw_jobs = getattr(self.cfg, "tsfresh_n_jobs", getattr(self.cfg, "n_jobs", None))
+            jobs = int(raw_jobs) if raw_jobs not in (None, 0) else 0
+            if jobs <= 0:
+                fraction = getattr(self.cfg, "tsfresh_cpu_fraction", None)
+                if fraction in (None, 0):
+                    fraction = getattr(self.cfg, "cpu_fraction", 0.8)
+                try:
+                    fraction = float(fraction or 0.8)
+                except (TypeError, ValueError):
+                    fraction = 0.8
+                jobs = max(1, int((os.cpu_count() or 1) * min(max(fraction, 0.1), 1.0)))
+            if not getattr(self.cfg, "tsfresh_use_multiprocessing", True):
+                jobs = 1
+            in_notebook = bool(
+                os.environ.get("JPY_INTERACTIVE")
+                or os.environ.get("JPY_PARENT_PID")
+                or os.environ.get("IPYTHONENABLE")
+            )
+            force_seq = getattr(self.cfg, "tsfresh_force_sequential_notebook", False)
+            if os.name == "nt" and in_notebook and jobs > 1 and force_seq:
+                warnings.warn(
+                    "tsfresh multiprocessing is forced to sequential mode in Windows notebooks; set tsfresh_force_sequential_notebook=False to override.",
+                    RuntimeWarning,
+                )
+                jobs = 1
+            feature_set = str(getattr(self.cfg, "tsfresh_feature_set", "minimal") or "minimal").lower()
+            fc_mapping = {
+                "minimal": MinimalFCParameters,
+                "efficient": EfficientFCParameters,
+                "comprehensive": ComprehensiveFCParameters,
+            }
+            fc_cls = fc_mapping.get(feature_set, MinimalFCParameters)
+            generator_label = f"rolling_tsfresh_{feature_set}"
+            custom_fc = getattr(self.cfg, "tsfresh_custom_fc_parameters", None)
+            fc_parameters = None
+            if custom_fc:
+                resolved = self._resolve_tsfresh_fc_parameters(custom_fc, ComprehensiveFCParameters)
+                if resolved:
+                    fc_parameters = resolved
+                    generator_label = "rolling_tsfresh_custom"
+                else:
+                    warnings.warn(
+                        "Unable to interpret tsfresh_custom_fc_parameters; using preset feature set.",
+                        RuntimeWarning,
+                    )
+            if not isinstance(fc_parameters, dict) or not fc_parameters:
+                try:
+                    fc_parameters = fc_cls()
+                except Exception:
+                    fc_parameters = MinimalFCParameters()
+            if isinstance(fc_parameters, dict) and "matrix_profile" in fc_parameters:
+                try:  # pragma: no cover - optional dependency
+                    import matrixprofile  # noqa: F401
+                except Exception:
+                    fc_parameters.pop("matrix_profile", None)
+                    warnings.warn(
+                        "matrix_profile calculators skipped (optional dependency missing).",
+                        RuntimeWarning,
+                    )
+            runtime = {
+                "extract": extract_features,
+                "fc_parameters": fc_parameters,
+                "generator_label": generator_label,
+                "jobs": jobs,
+            }
+        features = None
+        metadata = None
+        if runtime is not None:
+            melted = window_df.melt(
+                id_vars=["__window_id__", "__tsfresh_time__"],
+                value_vars=numeric_cols,
+                var_name="__tsfresh_kind__",
+                value_name="__tsfresh_value__",
+            )
+            melted["__tsfresh_value__"] = pd.to_numeric(melted["__tsfresh_value__"], errors="coerce")
+            melted = melted.dropna(subset=["__tsfresh_value__"])
+            if not melted.empty:
+                try:
+                    features = runtime["extract"](
+                        melted,
+                        column_id="__window_id__",
+                        column_sort="__tsfresh_time__",
+                        column_kind="__tsfresh_kind__",
+                        column_value="__tsfresh_value__",
+                        default_fc_parameters=runtime["fc_parameters"],
+                        disable_progressbar=True,
+                        n_jobs=runtime["jobs"],
+                    )
+                except Exception as exc:
+                    warnings.warn(
+                        f"Rolling tsfresh feature extraction failed ({exc}); using simple aggregates instead.",
+                        RuntimeWarning,
+                    )
+                    features = None
+            if features is not None and not features.empty:
+                features.index = features.index.astype(str)
+                features.index.name = "__tsfresh_row_id__"
+                features = features.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+                features = features.loc[:, features.nunique(dropna=False) > 0]
+                rename_map = {col: f"{col}_rolling_tsfresh" for col in features.columns}
+                features = features.rename(columns=rename_map)
+                metadata_rows: List[Dict[str, Any]] = []
+                for original, renamed in rename_map.items():
+                    parts = str(original).split("__")
+                    metadata_rows.append(
+                        {
+                            "feature": renamed,
+                            "source_variable": parts[0] if parts else original,
+                            "statistic": parts[1] if len(parts) > 1 else "",
+                            "parameters": "__".join(parts[2:]) if len(parts) > 2 else "",
+                            "generator": runtime["generator_label"],
+                        }
+                    )
+                alias_map = self._sanitize_feature_names(list(features.columns))
+                features = features.rename(columns=alias_map)
+                meta_df = pd.DataFrame(metadata_rows) if metadata_rows else None
+                if meta_df is not None:
+                    meta_df = meta_df[meta_df["feature"].isin(rename_map.values())]
+                    meta_df["feature"] = meta_df["feature"].map(lambda name: alias_map.get(name, name))
+                metadata = meta_df
+        needs_fallback = features is None or getattr(features, 'empty', True)
+        if needs_fallback:
+            grouped = window_df.groupby("__window_id__")[numeric_cols].agg(["mean", "std", "min", "max"])
+            if grouped.empty:
+                return pd.DataFrame(), None
+            grouped = grouped.fillna(0.0)
+            grouped.index = grouped.index.astype(str)
+            multi_cols = list(grouped.columns)
+            candidate_names = [f"{base}_{stat}_rolling_tsfresh" for base, stat in multi_cols]
+            alias_map = self._sanitize_feature_names(candidate_names)
+            grouped.columns = [alias_map[name] for name in candidate_names]
+            metadata_rows = [
+                {
+                    "feature": alias_map[name],
+                    "source_variable": base,
+                    "statistic": stat,
+                    "parameters": "",
+                    "generator": "rolling_tsfresh_simple",
+                }
+                for (base, stat), name in zip(multi_cols, candidate_names)
+            ]
+            return grouped, pd.DataFrame(metadata_rows)
+        return features, metadata
 
+    def _generate_rolling_tsfresh_features(
+        self,
+        df: pd.DataFrame,
+        id_col: str,
+        time_col: str,
+        numeric_cols: List[str],
+    ) -> pd.DataFrame:
+        """Generate rolling-window tsfresh features per record."""
+        self.tsfresh_merge_mode = "row"
+        settings = self._resolve_rolling_settings()
+        window_df, coverage_df, row_order = self._build_rolling_windows(
+            df,
+            id_col,
+            time_col,
+            numeric_cols,
+            settings,
+        )
+        features, feature_meta = self._extract_rolling_feature_frame(window_df, numeric_cols, settings)
+        target_index = list(pd.Index(row_order, dtype=str))
+        if features.empty:
+            features = pd.DataFrame(index=target_index)
+        else:
+            features.index = features.index.astype(str)
+            features = features.reindex(target_index, fill_value=0.0)
+        coverage_df = coverage_df.reindex(target_index)
+        combined = features.join(coverage_df, how="left")
+        combined.index.name = "__tsfresh_row_id__"
+        self.tsfresh_coverage_ = coverage_df.copy()
+        coverage_meta = pd.DataFrame(
+            [
+                {
+                    "feature": "tsfresh_events_count",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "count",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+                {
+                    "feature": "tsfresh_months_present",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "months_present",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+                {
+                    "feature": "tsfresh_months_missing",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "months_missing",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+                {
+                    "feature": "tsfresh_coverage_ratio",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "coverage_ratio",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+                {
+                    "feature": "tsfresh_history_span_months",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "history_span",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+                {
+                    "feature": "tsfresh_has_gap",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "has_gap",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+                {
+                    "feature": "tsfresh_window_ready",
+                    "source_variable": "__rolling_window__",
+                    "statistic": "ready_flag",
+                    "parameters": f"last_{settings['window_months']}m",
+                    "generator": "rolling_window",
+                },
+            ]
+        )
+        metadata_frames = []
+        if feature_meta is not None and not feature_meta.empty:
+            metadata_frames.append(feature_meta)
+        metadata_frames.append(coverage_meta)
+        self.tsfresh_metadata_ = pd.concat(metadata_frames, ignore_index=True)
+        return combined
+
+    def _generate_simple_tsfresh_features(
+        self,
+        df: pd.DataFrame,
+        id_col: str,
+        numeric_cols: List[str],
     ) -> pd.DataFrame:
 
         grouped = df.groupby(id_col, dropna=False)[numeric_cols].agg(['mean', 'std', 'min', 'max'])

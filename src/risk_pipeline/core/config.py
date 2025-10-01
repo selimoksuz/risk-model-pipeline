@@ -62,6 +62,13 @@ class Config:
     tsfresh_use_multiprocessing: bool = True
     tsfresh_force_sequential_notebook: bool = False
     tsfresh_custom_fc_parameters: Optional[Dict[str, Any]] = None
+    enable_tsfresh_rolling: bool = False
+    tsfresh_window_months: int = 12
+    tsfresh_min_events: int = 1
+    tsfresh_min_unique_months: int = 1
+    tsfresh_min_coverage_ratio: float = 1.0
+    tsfresh_include_current_record: bool = False
+
 
     
     # ==================== WOE CONFIGURATION ====================
@@ -604,3 +611,72 @@ class Config:
 
         if getattr(self, 'tsfresh_feature_set', None) is None:
             self.tsfresh_feature_set = 'minimal'
+
+        self.enable_tsfresh_rolling = bool(getattr(self, 'enable_tsfresh_rolling', False))
+
+        window_value = getattr(self, 'tsfresh_window_months', 12)
+        try:
+            window_months = int(window_value)
+        except (TypeError, ValueError):
+            warnings.warn('tsfresh_window_months is invalid; defaulting to 12 months.', RuntimeWarning)
+            window_months = 12
+        if window_months <= 0:
+            warnings.warn('tsfresh_window_months must be positive; using 1 month.', RuntimeWarning)
+            window_months = 1
+        self.tsfresh_window_months = window_months
+
+        min_events_value = getattr(self, 'tsfresh_min_events', 0) or 0
+        try:
+            min_events = int(min_events_value)
+        except (TypeError, ValueError):
+            warnings.warn('tsfresh_min_events is invalid; defaulting to 0.', RuntimeWarning)
+            min_events = 0
+        if min_events < 0:
+            warnings.warn('tsfresh_min_events cannot be negative; using 0.', RuntimeWarning)
+            min_events = 0
+        self.tsfresh_min_events = min_events
+
+        min_unique_value = getattr(self, 'tsfresh_min_unique_months', 0) or 0
+        try:
+            min_unique = int(min_unique_value)
+        except (TypeError, ValueError):
+            warnings.warn('tsfresh_min_unique_months is invalid; defaulting to 0.', RuntimeWarning)
+            min_unique = 0
+        if min_unique < 0:
+            warnings.warn('tsfresh_min_unique_months cannot be negative; using 0.', RuntimeWarning)
+            min_unique = 0
+        if min_unique > window_months:
+            warnings.warn('tsfresh_min_unique_months cannot exceed tsfresh_window_months; clipping to window size.', RuntimeWarning)
+            min_unique = window_months
+        self.tsfresh_min_unique_months = min_unique
+
+        ratio_value = getattr(self, 'tsfresh_min_coverage_ratio', 0.0)
+        try:
+            ratio = float(ratio_value if ratio_value is not None else 0.0)
+        except (TypeError, ValueError):
+            warnings.warn('tsfresh_min_coverage_ratio is invalid; defaulting to 0.', RuntimeWarning)
+            ratio = 0.0
+        if not math.isfinite(ratio):
+            ratio = 0.0
+        if ratio < 0.0:
+            warnings.warn('tsfresh_min_coverage_ratio cannot be negative; using 0.', RuntimeWarning)
+            ratio = 0.0
+        if ratio > 1.0:
+            warnings.warn('tsfresh_min_coverage_ratio cannot exceed 1.0; clipping to 1.', RuntimeWarning)
+            ratio = 1.0
+        self.tsfresh_min_coverage_ratio = ratio
+
+        self.tsfresh_include_current_record = bool(getattr(self, 'tsfresh_include_current_record', False))
+
+        if self.enable_tsfresh_rolling and not getattr(self, 'enable_tsfresh_features', False):
+            warnings.warn('enable_tsfresh_rolling requires tsfresh features; enabling tsfresh feature extraction.', RuntimeWarning)
+            self.enable_tsfresh_features = True
+
+        if self.enable_tsfresh_rolling:
+            if not getattr(self, 'time_column', None):
+                raise ValueError('enable_tsfresh_rolling requires a configured time_column.')
+            if not getattr(self, 'id_column', None):
+                raise ValueError('enable_tsfresh_rolling requires a configured id_column.')
+            if self.tsfresh_min_unique_months == 0 and self.tsfresh_min_events > 0:
+                warnings.warn('tsfresh_min_unique_months is 0 while tsfresh_min_events > 0; raising unique month requirement to 1.', RuntimeWarning)
+                self.tsfresh_min_unique_months = 1

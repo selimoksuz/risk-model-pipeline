@@ -508,20 +508,36 @@ class UnifiedRiskPipeline:
         df_processed = self.data_processor.validate_and_freeze(df.copy())
 
         tsfresh_features = self.data_processor.generate_tsfresh_features(df_processed)
+        merge_mode = getattr(self.data_processor, 'tsfresh_merge_mode', 'id')
         if not tsfresh_features.empty:
             tsfresh_features = tsfresh_features.copy()
-            tsfresh_features.index.name = '__tsfresh_id__'
-            df_processed = df_processed.copy()
-            df_processed['__tsfresh_id__'] = df_processed[self.config.id_col].astype(str)
-            df_processed = df_processed.merge(
-                tsfresh_features,
-                how='left',
-                left_on='__tsfresh_id__',
-                right_index=True,
-            )
-            df_processed.drop(columns='__tsfresh_id__', inplace=True)
+            if merge_mode == 'row':
+                df_processed = df_processed.copy()
+                df_processed['__tsfresh_row_id__'] = np.arange(len(df_processed)).astype(str)
+                df_processed = df_processed.merge(
+                    tsfresh_features,
+                    how='left',
+                    left_on='__tsfresh_row_id__',
+                    right_index=True,
+                )
+                df_processed.drop(columns='__tsfresh_row_id__', inplace=True)
+            else:
+                tsfresh_features.index.name = '__tsfresh_id__'
+                df_processed = df_processed.copy()
+                df_processed['__tsfresh_id__'] = df_processed[self.config.id_col].astype(str)
+                df_processed = df_processed.merge(
+                    tsfresh_features,
+                    how='left',
+                    left_on='__tsfresh_id__',
+                    right_index=True,
+                )
+                df_processed.drop(columns='__tsfresh_id__', inplace=True)
             print(f"  Added {tsfresh_features.shape[1]} tsfresh features")
 
+
+        coverage_df = getattr(self.data_processor, 'tsfresh_coverage_', None)
+        if isinstance(coverage_df, pd.DataFrame):
+            self.data_['tsfresh_coverage'] = coverage_df.copy()
         tsfresh_meta = getattr(self.data_processor, 'tsfresh_metadata_', None)
         if tsfresh_meta is not None:
             self.data_['tsfresh_metadata'] = tsfresh_meta.copy()

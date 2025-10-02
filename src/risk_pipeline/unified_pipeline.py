@@ -1733,6 +1733,11 @@ class UnifiedRiskPipeline:
             print("  Skipping scoring: No features selected")
             return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}, 'noise_sentinel': None}
 
+        score_df = score_df.copy()
+        target_col = getattr(self.config, 'target_col', None)
+        if target_col and target_col not in score_df.columns:
+            score_df[target_col] = np.nan
+
         noise_col = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
         score_processed = self._process_data(score_df, create_map=False, include_noise=False)
 

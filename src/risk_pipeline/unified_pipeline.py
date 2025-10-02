@@ -1524,23 +1524,59 @@ class UnifiedRiskPipeline:
                 source = 'override_reference'
             else:
                 print(f"  Warning: Risk band optimisation sample contains {len(X_eval)} records (< {min_sample}); results may be unstable.")
+        candidate_models = [model]
         try:
             predictions = predict_positive_proba(model, X_eval)
         except ValueError:
-            fallback_model = None
+            fallback_candidates = []
             if isinstance(primary_results, dict):
-                fallback_model = primary_results.get('stage1_model')
-            if fallback_model is None and isinstance(stage1_results, dict):
-                fallback_model = stage1_results.get('calibrated_model')
-            if fallback_model is None:
-                base_results = self.results_.get('model_results', {})
-                if isinstance(base_results, dict):
-                    fallback_model = base_results.get('calibrated_model') or base_results.get('best_model')
-            if fallback_model is None:
-                raise
-            print('  Risk bands: stage-2 calibrator lacks probability interface; using fallback model.')
-            model = fallback_model
-            predictions = predict_positive_proba(model, X_eval)
+                fallback_candidates.extend([
+                    primary_results.get('calibrated_model'),
+                    primary_results.get('stage1_model'),
+                    primary_results.get('best_model'),
+                ])
+                models_dict = primary_results.get('models') or {}
+                fallback_candidates.extend(models_dict.values())
+            if isinstance(stage1_results, dict):
+                fallback_candidates.extend([
+                    stage1_results.get('calibrated_model'),
+                    stage1_results.get('best_model'),
+                ])
+            if isinstance(model_results, dict):
+                fallback_candidates.extend([
+                    model_results.get('calibrated_model'),
+                    model_results.get('stage1_model'),
+                    model_results.get('best_model'),
+                ])
+                models_dict = model_results.get('models') or {}
+                fallback_candidates.extend(models_dict.values())
+            base_results = self.results_.get('model_results', {})
+            if isinstance(base_results, dict):
+                fallback_candidates.extend([
+                    base_results.get('calibrated_model'),
+                    base_results.get('stage1_model'),
+                    base_results.get('best_model'),
+                ])
+                models_dict = base_results.get('models') or {}
+                fallback_candidates.extend(models_dict.values())
+            fallback_candidates = [cand for cand in fallback_candidates if cand is not None]
+            success = False
+            for cand in fallback_candidates:
+                if cand in candidate_models:
+                    continue
+                candidate_models.append(cand)
+                try:
+                    predictions = predict_positive_proba(cand, X_eval)
+                except ValueError:
+                    continue
+                else:
+                    model = cand
+                    success = True
+                    print('  Risk bands: using fallback model for probability estimation.')
+                    break
+            if not success:
+                print('  Risk band optimization skipped: no model with probability interface available.')
+                return {}
         predictions = np.asarray(predictions, dtype=float).ravel()
 
         if np.unique(predictions).size <= 1:

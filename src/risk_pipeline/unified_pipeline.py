@@ -1172,12 +1172,40 @@ class UnifiedRiskPipeline:
         model_results['mode'] = mode_label
         self.models_ = model_results['models']
         self.selected_features_ = model_results.get('selected_features', [])
+        self._set_active_model(model_results, mode_label=mode_label)
         return model_results
+    def _set_active_model(self, model_results: Dict, *, mode_label: Optional[str] = None) -> None:
+        models = model_results.get('models') or {}
+        preferred = getattr(self.config, 'score_model_name', 'best')
+        preferred = (preferred or 'best').strip()
+        best_name = model_results.get('best_model_name')
+        active_name = best_name
+        if preferred and preferred.lower() != 'best':
+            if preferred in models:
+                active_name = preferred
+            else:
+                if best_name:
+                    print(f"  Warning: Preferred model '{preferred}' not found; using best model '{best_name}'.")
+                elif models:
+                    fallback_name = next(iter(models.keys()))
+                    print(f"  Warning: Preferred model '{preferred}' not found; using available model '{fallback_name}'.")
+                    active_name = fallback_name
+                else:
+                    print(f"  Warning: Preferred model '{preferred}' not found; no models available.")
+        active_model = models.get(active_name) or model_results.get('best_model')
+        if active_model is None and models:
+            active_name, active_model = next(iter(models.items()))
+        model_results['active_model_name'] = active_name
+        model_results['active_model'] = active_model
+        model_results['active_model_mode'] = mode_label
+
     def _apply_stage1_calibration(self, model_results: Dict, calibration_df: pd.DataFrame) -> Dict:
         """Apply Stage 1 calibration (long-run average)."""
 
         # Check if we have a model to calibrate
-        if model_results.get('best_model') is None:
+        base_model = model_results.get('active_model') or model_results.get('best_model')
+        base_name = model_results.get('active_model_name') or model_results.get('best_model_name')
+        if base_model is None:
             print("  Skipping calibration: No model available")
             return {}
 
@@ -1231,9 +1259,8 @@ class UnifiedRiskPipeline:
         y_cal = calibration_df[self.config.target_col]
 
         # Calibrate best model
-        best_model = model_results['best_model']
         calibrated_model = self.calibrator.calibrate_stage1(
-            best_model, X_cal, y_cal,
+            base_model, X_cal, y_cal,
             method=self.config.calibration_method
         )
 
@@ -1242,7 +1269,7 @@ class UnifiedRiskPipeline:
         )
 
         X_cal_filled = X_cal.fillna(0) if hasattr(X_cal, 'fillna') else X_cal
-        base_scores = predict_positive_proba(best_model, X_cal_filled)
+        base_scores = predict_positive_proba(base_model, X_cal_filled)
         calibrated_scores = predict_positive_proba(calibrated_model, X_cal_filled)
         calibration_curve = None
         if base_scores.size and calibrated_scores.size:
@@ -1258,16 +1285,19 @@ class UnifiedRiskPipeline:
             'long_run_rate': float(metrics.get('long_run_rate', y_cal.mean())),
             'base_rate': float(metrics.get('base_rate', y_cal.mean())),
             'n_samples': int(len(X_cal)),
+            'model_name': base_name,
         }
         if calibration_curve is not None:
             stage1_details['curve_points'] = len(calibration_curve)
 
+        metrics['model_name'] = base_name
         return {
             'calibrated_model': calibrated_model,
             'calibration_metrics': metrics,
             'stage1_details': stage1_details,
             'calibration_curve': calibration_curve,
             'selected_features': model_results.get('selected_features', []),
+            'base_model_name': base_name,
         }
 
     def _apply_stage2_calibration(self, stage1_results: Dict, stage2_df: pd.DataFrame) -> Dict:
@@ -1524,59 +1554,89 @@ class UnifiedRiskPipeline:
                 source = 'override_reference'
             else:
                 print(f"  Warning: Risk band optimisation sample contains {len(X_eval)} records (< {min_sample}); results may be unstable.")
-        candidate_models = [model]
-        try:
-            predictions = predict_positive_proba(model, X_eval)
-        except ValueError:
-            fallback_candidates = []
-            if isinstance(primary_results, dict):
-                fallback_candidates.extend([
-                    primary_results.get('calibrated_model'),
-                    primary_results.get('stage1_model'),
-                    primary_results.get('best_model'),
-                ])
-                models_dict = primary_results.get('models') or {}
-                fallback_candidates.extend(models_dict.values())
-            if isinstance(stage1_results, dict):
-                fallback_candidates.extend([
-                    stage1_results.get('calibrated_model'),
-                    stage1_results.get('best_model'),
-                ])
-            if isinstance(model_results, dict):
-                fallback_candidates.extend([
-                    model_results.get('calibrated_model'),
-                    model_results.get('stage1_model'),
-                    model_results.get('best_model'),
-                ])
-                models_dict = model_results.get('models') or {}
-                fallback_candidates.extend(models_dict.values())
-            base_results = self.results_.get('model_results', {})
-            if isinstance(base_results, dict):
-                fallback_candidates.extend([
-                    base_results.get('calibrated_model'),
-                    base_results.get('stage1_model'),
-                    base_results.get('best_model'),
-                ])
-                models_dict = base_results.get('models') or {}
-                fallback_candidates.extend(models_dict.values())
-            fallback_candidates = [cand for cand in fallback_candidates if cand is not None]
-            success = False
-            for cand in fallback_candidates:
-                if cand in candidate_models:
-                    continue
-                candidate_models.append(cand)
+        def _probabilities_from(candidate):
+            if candidate is None:
+                return None
+            try:
+                return np.asarray(predict_positive_proba(candidate, X_eval), dtype=float).ravel()
+            except ValueError:
                 try:
-                    predictions = predict_positive_proba(cand, X_eval)
-                except ValueError:
-                    continue
+                    proba = candidate.predict_proba(X_eval)
+                except AttributeError:
+                    try:
+                        pred = candidate.predict(X_eval)
+                    except Exception:
+                        return None
+                    arr = np.asarray(pred, dtype=float).ravel()
+                    if arr.size == 0 or not np.all(np.isfinite(arr)):
+                        return None
+                    if arr.min() < 0 or arr.max() > 1:
+                        return None
+                    return arr
+                except Exception:
+                    return None
                 else:
-                    model = cand
-                    success = True
+                    proba = np.asarray(proba)
+                    if proba.ndim == 2:
+                        if proba.shape[1] == 1:
+                            return proba[:, 0]
+                        return proba[:, -1]
+                    return proba.ravel()
+
+        candidate_models = [model]
+        fallback_candidates = []
+        if isinstance(primary_results, dict):
+            fallback_candidates.extend([
+                primary_results.get('calibrated_model'),
+                primary_results.get('stage1_model'),
+                primary_results.get('best_model'),
+            ])
+            models_dict = primary_results.get('models') or {}
+            if isinstance(models_dict, dict):
+                fallback_candidates.extend(models_dict.values())
+        if isinstance(stage1_results, dict):
+            fallback_candidates.extend([
+                stage1_results.get('calibrated_model'),
+                stage1_results.get('best_model'),
+            ])
+        if isinstance(model_results, dict):
+            fallback_candidates.extend([
+                model_results.get('calibrated_model'),
+                model_results.get('stage1_model'),
+                model_results.get('best_model'),
+            ])
+            models_dict = model_results.get('models') or {}
+            if isinstance(models_dict, dict):
+                fallback_candidates.extend(models_dict.values())
+        cache_results = self.results_.get('model_results', {}) if isinstance(self.results_, dict) else {}
+        if isinstance(cache_results, dict):
+            fallback_candidates.extend([
+                cache_results.get('calibrated_model'),
+                cache_results.get('stage1_model'),
+                cache_results.get('best_model'),
+            ])
+            models_dict = cache_results.get('models') or {}
+            if isinstance(models_dict, dict):
+                fallback_candidates.extend(models_dict.values())
+        fallback_candidates = [cand for cand in fallback_candidates if cand is not None]
+        for cand in fallback_candidates:
+            if cand in candidate_models:
+                continue
+            candidate_models.append(cand)
+
+        predictions = None
+        for cand in candidate_models:
+            candidate_scores = _probabilities_from(cand)
+            if candidate_scores is not None:
+                model = cand
+                predictions = candidate_scores
+                if cand is not primary_results.get('calibrated_model'):
                     print('  Risk bands: using fallback model for probability estimation.')
-                    break
-            if not success:
-                print('  Risk band optimization skipped: no model with probability interface available.')
-                return {}
+                break
+        if predictions is None:
+            print('  Risk band optimization skipped: no model with probability interface available.')
+            return {}
+
         predictions = np.asarray(predictions, dtype=float).ravel()
 
         if np.unique(predictions).size <= 1:

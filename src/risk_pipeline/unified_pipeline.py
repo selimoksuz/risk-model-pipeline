@@ -1524,7 +1524,23 @@ class UnifiedRiskPipeline:
                 source = 'override_reference'
             else:
                 print(f"  Warning: Risk band optimisation sample contains {len(X_eval)} records (< {min_sample}); results may be unstable.")
-        predictions = predict_positive_proba(model, X_eval)
+        try:
+            predictions = predict_positive_proba(model, X_eval)
+        except ValueError:
+            fallback_model = None
+            if isinstance(primary_results, dict):
+                fallback_model = primary_results.get('stage1_model')
+            if fallback_model is None and isinstance(stage1_results, dict):
+                fallback_model = stage1_results.get('calibrated_model')
+            if fallback_model is None:
+                base_results = self.results_.get('model_results', {})
+                if isinstance(base_results, dict):
+                    fallback_model = base_results.get('calibrated_model') or base_results.get('best_model')
+            if fallback_model is None:
+                raise
+            print('  Risk bands: stage-2 calibrator lacks probability interface; using fallback model.')
+            model = fallback_model
+            predictions = predict_positive_proba(model, X_eval)
         predictions = np.asarray(predictions, dtype=float).ravel()
 
         if np.unique(predictions).size <= 1:

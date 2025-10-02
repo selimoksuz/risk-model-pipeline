@@ -137,18 +137,26 @@ class OptimalRiskBandAnalyzer:
         if df.empty:
             return {}
 
+        if 'count' not in df.columns and 'n_samples' in df.columns:
+            df['count'] = pd.to_numeric(df['n_samples'], errors='coerce').fillna(0.0)
+        if 'bad_count' not in df.columns and 'n_events' in df.columns:
+            df['bad_count'] = pd.to_numeric(df['n_events'], errors='coerce').fillna(0.0)
+        if 'pct_count' not in df.columns and 'sample_pct' in df.columns:
+            df['pct_count'] = pd.to_numeric(df['sample_pct'], errors='coerce').fillna(0.0)
         if 'pct_count' not in df.columns and {'count'}.issubset(df.columns):
-            total = float(df['count'].sum())
+            total = float(pd.to_numeric(df['count'], errors='coerce').sum())
             if total > 0:
                 df['pct_count'] = df['count'] / total
         if 'bad_rate' not in df.columns and {'bad_count', 'count'}.issubset(df.columns):
-            counts = df['count'].to_numpy(dtype=float)
+            counts = pd.to_numeric(df['count'], errors='coerce').to_numpy(dtype=float)
             df['bad_rate'] = np.divide(
-                df['bad_count'],
+                pd.to_numeric(df['bad_count'], errors='coerce').fillna(0.0),
                 counts,
                 out=np.zeros_like(counts, dtype=float),
                 where=counts > 0,
             )
+        if 'bad_rate' not in df.columns and 'event_rate' in df.columns:
+            df['bad_rate'] = pd.to_numeric(df['event_rate'], errors='coerce').fillna(0.0)
         if not {'pct_count', 'bad_rate'}.issubset(df.columns):
             return {}
 

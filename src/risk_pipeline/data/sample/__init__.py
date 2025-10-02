@@ -42,6 +42,46 @@ DERIVED_FEATURES = [
         "description": "Derived - Synthetic drift driver with deliberate PSI shift across datasets",
         "category": "Derived",
     },
+    {
+        "variable": "history_months_observed",
+        "description": "Derived - Unique months observed in trailing 12 month window",
+        "category": "Derived",
+    },
+    {
+        "variable": "history_months_missing",
+        "description": "Derived - Missing months within trailing 12 month window",
+        "category": "Derived",
+    },
+    {
+        "variable": "history_coverage_ratio",
+        "description": "Derived - Coverage ratio over trailing 12 month window",
+        "category": "Derived",
+    },
+    {
+        "variable": "history_partial_flag",
+        "description": "Derived - Indicator of incomplete 12 month window",
+        "category": "Derived",
+    },
+    {
+        "variable": "recent_app_count_3m",
+        "description": "Derived - Application count in trailing 3 months",
+        "category": "Derived",
+    },
+    {
+        "variable": "history_span_months",
+        "description": "Derived - Months since customer first observed",
+        "category": "Derived",
+    },
+    {
+        "variable": "vintage_month_index",
+        "description": "Temporal - Month index relative to panel start",
+        "category": "Temporal",
+    },
+    {
+        "variable": "stage_label",
+        "description": "Metadata - Dataset source label",
+        "category": "Metadata",
+    },
 ]
 
 
@@ -162,11 +202,16 @@ def load_credit_risk_sample(*, min_development_rows: int = 50000, random_state: 
         if target_col in calibration_recent.columns:
             calibration_recent = calibration_recent.drop(columns=target_col)
 
+    scoring_future = _read_csv('scoring_future.csv')
+    for target_col in ('target', 'bad_flag'):
+        if target_col in scoring_future.columns:
+            scoring_future = scoring_future.drop(columns=target_col)
+
     raw_sample = CreditRiskSample(
         development=_read_csv('development.csv'),
         calibration_longrun=_read_csv('calibration_longrun.csv'),
         calibration_recent=calibration_recent,
-        scoring_future=_read_csv('scoring_future.csv'),
+        scoring_future=scoring_future,
         data_dictionary=_read_csv('data_dictionary.csv'),
     )
 

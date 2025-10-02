@@ -1763,12 +1763,82 @@ class UnifiedRiskPipeline:
             score_matrix = score_prepped[final_features]
         score_matrix = score_matrix.apply(pd.to_numeric, errors='coerce').fillna(0)
 
-        try:
-            proba = final_model.predict_proba(score_matrix)
-            raw_scores = proba[:, 1] if proba.ndim == 2 else proba.ravel()
-        except AttributeError:
-            predictions = final_model.predict(score_matrix)
-            raw_scores = predictions.ravel() if hasattr(predictions, 'ravel') else np.asarray(predictions)
+        stage1_model = (self.results_.get('calibration_stage1') or {}).get('calibrated_model')
+
+        def _probabilities_from(candidate):
+            if candidate is None:
+                return None
+            try:
+                return np.asarray(predict_positive_proba(candidate, score_matrix), dtype=float).ravel()
+            except ValueError:
+                try:
+                    proba = candidate.predict_proba(score_matrix)
+                except AttributeError:
+                    try:
+                        pred = candidate.predict(score_matrix)
+                    except Exception:
+                        return None
+                    arr = np.asarray(pred, dtype=float).ravel()
+                    if arr.size == 0 or not np.all(np.isfinite(arr)):
+                        return None
+                    if arr.min() < 0 or arr.max() > 1:
+                        return None
+                    return arr
+                except Exception:
+                    return None
+                else:
+                    proba = np.asarray(proba)
+                    if proba.ndim == 2:
+                        if proba.shape[1] == 1:
+                            return proba[:, 0]
+                        return proba[:, -1]
+                    return proba.ravel()
+
+        candidate_models = [final_model]
+        fallback_candidates = []
+        if isinstance(stage_results, dict):
+            fallback_candidates.extend([
+                stage_results.get('calibrated_model'),
+                stage_results.get('stage1_model'),
+                stage_results.get('best_model'),
+            ])
+        if isinstance(model_results, dict):
+            fallback_candidates.extend([
+                model_results.get('calibrated_model'),
+                model_results.get('stage1_model'),
+                model_results.get('best_model'),
+            ])
+            models_dict = model_results.get('models') or {}
+            if isinstance(models_dict, dict):
+                fallback_candidates.extend(models_dict.values())
+        cache_results = self.results_.get('model_results', {}) if isinstance(self.results_, dict) else {}
+        if isinstance(cache_results, dict):
+            fallback_candidates.extend([
+                cache_results.get('calibrated_model'),
+                cache_results.get('stage1_model'),
+                cache_results.get('best_model'),
+            ])
+            models_dict = cache_results.get('models') or {}
+            if isinstance(models_dict, dict):
+                fallback_candidates.extend(models_dict.values())
+        if stage1_model is not None:
+            fallback_candidates.append(stage1_model)
+        fallback_candidates = [cand for cand in fallback_candidates if cand is not None]
+        for cand in fallback_candidates:
+            if cand in candidate_models:
+                continue
+            candidate_models.append(cand)
+
+        raw_scores = None
+        for cand in candidate_models:
+            scores_candidate = _probabilities_from(cand)
+            if scores_candidate is not None:
+                final_model = cand
+                raw_scores = scores_candidate
+                break
+        if raw_scores is None:
+            print('  Skipping scoring: models lack probability interface.')
+            return {'dataframe': score_df.copy(), 'metrics': None, 'reports': {}, 'noise_sentinel': None}
 
         scores = raw_scores
 
@@ -1779,7 +1849,6 @@ class UnifiedRiskPipeline:
         if noise_series is not None:
             result_df[noise_col] = noise_series
 
-        stage1_model = (self.results_.get('calibration_stage1') or {}).get('calibrated_model')
         stage1_scores = None
         if stage1_model is not None and stage1_model is not final_model:
             try:

@@ -380,7 +380,7 @@ def create_scoring_report(results: Dict) -> Dict[str, pd.DataFrame]:
                 "Score Max",
             ],
             "Value": [
-                f"{wot['n_records']:, }",
+                f"{wot['n_records']:,}",
                 f"{wot['score_stats']['mean']:.4f}",
                 f"{wot['score_stats']['std']:.4f}",
                 f"{wot['score_stats']['min']:.4f}",

@@ -1793,8 +1793,11 @@ class UnifiedRiskPipeline:
         if 'risk_bands' in self.results_ and self.results_['risk_bands']:
             band_edges = self.results_['risk_bands'].get('band_edges')
         if band_edges is None:
-            band_edges = self.risk_band_optimizer.bands_
-        result_df['risk_band'] = self.risk_band_optimizer.assign_bands(scores, band_edges)
+            band_edges = getattr(self.risk_band_optimizer, 'bands_', None)
+        if band_edges is not None:
+            result_df['risk_band'] = self.risk_band_optimizer.assign_bands(scores, band_edges)
+        else:
+            result_df['risk_band'] = np.nan
 
         training_scores = None
 

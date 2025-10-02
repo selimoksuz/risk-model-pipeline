@@ -140,13 +140,17 @@ class UnifiedRiskPipeline:
             print("\n[Step 2/10] Data Splitting...")
             splits = self._split_data(processed_data)
 
+            self.data_['calibration_longrun'] = calibration_df.copy() if calibration_df is not None else None
+
             risk_band_reference: Optional[pd.DataFrame] = None
             if risk_band_df is not None:
                 print("\n[INFO] Aligning dedicated risk band dataset with learned preprocessing maps...")
                 risk_band_reference = self._process_data(risk_band_df, create_map=False, include_noise=False)
                 self.data_['risk_band_reference'] = risk_band_reference
+                self.data_['risk_band_reference_source'] = risk_band_df.copy()
             else:
                 self.data_['risk_band_reference'] = None
+                self.data_['risk_band_reference_source'] = None
 
             self.data_['stage2_source'] = stage2_df.copy() if stage2_df is not None else None
 
@@ -2597,7 +2601,10 @@ class UnifiedRiskPipeline:
         model_results = model_results or self.results_.get('model_results')
         if model_results is None:
             raise ValueError('Model results required for calibration. Call run_modeling first.')
-        calibration_df = calibration_df if calibration_df is not None else self.results_.get('processed_data')
+        if calibration_df is None:
+            calibration_df = self.data_.get('calibration_longrun')
+        if calibration_df is None:
+            calibration_df = self.results_.get('processed_data')
         if calibration_df is None:
             raise ValueError('Calibration dataframe unavailable. Provide calibration_df or run run_process first.')
         stage1 = self._apply_stage1_calibration(model_results, calibration_df)
@@ -2634,6 +2641,8 @@ class UnifiedRiskPipeline:
         splits = splits or self.results_.get('splits')
         if splits is None:
             raise ValueError('Data splits missing. Call run_split first.')
+        if data_override is None:
+            data_override = self.data_.get('risk_band_reference') or self.data_.get('risk_band_reference_source')
         bands = self._optimize_risk_bands(stage2_results, splits, data_override=data_override, stage1_results=stage1_results)
         self.results_['risk_bands'] = bands
         return bands

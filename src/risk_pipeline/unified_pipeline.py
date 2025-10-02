@@ -72,6 +72,7 @@ class UnifiedRiskPipeline:
         self.transformers_ = {}
         self.data_ = {}
         self.feature_name_map: Dict[str, str] = {}
+        self.selected_features_: List[str] = []
         self.noise_sentinel_name = 'noise_sentinel'
         self._noise_counter = 0
         self._current_raw_preprocessor: Optional[Dict[str, Any]] = None

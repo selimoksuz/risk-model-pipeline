@@ -1266,7 +1266,8 @@ class UnifiedRiskPipeline:
             'calibrated_model': calibrated_model,
             'calibration_metrics': metrics,
             'stage1_details': stage1_details,
-            'calibration_curve': calibration_curve
+            'calibration_curve': calibration_curve,
+            'selected_features': model_results.get('selected_features', []),
         }
 
     def _apply_stage2_calibration(self, stage1_results: Dict, stage2_df: pd.DataFrame) -> Dict:
@@ -1278,7 +1279,11 @@ class UnifiedRiskPipeline:
             return {}
 
         # Prepare Stage 2 data
-        selected_features = self.selected_features_
+        selected_features = list(self.selected_features_) if getattr(self, 'selected_features_', None) else []
+        if not selected_features and isinstance(stage1_results, dict):
+            selected_features = list(stage1_results.get('selected_features', []))
+        if not selected_features and isinstance(self.results_.get('model_results'), dict):
+            selected_features = list(self.results_['model_results'].get('selected_features', []))
 
         if not selected_features:
             print("  Skipping Stage 2 calibration: No features selected")

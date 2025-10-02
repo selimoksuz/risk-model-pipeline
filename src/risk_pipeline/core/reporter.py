@@ -506,7 +506,7 @@ class EnhancedReporter:
             summary_lines.append(f"Number of bands: {len(bands_df)}")
             if 'bad_rate' in bands_df.columns:
                 summary_lines.append(
-                    f"Bad rate range: {bands_df['bad_rate'].min():.2%} – {bands_df['bad_rate'].max():.2%}"
+                    f"Bad rate range: {bands_df['bad_rate'].min():.2%} - {bands_df['bad_rate'].max():.2%}"
                 )
             if 'bad_capture' in bands_df.columns and bands_df['bad_capture'].notna().any():
                 summary_lines.append(

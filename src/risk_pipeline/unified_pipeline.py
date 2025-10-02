@@ -130,6 +130,8 @@ class UnifiedRiskPipeline:
 
         # Store data dictionary
         self.data_dictionary = data_dictionary
+        if data_dictionary is not None:
+            self.results_['data_dictionary'] = data_dictionary
 
         try:
             # Step 1: Data Processing
@@ -2241,14 +2243,39 @@ class UnifiedRiskPipeline:
         model_results = self.results_.get('model_results')
         woe_results = self.results_.get('woe_results')
 
-        if getattr(self, 'data_dictionary', None) is not None:
-            self.reporter.register_data_dictionary(self.data_dictionary)
+        dictionary_candidate = getattr(self, 'data_dictionary', None)
+        if dictionary_candidate is None:
+            dictionary_candidate = self.results_.get('data_dictionary') or self.data_.get('dictionary')
+        if dictionary_candidate is not None:
+            self.data_dictionary = dictionary_candidate
+            self.results_['data_dictionary'] = dictionary_candidate
+            self.reporter.register_data_dictionary(dictionary_candidate)
+        else:
+            self.reporter.register_data_dictionary(None)
 
         self.reporter.register_tsfresh_metadata(self.results_.get('tsfresh_metadata'))
         self.reporter.register_selection_history(self.results_.get('selection_results'))
 
         # Model performance report
         if model_results:
+            dual_scores = self.results_.get('model_scores_registry')
+            dual_models = self.results_.get('model_object_registry')
+            if isinstance(dual_scores, dict) and dual_scores:
+                combined_scores = dict(model_results.get('scores') or {})
+                for score_map in dual_scores.values():
+                    if isinstance(score_map, dict):
+                        combined_scores.update(score_map)
+                if combined_scores:
+                    model_results = dict(model_results)
+                    model_results['scores'] = combined_scores
+            if isinstance(dual_models, dict) and dual_models:
+                aggregated_models = dict(model_results.get('models') or {})
+                for mode_map in dual_models.values():
+                    if isinstance(mode_map, dict):
+                        aggregated_models.update(mode_map)
+                if aggregated_models:
+                    model_results = dict(model_results)
+                    model_results['models'] = aggregated_models
             reports['model_performance'] = self.reporter.generate_model_report(
                 model_results, self.data_dictionary
             )

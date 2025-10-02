@@ -1401,16 +1401,22 @@ class UnifiedRiskPipeline:
     def _optimize_risk_bands(self, model_results: Dict, splits: Dict, *, data_override: Optional[pd.DataFrame] = None, stage1_results: Optional[Dict] = None) -> Dict:
         """Optimize risk bands with multiple metrics."""
 
-        if 'calibrated_model' not in model_results or model_results['calibrated_model'] is None:
-            print("  Skipping risk bands: No model available")
+        primary_results = model_results if isinstance(model_results, dict) else {}
+        stage1_results = stage1_results or {}
+        if (not primary_results or primary_results.get('calibrated_model') is None) and stage1_results.get('calibrated_model') is not None:
+            print('  Risk bands: using Stage-1 calibrated model (Stage-2 unavailable).')
+            primary_results = stage1_results
+
+        if not primary_results or primary_results.get('calibrated_model') is None:
+            print('  Skipping risk bands: No model available')
             return {}
 
-        model = model_results['calibrated_model']
+        model = primary_results['calibrated_model']
         selected_features = self.selected_features_
         target_col = self.config.target_col
 
         if not selected_features:
-            print("  Skipping risk bands: No features selected")
+            print('  Skipping risk bands: No features selected')
             return {}
 
         X_eval: Optional[pd.DataFrame] = None
@@ -2418,18 +2424,20 @@ class UnifiedRiskPipeline:
         return stage2
 
     def run_risk_bands(self, stage2_results: Optional[Dict[str, Any]] = None,
-                       splits: Optional[Dict[str, pd.DataFrame]] = None, *, force: bool = False) -> Dict[str, Any]:
+                       splits: Optional[Dict[str, pd.DataFrame]] = None, *,
+                       stage1_results: Optional[Dict[str, Any]] = None,
+                       data_override: Optional[pd.DataFrame] = None,
+                       force: bool = False) -> Dict[str, Any]:
         """Optimise risk bands using cached artifacts."""
 
         if not force and 'risk_bands' in self.results_:
             return self.results_['risk_bands']
-        stage2_results = stage2_results or self.results_.get('calibration_stage2')
-        if stage2_results is None:
-            raise ValueError('Stage-2 calibration results missing. Call run_stage2_calibration first.')
+        stage2_results = stage2_results or self.results_.get('calibration_stage2') or {}
+        stage1_results = stage1_results or self.results_.get('calibration_stage1') or {}
         splits = splits or self.results_.get('splits')
         if splits is None:
             raise ValueError('Data splits missing. Call run_split first.')
-        bands = self._optimize_risk_bands(stage2_results, splits)
+        bands = self._optimize_risk_bands(stage2_results, splits, data_override=data_override, stage1_results=stage1_results)
         self.results_['risk_bands'] = bands
         return bands
 

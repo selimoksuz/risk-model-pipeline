@@ -614,239 +614,239 @@ class EnhancedReporter:
 
 
 
-def export_to_excel(self, filepath: str) -> None:
-    """Persist collected reports to an Excel workbook following the required structure."""
-
-    used_names: set[str] = set()
-
-    def safe_sheet_name(name: str) -> str:
-        cleaned = re.sub(r"[^0-9A-Za-z _-]", "_", str(name)).strip()
-        cleaned = cleaned or "Sheet"
-        cleaned = cleaned[:31]
-        base = cleaned
-        counter = 1
-        while cleaned in used_names:
-            suffix = f"_{counter}"
-            cleaned = (base[: 31 - len(suffix)] + suffix).strip() or f"Sheet_{counter}"
-            counter += 1
-        used_names.add(cleaned)
-        return cleaned
-
-    def ensure_df(candidate: Any, message: str) -> pd.DataFrame:
-        if isinstance(candidate, pd.DataFrame) and not candidate.empty:
-            return candidate
-        return pd.DataFrame([{'message': message}])
-
-    model_perf = self.reports_.get('model_performance', {}) if isinstance(self.reports_.get('model_performance'), dict) else {}
-    model_scores = model_perf.get('model_scores') if isinstance(model_perf, dict) else None
-    if isinstance(model_scores, dict) and model_scores:
-        models_summary_df = pd.DataFrame(model_scores).T.reset_index().rename(columns={'index': 'model_name'})
-    else:
-        models_summary_df = None
-
-    best_model_df = None
-    if isinstance(model_perf, dict) and model_perf:
-        best_model_df = pd.DataFrame([{key: model_perf.get(key) for key in ['timestamp', 'best_model', 'feature_count']}])
-
-    final_vars = self.reports_.get('final_variables')
-    features_df = self.reports_.get('features')
-    shap_df = self.reports_.get('shap_importance')
-
-    top20_iv = None
-    if isinstance(final_vars, pd.DataFrame) and 'iv' in final_vars.columns:
-        top20_iv = final_vars[['feature', 'iv']].dropna().sort_values('iv', ascending=False).head(20)
-
-    top50_univariate = None
-    if isinstance(features_df, pd.DataFrame):
-        score_cols = [col for col in ['gini_raw', 'gini_woe', 'gini_drop'] if col in features_df.columns]
-        if score_cols:
-            top50_univariate = features_df[['feature', *score_cols]].copy().sort_values(score_cols[0], ascending=False).head(50)
-
-    woe_degradation = None
-    if isinstance(features_df, pd.DataFrame) and {'feature', 'gini_raw', 'gini_woe'} <= set(features_df.columns):
-        temp = features_df[['feature', 'gini_raw', 'gini_woe']].copy()
-        temp['gini_drop'] = temp['gini_raw'] - temp['gini_woe']
-        woe_degradation = temp
-
-    psi_summary = None
-    if isinstance(self.selection_history, pd.DataFrame):
-        psi_rows = self.selection_history[self.selection_history['method'] == 'psi']
-        if not psi_rows.empty:
-            psi_summary = psi_rows[['method', 'before', 'after', 'removed_features']]
-
-    psi_dropped = None
-    if isinstance(psi_summary, pd.DataFrame):
-        psi_dropped = psi_summary[['removed_features']].rename(columns={'removed_features': 'psi_removed'})
-
-    run_meta_rows = [
-        {'parameter': 'target_column', 'value': getattr(self.config, 'target_column', None)},
-        {'parameter': 'id_column', 'value': getattr(self.config, 'id_column', None)},
-        {'parameter': 'time_column', 'value': getattr(self.config, 'time_column', None)},
-        {'parameter': 'enable_tsfresh_features', 'value': getattr(self.config, 'enable_tsfresh_features', False)},
-        {'parameter': 'selection_steps', 'value': ', '.join(getattr(self.config, 'selection_steps', []))},
-        {'parameter': 'algorithms', 'value': ', '.join(getattr(self.config, 'algorithms', []))},
-        {'parameter': 'random_state', 'value': getattr(self.config, 'random_state', None)},
-    ]
-    run_meta_df = pd.DataFrame(run_meta_rows)
-
-    risk_mapping_sql = None
-    risk_bands = self.reports_.get('risk_bands')
-    if isinstance(risk_bands, pd.DataFrame) and {'band', 'min_score', 'max_score'} <= set(risk_bands.columns):
-        risk_mapping_sql = risk_bands[['band', 'min_score', 'max_score']].copy()
-
-    scoring_summary = None
-    scoring_reports = self.reports_.get('scoring_reports')
-    if isinstance(scoring_reports, dict):
-        summary = scoring_reports.get('summary')
-        if isinstance(summary, pd.DataFrame):
-            scoring_summary = summary
-        elif isinstance(summary, dict):
-            scoring_summary = pd.DataFrame([summary])
-
-    scored_data = None
-    scoring_output = self.reports_.get('scored_data')
-    if isinstance(scoring_output, pd.DataFrame):
-        limit = getattr(self.config, 'report_scored_rows', 5000)
-        scored_data = scoring_output.head(limit)
-
-    sheet_map = {
-        'models_summary': ensure_df(models_summary_df, 'Model performance summary not available'),
-        'best_model': ensure_df(best_model_df, 'Best model details not available'),
-        'best_model_vars_df': ensure_df(final_vars, 'Final variables not available'),
-        'confusion_matrix': ensure_df(self.reports_.get('confusion_matrix'), 'Confusion matrix not available'),
-        'performance_report': ensure_df(self.reports_.get('performance_report'), 'Performance metrics not available'),
-        'lift_table': ensure_df(self.reports_.get('lift_table'), 'Lift table not available'),
-        'baseline_metrics': ensure_df(self.reports_.get('baseline_metrics'), 'Baseline metrics unavailable'),
-        'baseline_lift_table': ensure_df(self.reports_.get('baseline_lift_table'), 'Baseline lift table unavailable'),
-        'shap_importance': ensure_df(shap_df, 'SHAP importance not available'),
-        'final_vars': ensure_df(final_vars, 'Final variable list not available'),
-        'top20_iv': ensure_df(top20_iv, 'IV ranking not available'),
-        'top50_univariate': ensure_df(top50_univariate, 'Univariate ranking not available'),
-        'selection_history': ensure_df(self.reports_.get('selection_history'), 'Selection history unavailable'),
-        'correlation_clusters': ensure_df(self.reports_.get('correlation_clusters'), 'Correlation clusters unavailable'),
-        'vif_summary': ensure_df(self.reports_.get('vif_summary'), 'VIF summary unavailable'),
-        'noise_sentinel_check': ensure_df(self.reports_.get('noise_sentinel_check'), 'Noise sentinel diagnostics unavailable'),
-        'variable_dictionary': ensure_df(self.reports_.get('data_dictionary'), 'Data dictionary unavailable'),
-        'shap_summary': ensure_df(shap_df, 'SHAP summary not available'),
-        'woe_mapping': ensure_df(self.reports_.get('woe_mapping'), 'WOE mapping unavailable'),
-        'woe_bins': ensure_df(self.reports_.get('best_model_bins'), 'WOE bins unavailable'),
-        'best_model_details': ensure_df(self.reports_.get('best_model_bins'), 'Best model binning unavailable'),
-        'woe_degradation': ensure_df(woe_degradation, 'WOE vs raw gini comparison unavailable'),
-        'psi_summary': ensure_df(psi_summary, 'PSI summary unavailable'),
-        'psi_dropped_features': ensure_df(psi_dropped, 'PSI dropped features unavailable'),
-        'WOE_PSI': ensure_df(self.reports_.get('woe_psi'), 'WOE PSI report unavailable'),
-        'Score_PSI': ensure_df(self.reports_.get('score_psi'), 'Score PSI report unavailable'),
-        'Quantile_PSI': ensure_df(self.reports_.get('quantile_psi'), 'Quantile PSI report unavailable'),
-        'run_meta': run_meta_df,
-        'monitor_report': ensure_df(self.reports_.get('monitor_report'), 'Monitoring report unavailable'),
-        'calibration_metrics': ensure_df(self.reports_.get('calibration_metrics'), 'Calibration metrics unavailable'),
-        'calibration_tables': ensure_df(self.reports_.get('calibration_tables'), 'Calibration tables unavailable'),
-        'stage1': ensure_df(self.reports_.get('stage1_details'), 'Stage 1 details unavailable'),
-        'stage2': ensure_df(self.reports_.get('stage2_details'), 'Stage 2 details unavailable'),
-        'hosmer_lemeshow': ensure_df(self.reports_.get('hosmer_lemeshow'), 'Hosmer-Lemeshow results unavailable'),
-        'risk_bands': ensure_df(self.reports_.get('risk_bands'), 'Risk bands unavailable'),
-        'band_tests': ensure_df(self.reports_.get('risk_bands_tests'), 'Band test results unavailable'),
-        'band_metrics': ensure_df(self.reports_.get('risk_bands_metrics'), 'Risk band metrics unavailable'),
-        'risk_band_summary': ensure_df(self.reports_.get('risk_bands_summary_table'), 'Risk band summary unavailable'),
-        'risk_score_mapping': ensure_df(risk_mapping_sql, 'Risk score mapping unavailable'),
-        'scoring_summary': ensure_df(scoring_summary, 'Scoring summary unavailable'),
-        'scored_data': ensure_df(scored_data, 'Scored data unavailable'),
-        'micro_bins': ensure_df(self.reports_.get('micro_bins'), 'Micro bin results unavailable'),
-        'evaluate_bins': ensure_df(self.reports_.get('evaluate_bins'), 'Bin evaluation unavailable'),
-        'calculate_penalty': ensure_df(self.reports_.get('calculate_penalty'), 'Penalty breakdown unavailable'),
-        'multi_start_optimization': ensure_df(self.reports_.get('multi_start_optimization'), 'Multi-start optimisation log unavailable'),
-        'report_results': ensure_df(self.reports_.get('report_results'), 'Optimisation results unavailable'),
-        'pipeline_overview': ensure_df(self.reports_.get('pipeline_overview'), 'Pipeline overview unavailable'),
-        'operations_notes': ensure_df(self.reports_.get('operations_notes'), 'Operations notes unavailable'),
-        'git_notes': ensure_df(self.reports_.get('git_notes'), 'Git structure notes unavailable'),
-    }
-
-    with pd.ExcelWriter(filepath, engine="xlsxwriter") as writer:
-        def write_df(name: str, df: pd.DataFrame, *, index: bool = False) -> None:
-            if not isinstance(df, pd.DataFrame) or df.empty:
-                return
-            sheet = safe_sheet_name(name)
-            df.to_excel(writer, sheet_name=sheet, index=index)
-
-        for sheet_name, df in sheet_map.items():
-            write_df(sheet_name, df)
-
-    def create_model_comparison_plot(self, models: Dict[str, Any]):
-        """Visualise train/test AUC for compared models."""
-
-        scores_section = models.get("scores")
-        if not scores_section:
-            return None
-
-        data = []
-        for model_name, metrics in scores_section.items():
-            data.append(
-                {
-                    "Model": model_name,
-                    "Train AUC": metrics.get("train_auc", 0.0),
-                    "Test AUC": metrics.get("test_auc", 0.0),
-                }
-            )
-
-        if not data:
-            return None
-
-        scores_df = pd.DataFrame(data)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        x = np.arange(len(scores_df))
-        width = 0.35
-
-        train_bars = ax.bar(x - width / 2, scores_df["Train AUC"], width, label="Train AUC")
-        test_bars = ax.bar(x + width / 2, scores_df["Test AUC"], width, label="Test AUC")
-
-        ax.set_xlabel("Model")
-        ax.set_ylabel("AUC Score")
-        ax.set_title("Model Performance Comparison")
-        ax.set_xticks(x)
-        ax.set_xticklabels(scores_df["Model"], rotation=45)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-        for bars in (train_bars, test_bars):
-            for bar in bars:
-                height = bar.get_height()
-                ax.annotate(
-                    f"{height:.3f}",
-                    xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 3),
-                    textcoords="offset points",
-                    ha="center",
-                    va="bottom",
+    def export_to_excel(self, filepath: str) -> None:
+        """Persist collected reports to an Excel workbook following the required structure."""
+    
+        used_names: set[str] = set()
+    
+        def safe_sheet_name(name: str) -> str:
+            cleaned = re.sub(r"[^0-9A-Za-z _-]", "_", str(name)).strip()
+            cleaned = cleaned or "Sheet"
+            cleaned = cleaned[:31]
+            base = cleaned
+            counter = 1
+            while cleaned in used_names:
+                suffix = f"_{counter}"
+                cleaned = (base[: 31 - len(suffix)] + suffix).strip() or f"Sheet_{counter}"
+                counter += 1
+            used_names.add(cleaned)
+            return cleaned
+    
+        def ensure_df(candidate: Any, message: str) -> pd.DataFrame:
+            if isinstance(candidate, pd.DataFrame) and not candidate.empty:
+                return candidate
+            return pd.DataFrame([{'message': message}])
+    
+        model_perf = self.reports_.get('model_performance', {}) if isinstance(self.reports_.get('model_performance'), dict) else {}
+        model_scores = model_perf.get('model_scores') if isinstance(model_perf, dict) else None
+        if isinstance(model_scores, dict) and model_scores:
+            models_summary_df = pd.DataFrame(model_scores).T.reset_index().rename(columns={'index': 'model_name'})
+        else:
+            models_summary_df = None
+    
+        best_model_df = None
+        if isinstance(model_perf, dict) and model_perf:
+            best_model_df = pd.DataFrame([{key: model_perf.get(key) for key in ['timestamp', 'best_model', 'feature_count']}])
+    
+        final_vars = self.reports_.get('final_variables')
+        features_df = self.reports_.get('features')
+        shap_df = self.reports_.get('shap_importance')
+    
+        top20_iv = None
+        if isinstance(final_vars, pd.DataFrame) and 'iv' in final_vars.columns:
+            top20_iv = final_vars[['feature', 'iv']].dropna().sort_values('iv', ascending=False).head(20)
+    
+        top50_univariate = None
+        if isinstance(features_df, pd.DataFrame):
+            score_cols = [col for col in ['gini_raw', 'gini_woe', 'gini_drop'] if col in features_df.columns]
+            if score_cols:
+                top50_univariate = features_df[['feature', *score_cols]].copy().sort_values(score_cols[0], ascending=False).head(50)
+    
+        woe_degradation = None
+        if isinstance(features_df, pd.DataFrame) and {'feature', 'gini_raw', 'gini_woe'} <= set(features_df.columns):
+            temp = features_df[['feature', 'gini_raw', 'gini_woe']].copy()
+            temp['gini_drop'] = temp['gini_raw'] - temp['gini_woe']
+            woe_degradation = temp
+    
+        psi_summary = None
+        if isinstance(self.selection_history, pd.DataFrame):
+            psi_rows = self.selection_history[self.selection_history['method'] == 'psi']
+            if not psi_rows.empty:
+                psi_summary = psi_rows[['method', 'before', 'after', 'removed_features']]
+    
+        psi_dropped = None
+        if isinstance(psi_summary, pd.DataFrame):
+            psi_dropped = psi_summary[['removed_features']].rename(columns={'removed_features': 'psi_removed'})
+    
+        run_meta_rows = [
+            {'parameter': 'target_column', 'value': getattr(self.config, 'target_column', None)},
+            {'parameter': 'id_column', 'value': getattr(self.config, 'id_column', None)},
+            {'parameter': 'time_column', 'value': getattr(self.config, 'time_column', None)},
+            {'parameter': 'enable_tsfresh_features', 'value': getattr(self.config, 'enable_tsfresh_features', False)},
+            {'parameter': 'selection_steps', 'value': ', '.join(getattr(self.config, 'selection_steps', []))},
+            {'parameter': 'algorithms', 'value': ', '.join(getattr(self.config, 'algorithms', []))},
+            {'parameter': 'random_state', 'value': getattr(self.config, 'random_state', None)},
+        ]
+        run_meta_df = pd.DataFrame(run_meta_rows)
+    
+        risk_mapping_sql = None
+        risk_bands = self.reports_.get('risk_bands')
+        if isinstance(risk_bands, pd.DataFrame) and {'band', 'min_score', 'max_score'} <= set(risk_bands.columns):
+            risk_mapping_sql = risk_bands[['band', 'min_score', 'max_score']].copy()
+    
+        scoring_summary = None
+        scoring_reports = self.reports_.get('scoring_reports')
+        if isinstance(scoring_reports, dict):
+            summary = scoring_reports.get('summary')
+            if isinstance(summary, pd.DataFrame):
+                scoring_summary = summary
+            elif isinstance(summary, dict):
+                scoring_summary = pd.DataFrame([summary])
+    
+        scored_data = None
+        scoring_output = self.reports_.get('scored_data')
+        if isinstance(scoring_output, pd.DataFrame):
+            limit = getattr(self.config, 'report_scored_rows', 5000)
+            scored_data = scoring_output.head(limit)
+    
+        sheet_map = {
+            'models_summary': ensure_df(models_summary_df, 'Model performance summary not available'),
+            'best_model': ensure_df(best_model_df, 'Best model details not available'),
+            'best_model_vars_df': ensure_df(final_vars, 'Final variables not available'),
+            'confusion_matrix': ensure_df(self.reports_.get('confusion_matrix'), 'Confusion matrix not available'),
+            'performance_report': ensure_df(self.reports_.get('performance_report'), 'Performance metrics not available'),
+            'lift_table': ensure_df(self.reports_.get('lift_table'), 'Lift table not available'),
+            'baseline_metrics': ensure_df(self.reports_.get('baseline_metrics'), 'Baseline metrics unavailable'),
+            'baseline_lift_table': ensure_df(self.reports_.get('baseline_lift_table'), 'Baseline lift table unavailable'),
+            'shap_importance': ensure_df(shap_df, 'SHAP importance not available'),
+            'final_vars': ensure_df(final_vars, 'Final variable list not available'),
+            'top20_iv': ensure_df(top20_iv, 'IV ranking not available'),
+            'top50_univariate': ensure_df(top50_univariate, 'Univariate ranking not available'),
+            'selection_history': ensure_df(self.reports_.get('selection_history'), 'Selection history unavailable'),
+            'correlation_clusters': ensure_df(self.reports_.get('correlation_clusters'), 'Correlation clusters unavailable'),
+            'vif_summary': ensure_df(self.reports_.get('vif_summary'), 'VIF summary unavailable'),
+            'noise_sentinel_check': ensure_df(self.reports_.get('noise_sentinel_check'), 'Noise sentinel diagnostics unavailable'),
+            'variable_dictionary': ensure_df(self.reports_.get('data_dictionary'), 'Data dictionary unavailable'),
+            'shap_summary': ensure_df(shap_df, 'SHAP summary not available'),
+            'woe_mapping': ensure_df(self.reports_.get('woe_mapping'), 'WOE mapping unavailable'),
+            'woe_bins': ensure_df(self.reports_.get('best_model_bins'), 'WOE bins unavailable'),
+            'best_model_details': ensure_df(self.reports_.get('best_model_bins'), 'Best model binning unavailable'),
+            'woe_degradation': ensure_df(woe_degradation, 'WOE vs raw gini comparison unavailable'),
+            'psi_summary': ensure_df(psi_summary, 'PSI summary unavailable'),
+            'psi_dropped_features': ensure_df(psi_dropped, 'PSI dropped features unavailable'),
+            'WOE_PSI': ensure_df(self.reports_.get('woe_psi'), 'WOE PSI report unavailable'),
+            'Score_PSI': ensure_df(self.reports_.get('score_psi'), 'Score PSI report unavailable'),
+            'Quantile_PSI': ensure_df(self.reports_.get('quantile_psi'), 'Quantile PSI report unavailable'),
+            'run_meta': run_meta_df,
+            'monitor_report': ensure_df(self.reports_.get('monitor_report'), 'Monitoring report unavailable'),
+            'calibration_metrics': ensure_df(self.reports_.get('calibration_metrics'), 'Calibration metrics unavailable'),
+            'calibration_tables': ensure_df(self.reports_.get('calibration_tables'), 'Calibration tables unavailable'),
+            'stage1': ensure_df(self.reports_.get('stage1_details'), 'Stage 1 details unavailable'),
+            'stage2': ensure_df(self.reports_.get('stage2_details'), 'Stage 2 details unavailable'),
+            'hosmer_lemeshow': ensure_df(self.reports_.get('hosmer_lemeshow'), 'Hosmer-Lemeshow results unavailable'),
+            'risk_bands': ensure_df(self.reports_.get('risk_bands'), 'Risk bands unavailable'),
+            'band_tests': ensure_df(self.reports_.get('risk_bands_tests'), 'Band test results unavailable'),
+            'band_metrics': ensure_df(self.reports_.get('risk_bands_metrics'), 'Risk band metrics unavailable'),
+            'risk_band_summary': ensure_df(self.reports_.get('risk_bands_summary_table'), 'Risk band summary unavailable'),
+            'risk_score_mapping': ensure_df(risk_mapping_sql, 'Risk score mapping unavailable'),
+            'scoring_summary': ensure_df(scoring_summary, 'Scoring summary unavailable'),
+            'scored_data': ensure_df(scored_data, 'Scored data unavailable'),
+            'micro_bins': ensure_df(self.reports_.get('micro_bins'), 'Micro bin results unavailable'),
+            'evaluate_bins': ensure_df(self.reports_.get('evaluate_bins'), 'Bin evaluation unavailable'),
+            'calculate_penalty': ensure_df(self.reports_.get('calculate_penalty'), 'Penalty breakdown unavailable'),
+            'multi_start_optimization': ensure_df(self.reports_.get('multi_start_optimization'), 'Multi-start optimisation log unavailable'),
+            'report_results': ensure_df(self.reports_.get('report_results'), 'Optimisation results unavailable'),
+            'pipeline_overview': ensure_df(self.reports_.get('pipeline_overview'), 'Pipeline overview unavailable'),
+            'operations_notes': ensure_df(self.reports_.get('operations_notes'), 'Operations notes unavailable'),
+            'git_notes': ensure_df(self.reports_.get('git_notes'), 'Git structure notes unavailable'),
+        }
+    
+        with pd.ExcelWriter(filepath, engine="xlsxwriter") as writer:
+            def write_df(name: str, df: pd.DataFrame, *, index: bool = False) -> None:
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    return
+                sheet = safe_sheet_name(name)
+                df.to_excel(writer, sheet_name=sheet, index=index)
+    
+            for sheet_name, df in sheet_map.items():
+                write_df(sheet_name, df)
+    
+        def create_model_comparison_plot(self, models: Dict[str, Any]):
+            """Visualise train/test AUC for compared models."""
+    
+            scores_section = models.get("scores")
+            if not scores_section:
+                return None
+    
+            data = []
+            for model_name, metrics in scores_section.items():
+                data.append(
+                    {
+                        "Model": model_name,
+                        "Train AUC": metrics.get("train_auc", 0.0),
+                        "Test AUC": metrics.get("test_auc", 0.0),
+                    }
                 )
-
-        plt.tight_layout()
-        return fig
-
-    @staticmethod
-    def _infer_bin_count(woe_info: Dict[str, Any]) -> int:
-        if not woe_info:
+    
+            if not data:
+                return None
+    
+            scores_df = pd.DataFrame(data)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            x = np.arange(len(scores_df))
+            width = 0.35
+    
+            train_bars = ax.bar(x - width / 2, scores_df["Train AUC"], width, label="Train AUC")
+            test_bars = ax.bar(x + width / 2, scores_df["Test AUC"], width, label="Test AUC")
+    
+            ax.set_xlabel("Model")
+            ax.set_ylabel("AUC Score")
+            ax.set_title("Model Performance Comparison")
+            ax.set_xticks(x)
+            ax.set_xticklabels(scores_df["Model"], rotation=45)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+    
+            for bars in (train_bars, test_bars):
+                for bar in bars:
+                    height = bar.get_height()
+                    ax.annotate(
+                        f"{height:.3f}",
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                    )
+    
+            plt.tight_layout()
+            return fig
+    
+        @staticmethod
+        def _infer_bin_count(woe_info: Dict[str, Any]) -> int:
+            if not woe_info:
+                return 0
+            stats = woe_info.get("stats")
+            if isinstance(stats, list) and stats:
+                return len(stats)
+            if woe_info.get("type") == "numeric" and woe_info.get("bins"):
+                return len(woe_info.get("bins", []))
+            categories = woe_info.get("categories")
+            if isinstance(categories, list):
+                return len(categories)
             return 0
-        stats = woe_info.get("stats")
-        if isinstance(stats, list) and stats:
-            return len(stats)
-        if woe_info.get("type") == "numeric" and woe_info.get("bins"):
-            return len(woe_info.get("bins", []))
-        categories = woe_info.get("categories")
-        if isinstance(categories, list):
-            return len(categories)
-        return 0
-
-    @staticmethod
-    def _extract_raw_feature(feature: str) -> str:
-        if not feature:
+    
+        @staticmethod
+        def _extract_raw_feature(feature: str) -> str:
+            if not feature:
+                return feature
+            candidates = ["_woe", "_bin", "_scaled", "_bucketed"]
+            for suffix in candidates:
+                if feature.endswith(suffix):
+                    return feature[: -len(suffix)]
             return feature
-        candidates = ["_woe", "_bin", "_scaled", "_bucketed"]
-        for suffix in candidates:
-            if feature.endswith(suffix):
-                return feature[: -len(suffix)]
-        return feature
-
-
+    
+    
 def _resolve_woe_key(
     self,
     raw_feature: str,

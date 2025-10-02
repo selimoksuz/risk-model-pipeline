@@ -2373,7 +2373,10 @@ class UnifiedRiskPipeline:
         mode_label = str(mode or 'RAW').upper()
         cache_key = f'model_results_{mode_label}'
         if not force and cache_key in self.results_:
-            return self.results_[cache_key]
+            cached = self.results_[cache_key]
+            if isinstance(cached, dict):
+                self.selected_features_ = cached.get('selected_features', self.selected_features_)
+            return cached
         splits = splits or self.results_.get('splits')
         if splits is None:
             raise ValueError('No data splits available. Call run_split first.')

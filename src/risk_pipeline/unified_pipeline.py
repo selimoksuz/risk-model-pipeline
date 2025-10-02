@@ -1178,27 +1178,62 @@ class UnifiedRiskPipeline:
         self.selected_features_ = model_results.get('selected_features', [])
         self._set_active_model(model_results, mode_label=mode_label)
         return model_results
+    @staticmethod
+    def _model_supports_probability(model: Any) -> bool:
+        if model is None:
+            return False
+        for attr in ('predict_proba', 'decision_function'):
+            candidate = getattr(model, attr, None)
+            if callable(candidate):
+                return True
+        return False
+
     def _set_active_model(self, model_results: Dict, *, mode_label: Optional[str] = None) -> None:
         models = model_results.get('models') or {}
+        models = {name: mdl for name, mdl in models.items() if mdl is not None}
         preferred = getattr(self.config, 'score_model_name', 'best')
         preferred = (preferred or 'best').strip()
         best_name = model_results.get('best_model_name')
-        active_name = best_name
-        if preferred and preferred.lower() != 'best':
-            if preferred in models:
-                active_name = preferred
-            else:
-                if best_name:
-                    print(f"  Warning: Preferred model '{preferred}' not found; using best model '{best_name}'.")
-                elif models:
-                    fallback_name = next(iter(models.keys()))
-                    print(f"  Warning: Preferred model '{preferred}' not found; using available model '{fallback_name}'.")
-                    active_name = fallback_name
-                else:
-                    print(f"  Warning: Preferred model '{preferred}' not found; no models available.")
+
+        candidate_sequence: List[str] = []
+        if preferred and preferred.lower() != 'best' and preferred in models:
+            candidate_sequence.append(preferred)
+        if best_name and best_name not in candidate_sequence:
+            candidate_sequence.append(best_name)
+        if models:
+            logistic_candidates = [
+                name for name in models
+                if 'logistic' in name.lower() or 'lr' in name.lower()
+            ]
+            remaining = [name for name in models if name not in logistic_candidates]
+            for name in logistic_candidates + remaining:
+                if name not in candidate_sequence:
+                    candidate_sequence.append(name)
+        if not candidate_sequence and models:
+            candidate_sequence = list(models.keys())
+
+        active_name = candidate_sequence[0] if candidate_sequence else best_name
         active_model = models.get(active_name) or model_results.get('best_model')
         if active_model is None and models:
             active_name, active_model = next(iter(models.items()))
+
+        if not self._model_supports_probability(active_model):
+            for name in candidate_sequence:
+                candidate = models.get(name)
+                if self._model_supports_probability(candidate):
+                    if active_name != name:
+                        print(f"  Active model '{active_name}' lacks probability interface; switching to '{name}'.")
+                    active_name = name
+                    active_model = candidate
+                    break
+
+        if not self._model_supports_probability(active_model):
+            fallback_model = model_results.get('best_model')
+            if self._model_supports_probability(fallback_model):
+                print("  Active model lacks probability interface; using best model for downstream steps.")
+                active_model = fallback_model
+                active_name = model_results.get('best_model_name', active_name)
+
         model_results['active_model_name'] = active_name
         model_results['active_model'] = active_model
         model_results['active_model_mode'] = mode_label

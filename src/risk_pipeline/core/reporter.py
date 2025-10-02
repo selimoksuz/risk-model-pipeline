@@ -150,7 +150,7 @@ class EnhancedReporter:
         models: Dict[str, Any],
         data_dictionary: Optional[pd.DataFrame] = None,
     ) -> Dict[str, Any]:
-        """Build a compact model performance summary."""
+        """Build detailed model performance artefacts."""
 
         report = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -159,12 +159,65 @@ class EnhancedReporter:
             "feature_count": len(models.get("selected_features", [])),
         }
 
+        model_scores = report["model_scores"] if isinstance(report["model_scores"], dict) else {}
+        if model_scores:
+            models_summary_df = pd.DataFrame(model_scores).T
+            models_summary_df.index.name = 'model_name'
+            models_summary_df = models_summary_df.reset_index()
+            self.reports_['models_summary'] = models_summary_df
+        else:
+            models_summary_df = pd.DataFrame()
+            self.reports_.pop('models_summary', None)
+
         best_model = report["best_model"]
-        if best_model and best_model in report["model_scores"]:
-            report["best_auc"] = report["model_scores"][best_model].get("test_auc", 0.0)
+        best_model_df = pd.DataFrame()
+        if best_model:
+            if not models_summary_df.empty:
+                best_model_df = models_summary_df.loc[models_summary_df['model_name'] == best_model].copy()
+            if best_model_df.empty:
+                best_metrics = model_scores.get(best_model, {}) if isinstance(model_scores, dict) else {}
+                best_model_df = pd.DataFrame([{**{'model_name': best_model}, **best_metrics}])
+            self.reports_['best_model'] = best_model_df.reset_index(drop=True)
+            if 'test_auc' in best_model_df.columns and not best_model_df.empty:
+                try:
+                    report["best_auc"] = float(best_model_df['test_auc'].iloc[0])
+                except Exception:
+                    report["best_auc"] = best_model_df['test_auc'].iloc[0]
+        else:
+            self.reports_.pop('best_model', None)
+
+        selected_features = models.get("selected_features", []) or []
+        feature_importance = models.get("feature_importance", {}) if isinstance(models.get("feature_importance"), dict) else {}
+        best_importance_df = feature_importance.get(best_model) if best_model else None
+        best_model_vars_df = pd.DataFrame()
+        if isinstance(best_importance_df, pd.DataFrame) and not best_importance_df.empty:
+            importance_df = best_importance_df.copy()
+            if 'importance' in importance_df.columns:
+                importance_df = importance_df.sort_values('importance', ascending=False)
+            self.reports_['shap_importance'] = importance_df.reset_index(drop=True)
+            if 'importance' in importance_df.columns and 'feature' in importance_df.columns:
+                shap_summary = (
+                    importance_df[['feature', 'importance']]
+                    .groupby('feature', as_index=False)['importance']
+                    .sum()
+                    .sort_values('importance', ascending=False)
+                )
+                self.reports_['shap_summary'] = shap_summary.reset_index(drop=True)
+            best_model_vars_df = importance_df[['feature']].copy()
+            if 'importance' in importance_df.columns:
+                best_model_vars_df['importance'] = importance_df['importance']
+        elif selected_features:
+            best_model_vars_df = pd.DataFrame({'feature': list(selected_features)})
+        if not best_model_vars_df.empty:
+            self.reports_['best_model_vars_df'] = best_model_vars_df.reset_index(drop=True)
+        else:
+            self.reports_.pop('best_model_vars_df', None)
+            if selected_features:
+                self.reports_['best_model_vars_df'] = pd.DataFrame({'feature': list(selected_features)})
 
         self.reports_["model_performance"] = report
         return report
+
 
 
     def generate_feature_report(

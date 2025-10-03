@@ -245,6 +245,11 @@ class Config:
     save_reports: bool = True
     save_plots: bool = True
     
+    # ==================== LOGGING ====================
+    enable_run_logging: bool = True
+    logs_folder: str = 'logs'
+    log_filename: Optional[str] = 'last_run.log'
+    
     # File formats
     report_format: str = 'excel'  # 'excel', 'html', 'pdf'
     plot_format: str = 'png'  # 'png', 'svg', 'pdf'

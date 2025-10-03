@@ -30,6 +30,7 @@ from .core.model_builder import ComprehensiveModelBuilder
 from .core.calibration import TwoStageCalibrator
 from .core.risk_band_optimizer import OptimalRiskBandAnalyzer
 from .core.reporter import EnhancedReporter
+from .core.run_logger import RunLogger
 from .core.splitter import SmartDataSplitter
 from .core.utils import predict_positive_proba
 
@@ -76,6 +77,17 @@ class UnifiedRiskPipeline:
         self.noise_sentinel_name = 'noise_sentinel'
         self._noise_counter = 0
         self._current_raw_preprocessor: Optional[Dict[str, Any]] = None
+        # Install run logger (capture prints) if enabled
+        try:
+            if getattr(self.config, 'enable_run_logging', True):
+                folder = getattr(self.config, 'logs_folder', 'logs')
+                filename = getattr(self.config, 'log_filename', 'last_run.log')
+                self._run_logger = RunLogger(folder=folder, filename=filename)
+                self._run_logger.install()
+            else:
+                self._run_logger = None
+        except Exception:
+            self._run_logger = None
         # Ensure data_dictionary attribute always exists for reporter usage
         self.data_dictionary: Optional[pd.DataFrame] = None
 

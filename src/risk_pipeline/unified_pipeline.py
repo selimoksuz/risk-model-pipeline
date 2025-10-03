@@ -2355,6 +2355,11 @@ class UnifiedRiskPipeline:
                 if aggregated_models:
                     model_results = dict(model_results)
                     model_results['models'] = aggregated_models
+                    # Ensure pipeline exposes all available models even in reporting-only runs
+                    try:
+                        self.models_ = aggregated_models
+                    except Exception:
+                        pass
             reports['model_performance'] = self.reporter.generate_model_report(
                 model_results, self.data_dictionary
             )

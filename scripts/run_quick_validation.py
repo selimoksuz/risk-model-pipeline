@@ -7,7 +7,7 @@ from risk_pipeline.data.sample import load_credit_risk_sample
 
 
 def main():
-    out_dir = Path('risk-model-pipeline-dev/notebooks/outputs/quick_validation')
+    out_dir = Path('examples/quick_validation')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     sample = load_credit_risk_sample()

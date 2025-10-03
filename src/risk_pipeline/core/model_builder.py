@@ -921,7 +921,9 @@ class ComprehensiveModelBuilder:
                 depth=3,
                 learning_rate=0.1,
                 random_state=self.config.random_state,
-                verbose=False
+                verbose=False,
+                allow_writing_files=False,
+                train_dir=getattr(self.config, 'output_folder', None) or None,
             )
 
         elif model_name == 'XBooster':
@@ -1137,7 +1139,9 @@ class ComprehensiveModelBuilder:
             return CatBoostClassifier(
                 **params,
                 random_state=self.config.random_state,
-                verbose=False
+                verbose=False,
+                allow_writing_files=False,
+                train_dir=getattr(self.config, 'output_folder', None) or None,
             )
 
         elif model_name == 'XBooster':

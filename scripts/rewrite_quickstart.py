@@ -137,18 +137,18 @@ def build_notebook() -> dict:
         "    'target_column': 'target',\n",
         "    'id_column': 'customer_id',\n",
         "    'time_column': 'app_dt',\n",
-        "    'create_test_split': True, 'stratify_test': True,\n",
+        "    'create_test_split': True, 'group_split_by_id': True, 'stratify_test': True,\n",
         "    'train_ratio': 0.8, 'test_ratio': 0.2, 'oot_ratio': 0.0, 'oot_months': 3,\n",
         "    'output_folder': str(NOTEBOOK_CONTEXT['paths']['output']),\n",
         "    'output_excel_path': str(NOTEBOOK_CONTEXT['paths']['output'] / 'risk_pipeline_report.xlsx'),\n",
         "    'enable_tsfresh_features': False,\n",
         "    'selection_steps': ['univariate','psi','vif','correlation','iv','boruta','stepwise'],\n",
-        "    'min_univariate_gini': 0.05, 'psi_threshold': 0.25, 'monthly_psi_threshold': 0.15, 'oot_psi_threshold': 0.25, 'vif_threshold': 5.0, 'correlation_threshold': 0.9, 'iv_threshold': 0.02, 'stepwise_method': 'forward', 'stepwise_max_features': 25,\n",
+        "    'min_univariate_gini': 0.05, 'psi_threshold': 0.25, 'monthly_psi_threshold': 0.15, 'oot_psi_threshold': 0.25, 'test_psi_threshold': 0.25, 'psi_bucketing_mode_woe': 'woe_bucket', 'psi_bucketing_mode_raw': 'quantile', 'psi_bins': 10, 'psi_compare_axes': ['monthly','oot','test'], 'psi_decision': 'any', 'vif_threshold': 5.0, 'correlation_threshold': 0.9, 'iv_threshold': 0.02, 'stepwise_method': 'forward', 'stepwise_max_features': 25,\n",
         "    'algorithms': ['logistic','lightgbm','xgboost','catboost','randomforest','extratrees','woe_boost','woe_li','shao','xbooster'],\n",
         "    'model_selection_method': 'gini_oot', 'model_stability_weight': 0.2, 'min_gini_threshold': 0.5, 'max_train_oot_gap': 0.03, 'use_optuna': True, 'hpo_trials': 1, 'hpo_timeout_sec': 1800,\n",
-        "    'use_noise_sentinel': True, 'enable_dual': True, 'enable_woe_boost_scorecard': True, 'calculate_shap': True, 'enable_scoring': True, 'score_model_name': 'best', 'enable_stage2_calibration': True,\n",
+        "    'use_noise_sentinel': True, 'enable_dual': True, 'enable_woe_boost_scorecard': True, 'calculate_shap': True, 'enable_scoring': True, 'score_model_name': 'best', 'enable_stage2_calibration': True, 'stage2_adjustment': 'lower',\n",
         "    'n_risk_bands': 10, 'risk_band_method': 'pd_constraints', 'risk_band_min_bins': 7, 'risk_band_max_bins': 10, 'risk_band_hhi_threshold': 0.15, 'risk_band_binomial_pass_weight': 0.85,\n",
-        "    'random_state': 42, 'n_jobs': -1,\n",
+        "    'random_state': 42, 'n_jobs': -1, 'cv_enable': True, 'cv_folds': 5, 'early_stopping_rounds': 200,\n",
         "}\n",
         "cfg_field_names = set(Config.__dataclass_fields__.keys())\n",
         "supported_params = {k: v for k, v in cfg_params.items() if k in cfg_field_names}\n",
@@ -230,3 +230,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

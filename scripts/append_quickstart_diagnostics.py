@@ -10,13 +10,15 @@ def append_diagnostics(nb_path: Path) -> None:
     if not isinstance(cells, list):
         raise SystemExit('Notebook has no cells list')
 
-    # Skip if already present
+    # Remove existing diagnostic cells to refresh content
+    filtered = []
     for c in cells:
         md = c.get('metadata') if isinstance(c, dict) else None
         tags = (md or {}).get('tags') if isinstance(md, dict) else None
         if isinstance(tags, list) and 'diag-cells' in tags:
-            print('Diagnostics cells already present; no changes made.')
-            return
+            continue
+        filtered.append(c)
+    cells[:] = filtered
 
     def md_cell(text: str) -> dict:
         return {
@@ -25,7 +27,7 @@ def append_diagnostics(nb_path: Path) -> None:
             "source": [text],
         }
 
-    def code_cell(lines: list[str]) -> dict:
+    def code_cell(lines):
         return {
             "cell_type": "code",
             "metadata": {"tags": ["diag-cells"]},
@@ -48,7 +50,22 @@ def append_diagnostics(nb_path: Path) -> None:
         "print('enable_dual:', getattr(cfg,'enable_dual', None), ' enable_dual_pipeline:', getattr(cfg,'enable_dual_pipeline', None))\n",
         "print('Active model:', mr.get('active_model_name'))\n",
         "print('Selected feature count:', len(mr.get('selected_features', []) or []))\n",
-        "avail = list(getattr(pipe, 'models_', {}).keys()) if 'pipe' in globals() else []\n",
+        "avail = []\n",
+        "if 'pipe' in globals():\n",
+        "    avail = list((getattr(pipe, 'models_', {}) or {}).keys())\n",
+        "if not avail and 'results' in globals():\n",
+        "    mr_models = (results.get('model_results', {}) or {}).get('models', {})\n",
+        "    if isinstance(mr_models, dict) and mr_models:\n",
+        "        avail = list(mr_models.keys())\n",
+        "    else:\n",
+        "        reg = results.get('model_object_registry', {})\n",
+        "        if isinstance(reg, dict) and reg:\n",
+        "            names = []\n",
+        "            for mode_map in reg.values():\n",
+        "                if isinstance(mode_map, dict):\n",
+        "                    names.extend(list(mode_map.keys()))\n",
+        "            seen = {}\n",
+        "            avail = [seen.setdefault(n, n) for n in names if n not in seen]\n",
         "print('Available models:', ', '.join(avail) if avail else '(none)')\n",
         "print('models_summary available in reports:', reports_present)\n",
     ])
@@ -63,10 +80,16 @@ def append_diagnostics(nb_path: Path) -> None:
         "def _guess_eval(splits, cfg, selected):\n",
         "    if cfg is None: return None, None\n",
         "    if getattr(cfg, 'enable_woe', False):\n",
-        "        X = splits.get('test_woe') or splits.get('train_woe')\n",
+        "        X = splits.get('test_woe')\n",
+        "        if X is None or getattr(X, 'empty', False):\n",
+        "            X = splits.get('train_woe')\n",
         "    else:\n",
-        "        X = splits.get('test_raw_prepped') or splits.get('train_raw_prepped')\n",
-        "    base = splits.get('test') or splits.get('train')\n",
+        "        X = splits.get('test_raw_prepped')\n",
+        "        if X is None or getattr(X, 'empty', False):\n",
+        "            X = splits.get('train_raw_prepped')\n",
+        "    base = splits.get('test')\n",
+        "    if base is None or getattr(base, 'empty', False):\n",
+        "        base = splits.get('train')\n",
         "    y = base[cfg.target_col] if isinstance(base, pd.DataFrame) and cfg.target_col in base.columns else None\n",
         "    if X is not None and selected:\n",
         "        cols = [c for c in selected if c in X.columns]\n",

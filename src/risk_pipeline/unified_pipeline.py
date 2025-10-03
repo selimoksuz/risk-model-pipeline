@@ -1625,6 +1625,11 @@ class UnifiedRiskPipeline:
                 for m in missing:
                     Xc.loc[:, m] = 0.0
                 Xc = Xc[list(names)]
+                if missing:
+                    try:
+                        print(f"  Risk bands: aligned features to model ({len(use)}/{len(names)} present; added {len(missing)}).")
+                    except Exception:
+                        pass
                 return Xc
             try:
                 Xc = _prepare_X_for_model(candidate, X_eval)

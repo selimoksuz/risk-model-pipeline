@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unified Risk Model Pipeline - Single pipeline with complete configuration control
 Author: Risk Analytics Team
 Date: 2024
@@ -31,6 +31,7 @@ from .core.calibration import TwoStageCalibrator
 from .core.risk_band_optimizer import OptimalRiskBandAnalyzer
 from .core.reporter import EnhancedReporter
 from .core.run_logger import RunLogger
+from .core.env_check import apply_runtime_feature_gates
 from .core.splitter import SmartDataSplitter
 from .core.utils import predict_positive_proba
 
@@ -88,6 +89,20 @@ class UnifiedRiskPipeline:
                 self._run_logger = None
         except Exception:
             self._run_logger = None
+
+        # Apply environment feature gates (python version / optional libs)
+        try:
+            env_diag = apply_runtime_feature_gates(self.config)
+            print('Environment diagnostics:')
+            print('  Python:', env_diag.get('python_version'))
+            if env_diag.get('disabled_algorithms'):
+                print('  Disabled algorithms:', ', '.join(env_diag['disabled_algorithms']))
+            if env_diag.get('disabled_features'):
+                print('  Disabled features:', ', '.join(env_diag['disabled_features']))
+            for note in env_diag.get('notes', []):
+                print('  Note:', note)
+        except Exception:
+            pass
         # Ensure data_dictionary attribute always exists for reporter usage
         self.data_dictionary: Optional[pd.DataFrame] = None
 
@@ -2984,6 +2999,8 @@ class UnifiedRiskPipeline:
         pipeline = joblib.load(path)
         print(f"Pipeline loaded from {path}")
         return pipeline
+
+
 
 
 

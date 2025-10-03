@@ -154,3 +154,4 @@ notebooks/catboost_info/
 !tests/test_config_split.py
 # Prevent stray python files under notebooks
 notebooks/*.py
+logs/

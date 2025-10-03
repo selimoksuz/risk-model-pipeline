@@ -38,12 +38,12 @@ class RunLogger:
         if self._installed:
             return
         try:
+            # Resolve folder generically (no repo-hardcoding):
+            # 1) Honor env vars and user home (~)
+            # 2) If relative path, anchor to current working directory
             folder = self.folder or 'logs'
-            if not os.path.isabs(folder):
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-                folder_path = os.path.join(root, folder)
-            else:
-                folder_path = folder
+            folder = os.path.expanduser(os.path.expandvars(folder))
+            folder_path = folder if os.path.isabs(folder) else os.path.join(os.getcwd(), folder)
             os.makedirs(folder_path, exist_ok=True)
             path = os.path.join(folder_path, self.filename)
             # overwrite for each run

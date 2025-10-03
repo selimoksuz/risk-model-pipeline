@@ -2360,6 +2360,13 @@ class UnifiedRiskPipeline:
             reports['model_performance'] = self.reporter.generate_model_report(
                 model_results, self.data_dictionary
             )
+            # Bubble up models_summary and best_model dataframes to top-level reports for notebook convenience
+            ms = self.reporter.reports_.get('models_summary')
+            if isinstance(ms, pd.DataFrame) and not ms.empty:
+                reports['models_summary'] = ms
+            bm = self.reporter.reports_.get('best_model')
+            if isinstance(bm, pd.DataFrame) and not bm.empty:
+                reports['best_model'] = bm
             perf_artifacts = self._compute_performance_artifacts(model_results, self.results_.get('splits', {}))
             for key, value in perf_artifacts.items():
                 if isinstance(value, pd.DataFrame):

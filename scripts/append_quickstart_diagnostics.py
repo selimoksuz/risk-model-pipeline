@@ -153,6 +153,6 @@ def append_diagnostics(nb_path: Path) -> None:
 
 
 if __name__ == '__main__':
-    path = Path('risk-model-pipeline-dev/notebooks/risk_pipeline_quickstart.ipynb')
+    path = Path('notebooks/risk_pipeline_quickstart.ipynb')
     append_diagnostics(path)
 

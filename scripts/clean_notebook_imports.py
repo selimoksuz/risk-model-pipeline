@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 
-TARGET = Path('risk-model-pipeline-dev/notebooks/risk_pipeline_quickstart.ipynb')
+TARGET = Path('notebooks/risk_pipeline_quickstart.ipynb')
 
 
 NEW_SOURCE = [

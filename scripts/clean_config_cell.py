@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 
-NB_PATH = Path('risk-model-pipeline-dev/notebooks/risk_pipeline_quickstart.ipynb')
+NB_PATH = Path('notebooks/risk_pipeline_quickstart.ipynb')
 
 
 NEW_HEADER = [
@@ -39,4 +39,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-

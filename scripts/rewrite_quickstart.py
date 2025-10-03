@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 
-NB_PATH = Path('risk-model-pipeline-dev/notebooks/risk_pipeline_quickstart.ipynb')
+NB_PATH = Path('notebooks/risk_pipeline_quickstart.ipynb')
 
 
 def nb_cell_markdown(text: str) -> dict:
@@ -230,4 +230,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -588,8 +588,12 @@ class UnifiedRiskPipeline:
         if tsfresh_meta is not None:
             self.data_['tsfresh_metadata'] = tsfresh_meta.copy()
 
-        numeric_cols = df_processed.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = df_processed.select_dtypes(include=['object', 'category']).columns.tolist()
+        numeric_cols = df_processed.select_dtypes(include=[np.number]).columns.tolist()
+        try:
+            numeric_cols = [c for c in numeric_cols if not pd.api.types.is_bool_dtype(df_processed[c])]
+        except Exception:
+            pass
+        categorical_cols = df_processed.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
 
         noise_col = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
         special_cols = [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month', noise_col]
@@ -2503,6 +2507,9 @@ class UnifiedRiskPipeline:
             summary_table = self.reporter.reports_.get('risk_bands_summary_table')
             if summary_table is not None:
                 reports['risk_bands_summary'] = summary_table
+            band_metrics = self.reporter.reports_.get('risk_bands_metrics')
+            if isinstance(band_metrics, pd.DataFrame) and not band_metrics.empty:
+                reports['band_metrics'] = band_metrics
 
         # Calibration tables (decile/band level observed vs predicted with CI & binomial p)
         try:
@@ -2604,6 +2611,20 @@ class UnifiedRiskPipeline:
             self.reporter.reports_['data_layers_overview'] = pd.DataFrame(layer_rows)
         except Exception:
             pass
+        # Bubble up RAW preprocessing summary from pipeline state for reporting convenience
+        try:
+            raw_prep = self.data_.get('raw_preprocessing_summary')
+            if isinstance(raw_prep, pd.DataFrame) and not raw_prep.empty:
+                self.reporter.reports_['raw_preprocessing_summary'] = raw_prep
+        except Exception:
+            pass
+        # Convenience: include these in top-level reports dict
+        dlov = self.reporter.reports_.get('data_layers_overview')
+        if isinstance(dlov, pd.DataFrame) and not dlov.empty:
+            reports['data_layers_overview'] = dlov
+        rps = self.reporter.reports_.get('raw_preprocessing_summary')
+        if isinstance(rps, pd.DataFrame) and not rps.empty:
+            reports['raw_preprocessing_summary'] = rps
         if 'operations_notes' not in self.reporter.reports_:
             ops_rows = [
                 {'item': 'psi_threshold', 'value': getattr(self.config, 'psi_threshold', None)},

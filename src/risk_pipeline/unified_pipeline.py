@@ -297,7 +297,12 @@ class UnifiedRiskPipeline:
                     model_scores_registry[label] = flow['model_results'].get('scores', {})
 
                 print("\n[Step 10/10] Generating Reports...")
-                self.models_ = best_flow['model_results'].get('models', {})
+                # Expose both RAW and WOE models for availability list
+                combined_models: Dict[str, Any] = {}
+                for label, flow in flows_by_mode.items():
+                    modmap = flow['model_results'].get('models', {}) or {}
+                    combined_models.update(modmap)
+                self.models_ = combined_models
                 self.selected_features_ = best_flow.get('selected_features', [])
                 # Include dual registries before first report generation so reporter can aggregate RAW+WOE
                 self.results_ = {
@@ -1739,12 +1744,42 @@ class UnifiedRiskPipeline:
                 base_results = self.results_.get('model_results', {})
                 stage1_model = base_results.get('calibrated_model') or base_results.get('best_model')
             if stage1_model is not None:
-                predictions = predict_positive_proba(stage1_model, X_eval)
-                predictions = np.asarray(predictions, dtype=float).ravel()
-                if np.unique(predictions).size <= 1:
+                # Align features to the stage1 model if needed
+                try:
+                    Xc = _prepare_X_for_model(stage1_model, X_eval)
+                except Exception:
+                    Xc = X_eval
+                try:
+                    predictions = predict_positive_proba(stage1_model, Xc)
+                    predictions = np.asarray(predictions, dtype=float).ravel()
+                except Exception:
+                    # As last resort, scan cached models for any probability-capable candidate
+                    predictions = None
+                    cached_models = []
+                    for source in (primary_results, stage1_results, model_results, cache_results):
+                        if isinstance(source, dict):
+                            cached_models.extend([source.get('active_model'), source.get('best_model'), source.get('calibrated_model')])
+                            mdl_map = source.get('models') or {}
+                            if isinstance(mdl_map, dict):
+                                cached_models.extend(mdl_map.values())
+                    for cand in cached_models:
+                        if cand is None:
+                            continue
+                        Xc2 = _prepare_X_for_model(cand, X_eval)
+                        if Xc2 is None:
+                            continue
+                        try:
+                            predictions = predict_positive_proba(cand, Xc2)
+                            predictions = np.asarray(predictions, dtype=float).ravel()
+                            model = cand
+                            print('  Risk bands: using cached probability-capable model (stage1 fallback failed).')
+                            break
+                        except Exception:
+                            continue
+                if predictions is None or np.unique(predictions).size <= 1:
                     print('  Risk band optimization skipped: predictions still lack variation.')
                     return {}
-                model = stage1_model
+                model = stage1_model if predictions is not None else model
             else:
                 print('  Risk band optimization skipped: no suitable model for fallback.')
                 return {}

@@ -38,8 +38,14 @@ class RunLogger:
         if self._installed:
             return
         try:
-            os.makedirs(self.folder, exist_ok=True)
-            path = os.path.join(self.folder, self.filename)
+            folder = self.folder or 'logs'
+            if not os.path.isabs(folder):
+                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+                folder_path = os.path.join(root, folder)
+            else:
+                folder_path = folder
+            os.makedirs(folder_path, exist_ok=True)
+            path = os.path.join(folder_path, self.filename)
             # overwrite for each run
             self._file = open(path, 'w', encoding='utf-8')
             header = f"[{datetime.now().isoformat()}] RUN START\n"
@@ -77,4 +83,3 @@ class RunLogger:
 
     def __exit__(self, exc_type, exc, tb):
         self.uninstall()
-

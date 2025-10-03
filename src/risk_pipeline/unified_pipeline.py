@@ -1621,20 +1621,18 @@ class UnifiedRiskPipeline:
                         Xc.loc[:, col] = pd.to_numeric(Xc[col], errors='coerce').fillna(0)
                 if names is None:
                     return Xc
-                use = [c for c in list(names) if c in Xc.columns]
-                if not use:
-                    # Nothing matches; cannot score
-                    return None
-                # Add any missing required columns as zeros
-                missing = [c for c in list(names) if c not in Xc.columns]
+                # Ensure all expected columns exist, add missing as zeros
+                expected = list(names)
+                missing = [c for c in expected if c not in Xc.columns]
                 for m in missing:
                     Xc.loc[:, m] = 0.0
-                Xc = Xc[list(names)]
-                if missing:
-                    try:
-                        print(f"  Risk bands: aligned features to model ({len(use)}/{len(names)} present; added {len(missing)}).")
-                    except Exception:
-                        pass
+                # Reorder to model's expected order
+                Xc = Xc[expected]
+                try:
+                    present = len(expected) - len(missing)
+                    print(f"  Risk bands: aligned features to model ({present}/{len(expected)} present; added {len(missing)}).")
+                except Exception:
+                    pass
                 return Xc
             try:
                 Xc = _prepare_X_for_model(candidate, X_eval)

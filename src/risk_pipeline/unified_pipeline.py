@@ -1200,7 +1200,24 @@ class UnifiedRiskPipeline:
             print("  WARNING: Noise sentinel was selected - feature selection may be overfitting!")
 
         model_results['mode'] = mode_label
-        self.models_ = model_results['models']
+        # Accumulate available models across calls
+        try:
+            current_models = model_results.get('models', {}) or {}
+            union = {}
+            if isinstance(getattr(self, 'models_', None), dict):
+                union.update(self.models_)
+            union.update(current_models)
+            self.models_ = union
+        except Exception:
+            self.models_ = model_results.get('models', {}) or {}
+        # Expose per-mode registries early for notebooks/diagnostics
+        try:
+            reg = self.results_.setdefault('model_object_registry', {})
+            reg[mode_label] = model_results.get('models', {}) or {}
+            sc = self.results_.setdefault('model_scores_registry', {})
+            sc[mode_label] = model_results.get('scores', {}) or {}
+        except Exception:
+            pass
         self.selected_features_ = model_results.get('selected_features', [])
         self._set_active_model(model_results, mode_label=mode_label)
         return model_results

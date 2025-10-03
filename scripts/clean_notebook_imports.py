@@ -71,7 +71,13 @@ def main() -> None:
         if cell.get('cell_type') != 'code':
             continue
         src = ''.join(cell.get('source') or [])
-        if '_locate_project_root' in src or 'ensure_risk_pipeline' in src and 'spec_from_file_location' in src:
+        # Replace either old local-loader import cell or the simple remote-only variant
+        if (
+            '_locate_project_root' in src
+            or 'spec_from_file_location' in src
+            or 'def _import_risk_pipeline()' in src
+            or '# Remote package import (no local path hacks)' in src
+        ):
             cell['source'] = NEW_SOURCE
             changed = True
             break

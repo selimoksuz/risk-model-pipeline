@@ -1605,14 +1605,44 @@ class UnifiedRiskPipeline:
         def _probabilities_from(candidate):
             if candidate is None:
                 return None
+            # Align features to candidate's expectations if available
+            def _prepare_X_for_model(model, X):
+                if X is None or not hasattr(X, 'copy'):
+                    return None
+                names = getattr(model, 'feature_names_in_', None)
+                Xc = X.copy()
+                for col in Xc.columns:
+                    if is_object_dtype(Xc[col]) or is_datetime64_any_dtype(Xc[col]):
+                        Xc.loc[:, col] = pd.to_numeric(Xc[col], errors='coerce').fillna(0)
+                if names is None:
+                    return Xc
+                use = [c for c in list(names) if c in Xc.columns]
+                if not use:
+                    # Nothing matches; cannot score
+                    return None
+                # Add any missing required columns as zeros
+                missing = [c for c in list(names) if c not in Xc.columns]
+                for m in missing:
+                    Xc.loc[:, m] = 0.0
+                Xc = Xc[list(names)]
+                return Xc
             try:
-                return np.asarray(predict_positive_proba(candidate, X_eval), dtype=float).ravel()
+                Xc = _prepare_X_for_model(candidate, X_eval)
+                if Xc is None:
+                    return None
+                return np.asarray(predict_positive_proba(candidate, Xc), dtype=float).ravel()
             except ValueError:
                 try:
-                    proba = candidate.predict_proba(X_eval)
+                    Xc = _prepare_X_for_model(candidate, X_eval)
+                    if Xc is None:
+                        return None
+                    proba = candidate.predict_proba(Xc)
                 except AttributeError:
                     try:
-                        pred = candidate.predict(X_eval)
+                        Xc = _prepare_X_for_model(candidate, X_eval)
+                        if Xc is None:
+                            return None
+                        pred = candidate.predict(Xc)
                     except Exception:
                         return None
                     arr = np.asarray(pred, dtype=float).ravel()

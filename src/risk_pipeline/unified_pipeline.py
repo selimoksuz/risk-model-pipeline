@@ -747,6 +747,24 @@ class UnifiedRiskPipeline:
                 'lower_bounds': lower_bounds.copy() if lower_bounds is not None else None,
                 'upper_bounds': upper_bounds.copy() if upper_bounds is not None else None,
             }
+            # Summarize preprocessing for reporting
+            try:
+                lb = lower_bounds if lower_bounds is not None else pd.Series(dtype=float)
+                ub = upper_bounds if upper_bounds is not None else pd.Series(dtype=float)
+                summary = pd.DataFrame([
+                    {
+                        'numeric_columns_prepped': len(available_train),
+                        'imputation_strategy': strategy,
+                        'outlier_method': outlier_method,
+                        'lower_quantile': float(getattr(self.config, 'outlier_lower_quantile', 0.01) or 0.01),
+                        'upper_quantile': float(getattr(self.config, 'outlier_upper_quantile', 0.99) or 0.99),
+                        'lower_bounds_non_null': int(lb.notna().sum()) if hasattr(lb, 'notna') else 0,
+                        'upper_bounds_non_null': int(ub.notna().sum()) if hasattr(ub, 'notna') else 0,
+                    }
+                ])
+                self.data_['raw_preprocessing_summary'] = summary
+            except Exception:
+                pass
             self._current_raw_preprocessor = {
                 'columns': available_train,
                 'imputer': imputer,
@@ -2574,6 +2592,18 @@ class UnifiedRiskPipeline:
                 {'item': 'enable_scoring', 'value': getattr(self.config, 'enable_scoring', False)},
             ]
             self.reporter.reports_['pipeline_overview'] = pd.DataFrame(overview_rows)
+        # Data layers overview (train/test/oot and prepared variants)
+        try:
+            splits = self.results_.get('splits', {}) or {}
+            layer_rows = []
+            for key in ['train', 'train_woe', 'train_raw_prepped', 'test', 'test_woe', 'test_raw_prepped', 'oot', 'oot_woe', 'oot_raw_prepped']:
+                df_layer = splits.get(key)
+                n_rows = int(len(df_layer)) if isinstance(df_layer, pd.DataFrame) else 0
+                n_cols = int(df_layer.shape[1]) if isinstance(df_layer, pd.DataFrame) else 0
+                layer_rows.append({'layer': key, 'rows': n_rows, 'cols': n_cols})
+            self.reporter.reports_['data_layers_overview'] = pd.DataFrame(layer_rows)
+        except Exception:
+            pass
         if 'operations_notes' not in self.reporter.reports_:
             ops_rows = [
                 {'item': 'psi_threshold', 'value': getattr(self.config, 'psi_threshold', None)},

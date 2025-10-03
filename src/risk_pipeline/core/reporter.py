@@ -844,6 +844,8 @@ class EnhancedReporter:
             'baseline_metrics': ensure_df(self.reports_.get('baseline_metrics'), 'Baseline metrics unavailable'),
             'baseline_lift_table': ensure_df(self.reports_.get('baseline_lift_table'), 'Baseline lift table unavailable'),
             'shap_importance': ensure_df(shap_df, 'SHAP importance not available'),
+            'data_layers_overview': ensure_df(self.reports_.get('data_layers_overview'), 'Data layers overview unavailable'),
+            'raw_preprocessing_summary': ensure_df(self.reports_.get('raw_preprocessing_summary'), 'Raw preprocessing summary unavailable'),
             'final_vars': ensure_df(final_vars, 'Final variable list not available'),
             'top20_iv': ensure_df(top20_iv, 'IV ranking not available'),
             'top50_univariate': ensure_df(top50_univariate, 'Univariate ranking not available'),

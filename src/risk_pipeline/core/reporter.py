@@ -164,6 +164,19 @@ class EnhancedReporter:
             models_summary_df = pd.DataFrame(model_scores).T
             models_summary_df.index.name = 'model_name'
             models_summary_df = models_summary_df.reset_index()
+            # Annotate mode/flow by model name prefix and active model flag
+            def _mode_from_name(name: str) -> str:
+                s = str(name or '').upper()
+                if s.startswith('WOE_'):
+                    return 'WOE'
+                if s.startswith('RAW_'):
+                    return 'RAW'
+                return ''
+            models_summary_df['mode'] = models_summary_df['model_name'].apply(_mode_from_name)
+            active_name = models.get('active_model_name') or models.get('best_model_name')
+            models_summary_df['flow'] = models_summary_df['model_name'].apply(
+                lambda n: 'active' if str(n) == str(active_name) else ''
+            )
             self.reports_['models_summary'] = models_summary_df
         else:
             models_summary_df = pd.DataFrame()

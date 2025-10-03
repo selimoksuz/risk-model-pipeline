@@ -76,6 +76,8 @@ class UnifiedRiskPipeline:
         self.noise_sentinel_name = 'noise_sentinel'
         self._noise_counter = 0
         self._current_raw_preprocessor: Optional[Dict[str, Any]] = None
+        # Ensure data_dictionary attribute always exists for reporter usage
+        self.data_dictionary: Optional[pd.DataFrame] = None
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
@@ -297,6 +299,7 @@ class UnifiedRiskPipeline:
                 print("\n[Step 10/10] Generating Reports...")
                 self.models_ = best_flow['model_results'].get('models', {})
                 self.selected_features_ = best_flow.get('selected_features', [])
+                # Include dual registries before first report generation so reporter can aggregate RAW+WOE
                 self.results_ = {
                     'woe_results': best_flow['woe_results'],
                     'risk_bands': best_flow['risk_bands'],
@@ -307,6 +310,10 @@ class UnifiedRiskPipeline:
                     'calibration_stage2': best_flow['stage2'],
                     'tsfresh_metadata': best_flow.get('tsfresh_metadata'),
                     'noise_sentinel_diagnostics': best_flow.get('noise_sentinel_diagnostics'),
+                    'model_registry': model_registry_records,
+                    'model_object_registry': model_object_registry,
+                    'model_scores_registry': model_scores_registry,
+                    'flow_registry': flow_registry,
                 }
                 reports = self._generate_reports()
 

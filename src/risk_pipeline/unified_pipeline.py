@@ -2389,6 +2389,31 @@ class UnifiedRiskPipeline:
                         self.models_ = aggregated_models
                     except Exception:
                         pass
+
+            # Re-compute best model globally across RAW+WOE using OOT/Test/Train AUC preference
+            try:
+                scores = model_results.get('scores') or {}
+                def _metric_of(name: str) -> float:
+                    s = scores.get(name) or {}
+                    if s.get('oot_auc') is not None:
+                        return float(s.get('oot_auc'))
+                    if s.get('test_auc') is not None:
+                        return float(s.get('test_auc'))
+                    if s.get('train_auc') is not None:
+                        return float(s.get('train_auc'))
+                    return -1e9
+                if scores:
+                    best_name = max(scores.keys(), key=_metric_of)
+                    model_results['best_model_name'] = best_name
+                    best_obj = (model_results.get('models') or {}).get(best_name)
+                    if best_obj is not None:
+                        model_results['best_model'] = best_obj
+                        model_results['active_model_name'] = best_name
+                        model_results['active_model'] = best_obj
+                # Reflect back to cached results for notebook convenience
+                self.results_['model_results'] = model_results
+            except Exception:
+                pass
             reports['model_performance'] = self.reporter.generate_model_report(
                 model_results, self.data_dictionary
             )

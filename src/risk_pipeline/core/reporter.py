@@ -177,6 +177,21 @@ class EnhancedReporter:
             models_summary_df['flow'] = models_summary_df['model_name'].apply(
                 lambda n: 'active' if str(n) == str(active_name) else ''
             )
+            # Ranking: prefer OOT AUC, then Test AUC, then Train AUC
+            def _rank_score(row: pd.Series) -> float:
+                for key in ('oot_auc', 'test_auc', 'train_auc'):
+                    if key in row and pd.notna(row[key]):
+                        try:
+                            return float(row[key])
+                        except Exception:
+                            continue
+                return float('-inf')
+            try:
+                models_summary_df['rank_score'] = models_summary_df.apply(_rank_score, axis=1)
+                models_summary_df = models_summary_df.sort_values('rank_score', ascending=False).reset_index(drop=True)
+                models_summary_df.insert(0, 'rank', models_summary_df.index + 1)
+            except Exception:
+                pass
             self.reports_['models_summary'] = models_summary_df
         else:
             models_summary_df = pd.DataFrame()

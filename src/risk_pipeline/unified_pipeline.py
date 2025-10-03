@@ -963,49 +963,106 @@ class UnifiedRiskPipeline:
             step_details: Optional[Dict[str, Any]] = None
 
             if method == 'psi':
+                # Assemble frames
                 train_for_psi = reference_df[selected_features]
 
                 if self.config.enable_woe:
-                    test_candidate = splits.get('test_woe')
-                    if test_candidate is None:
-                        test_candidate = splits.get('test')
-                    oot_candidate = splits.get('oot_woe')
-                    if oot_candidate is None:
-                        oot_candidate = splits.get('oot')
+                    test_candidate = splits.get('test_woe') or splits.get('test')
+                    oot_candidate = splits.get('oot_woe') or splits.get('oot')
                 else:
-                    test_candidate = splits.get('test_raw_prepped')
-                    if test_candidate is None:
-                        test_candidate = splits.get('test')
-                    oot_candidate = splits.get('oot_raw_prepped')
-                    if oot_candidate is None:
-                        oot_candidate = splits.get('oot')
+                    test_candidate = splits.get('test_raw_prepped') or splits.get('test')
+                    oot_candidate = splits.get('oot_raw_prepped') or splits.get('oot')
 
-                test_for_psi = (
-                    test_candidate[selected_features]
-                    if test_candidate is not None and not test_candidate.empty
-                    else None
-                )
+                test_for_psi = test_candidate[selected_features] if isinstance(test_candidate, pd.DataFrame) and not test_candidate.empty else None
+                oot_for_psi = oot_candidate[selected_features] if isinstance(oot_candidate, pd.DataFrame) and not oot_candidate.empty else None
 
-                oot_for_psi = (
-                    oot_candidate[selected_features]
-                    if oot_candidate is not None and not oot_candidate.empty
-                    else None
-                )
+                monthly_subset = {label: frame[selected_features] for label, frame in psi_monthly_frames.items()}
 
-                monthly_subset = {
-                    label: frame[selected_features]
-                    for label, frame in psi_monthly_frames.items()
-                }
+                # Thresholds and decision
+                base_th = float(getattr(self.config, 'psi_threshold', 0.25) or 0.25)
+                test_th = float(getattr(self.config, 'test_psi_threshold', base_th) or base_th)
+                oot_th = float(getattr(self.config, 'oot_psi_threshold', base_th) or base_th)
+                mon_th = float(getattr(self.config, 'monthly_psi_threshold', max(0.05, base_th/2)) or max(0.05, base_th/2))
+                axes = [ax.lower() for ax in getattr(self.config, 'psi_compare_axes', ['monthly','oot','test'])]
+                decision = str(getattr(self.config, 'psi_decision', 'any')).lower()
+                n_bins = int(getattr(self.config, 'psi_bins', 10) or 10)
 
-                selected, step_details = self.feature_selector.select_by_psi(
-                    train_for_psi,
-                    test_for_psi,
-                    threshold=self.config.psi_threshold,
-                    oot_df=oot_for_psi,
-                    monthly_frames=monthly_subset,
-                    monthly_threshold=self.config.monthly_psi_threshold,
-                    oot_threshold=self.config.oot_psi_threshold,
-                )
+                def _psi_from_categories(base: pd.Series, comp: pd.Series) -> float:
+                    eps = 1e-4
+                    p = base.value_counts(normalize=True)
+                    q = comp.value_counts(normalize=True)
+                    cats = set(p.index).union(q.index)
+                    total = 0.0
+                    for c in cats:
+                        p1 = float(p.get(c, eps))
+                        p2 = float(q.get(c, eps))
+                        p1 = p1 if p1 > eps else eps
+                        p2 = p2 if p2 > eps else eps
+                        total += (p2 - p1) * np.log(p2 / p1)
+                    return float(total)
+
+                def _psi_quantile(base: pd.Series, comp: pd.Series, bins: int) -> float:
+                    try:
+                        _, edges = pd.qcut(base.dropna(), q=bins, retbins=True, duplicates='drop')
+                        b1 = pd.cut(base, bins=edges, include_lowest=True)
+                        b2 = pd.cut(comp, bins=edges, include_lowest=True)
+                        # reuse category PSI
+                        return _psi_from_categories(b1, b2)
+                    except Exception:
+                        return 0.0
+
+                kept: List[str] = []
+                psi_details: Dict[str, Dict[str, Any]] = {}
+                use_woe_bucketing = bool(getattr(self.config, 'enable_woe', False)) and str(getattr(self.config, 'psi_bucketing_mode_woe', 'woe_bucket')).lower() == 'woe_bucket'
+
+                for col in selected_features:
+                    drop_reasons: List[str] = []
+                    base_series = train_for_psi[col].dropna()
+
+                    # TEST axis
+                    if 'test' in axes and test_for_psi is not None and col in test_for_psi.columns:
+                        comp_series = test_for_psi[col].dropna()
+                        psi_val = _psi_from_categories(base_series, comp_series) if use_woe_bucketing else _psi_quantile(base_series, comp_series, n_bins)
+                        if psi_val > test_th:
+                            drop_reasons.append(f"test psi {psi_val:.3f} > {test_th:.3f}")
+                        psi_details.setdefault(col, {}).setdefault('comparisons', {})['test'] = {'psi': float(psi_val), 'threshold': float(test_th)}
+
+                    # OOT axis
+                    if 'oot' in axes and oot_for_psi is not None and col in oot_for_psi.columns:
+                        comp_series = oot_for_psi[col].dropna()
+                        psi_val = _psi_from_categories(base_series, comp_series) if use_woe_bucketing else _psi_quantile(base_series, comp_series, n_bins)
+                        if psi_val > oot_th:
+                            drop_reasons.append(f"oot psi {psi_val:.3f} > {oot_th:.3f}")
+                        psi_details.setdefault(col, {}).setdefault('comparisons', {})['oot'] = {'psi': float(psi_val), 'threshold': float(oot_th)}
+
+                    # MONTHLY axis
+                    if 'monthly' in axes and monthly_subset:
+                        month_vals: Dict[str, float] = {}
+                        month_exceeds = []
+                        for label, frame in monthly_subset.items():
+                            if col not in frame.columns:
+                                continue
+                            comp_series = frame[col].dropna()
+                            psi_val = _psi_from_categories(base_series, comp_series) if use_woe_bucketing else _psi_quantile(base_series, comp_series, n_bins)
+                            month_vals[str(label)] = float(psi_val)
+                            if psi_val > mon_th:
+                                month_exceeds.append(label)
+                        psi_details.setdefault(col, {}).setdefault('comparisons', {})['monthly'] = {'psi_by_month': month_vals, 'threshold': float(mon_th)}
+                        if month_exceeds:
+                            drop_reasons.append(f"monthly exceeded in {len(month_exceeds)} month(s)")
+
+                    # Decision
+                    keep = (len(drop_reasons) == 0) if decision in ('any', 'weighted') else (len(drop_reasons) == 0)
+                    if keep:
+                        kept.append(col)
+                        psi_details.setdefault(col, {})['status'] = 'kept'
+                    else:
+                        psi_details.setdefault(col, {})['status'] = 'dropped'
+                        psi_details[col]['drop_reasons'] = [str(r) for r in drop_reasons]
+                        print("    Removing {}: {}".format(col, "; ".join(drop_reasons)))
+
+                selected = kept
+                step_details = psi_details
 
             elif method == 'univariate':
                 gini_map = woe_results.get('univariate_gini', {})

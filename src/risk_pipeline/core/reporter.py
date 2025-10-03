@@ -490,6 +490,50 @@ class EnhancedReporter:
 
         bands_df = bands_df.sort_values('band').reset_index(drop=True) if 'band' in bands_df.columns else bands_df
 
+        # Enhance with scaled risk scores (300-850) and risk levels
+        if isinstance(bands_df, pd.DataFrame) and not bands_df.empty and 'band' in bands_df.columns:
+            n_bands = len(bands_df)
+            try:
+                scaled_scores = np.linspace(850, 300, n_bands).astype(int)
+                bands_df['scaled_score'] = scaled_scores
+            except Exception:
+                pass
+
+            def risk_level(score: int) -> str:
+                if score >= 750:
+                    return 'Very Low Risk'
+                if score >= 650:
+                    return 'Low Risk'
+                if score >= 550:
+                    return 'Medium Risk'
+                if score >= 450:
+                    return 'High Risk'
+                return 'Very High Risk'
+
+            if 'scaled_score' in bands_df.columns:
+                bands_df['risk_level'] = bands_df['scaled_score'].apply(lambda x: risk_level(int(x)))
+
+            # Build risk score mapping table for export
+            if {'min_score', 'max_score'}.issubset(bands_df.columns):
+                score_range = bands_df.apply(
+                    lambda row: f"[{float(row['min_score']):.4f}, {float(row['max_score']):.4f})", axis=1
+                )
+                # Normalise naming for counts and event rates
+                count_col = 'count' if 'count' in bands_df.columns else ('n_samples' if 'n_samples' in bands_df.columns else None)
+                rate_col = 'bad_rate' if 'bad_rate' in bands_df.columns else ('event_rate' if 'event_rate' in bands_df.columns else None)
+                mapping_cols = {
+                    'band': bands_df['band'],
+                    'score_range': score_range,
+                    'scaled_score': bands_df.get('scaled_score'),
+                    'risk_level': bands_df.get('risk_level'),
+                }
+                if count_col:
+                    mapping_cols['n_samples'] = bands_df[count_col]
+                if rate_col:
+                    mapping_cols['event_rate'] = bands_df[rate_col]
+                risk_mapping = pd.DataFrame(mapping_cols)
+                self.reports_['risk_score_mapping'] = risk_mapping
+
         self.reports_['risk_bands'] = bands_df
 
         if not binomial_df.empty:

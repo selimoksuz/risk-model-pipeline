@@ -478,6 +478,19 @@ class Config:
         self.monotonic_woe = getattr(self, 'monotonic_woe', getattr(self, 'woe_monotonic_numeric', True))
         self.max_abs_woe = getattr(self, 'max_abs_woe', getattr(self, 'woe_max_abs', None))
 
+        # Dual-pipeline flag aliases
+        # Some modules check `enable_dual_pipeline`; main config uses `enable_dual`.
+        if not hasattr(self, 'enable_dual_pipeline'):
+            self.enable_dual_pipeline = getattr(self, 'enable_dual', False)
+        if not hasattr(self, 'enable_dual'):
+            self.enable_dual = getattr(self, 'enable_dual_pipeline', False)
+
+        # Risk band method alias (`band_method` vs `risk_band_method`)
+        if not hasattr(self, 'risk_band_method') and hasattr(self, 'band_method'):
+            self.risk_band_method = getattr(self, 'band_method')
+        if not hasattr(self, 'band_method') and hasattr(self, 'risk_band_method'):
+            self.band_method = getattr(self, 'risk_band_method')
+
         # Selection aliases
         if not hasattr(self, 'selection_order'):
             self.selection_order = getattr(self, 'selection_steps', [

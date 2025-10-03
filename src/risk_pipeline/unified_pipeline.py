@@ -266,7 +266,7 @@ class UnifiedRiskPipeline:
                 self.selected_features_ = state_backup['selected_features_']
                 self.config.enable_woe = original_enable_woe
                 return out
-            if getattr(self.config, 'enable_dual_pipeline', False):
+            if getattr(self.config, 'enable_dual', getattr(self.config, 'enable_dual_pipeline', False)):
                 print("\n[DUAL] Running RAW and WOE flows and selecting the best by AUC...")
                 flow_raw = _run_single_flow(False)
                 flow_woe = _run_single_flow(True)
@@ -1631,6 +1631,7 @@ class UnifiedRiskPipeline:
                 primary_results.get('calibrated_model'),
                 primary_results.get('stage1_model'),
                 primary_results.get('best_model'),
+                primary_results.get('active_model'),
             ])
             models_dict = primary_results.get('models') or {}
             if isinstance(models_dict, dict):
@@ -1639,12 +1640,14 @@ class UnifiedRiskPipeline:
             fallback_candidates.extend([
                 stage1_results.get('calibrated_model'),
                 stage1_results.get('best_model'),
+                stage1_results.get('active_model'),
             ])
         if isinstance(model_results, dict):
             fallback_candidates.extend([
                 model_results.get('calibrated_model'),
                 model_results.get('stage1_model'),
                 model_results.get('best_model'),
+                model_results.get('active_model'),
             ])
             models_dict = model_results.get('models') or {}
             if isinstance(models_dict, dict):
@@ -1655,6 +1658,7 @@ class UnifiedRiskPipeline:
                 cache_results.get('calibrated_model'),
                 cache_results.get('stage1_model'),
                 cache_results.get('best_model'),
+                cache_results.get('active_model'),
             ])
             models_dict = cache_results.get('models') or {}
             if isinstance(models_dict, dict):
@@ -1707,7 +1711,7 @@ class UnifiedRiskPipeline:
         risk_bands = self.risk_band_optimizer.optimize_bands(
             predictions, y_eval,
             n_bands=self.config.n_risk_bands,
-            method=self.config.band_method
+            method=getattr(self.config, 'risk_band_method', getattr(self.config, 'band_method', 'quantile'))
         )
         if isinstance(risk_bands, pd.DataFrame):
             band_frame = risk_bands.copy()
@@ -2325,6 +2329,59 @@ class UnifiedRiskPipeline:
             summary_table = self.reporter.reports_.get('risk_bands_summary_table')
             if summary_table is not None:
                 reports['risk_bands_summary'] = summary_table
+
+        # Calibration tables (decile/band level observed vs predicted with CI & binomial p)
+        try:
+            from .core.calibration_analyzer import CalibrationAnalyzer
+            stage2 = self.results_.get('calibration_stage2') or {}
+            stage1 = self.results_.get('calibration_stage1') or {}
+            model_obj = None
+            for candidate in (
+                stage2.get('calibrated_model') if isinstance(stage2, dict) else None,
+                stage1.get('calibrated_model') if isinstance(stage1, dict) else None,
+                (self.results_.get('model_results') or {}).get('active_model') if isinstance(self.results_.get('model_results'), dict) else None,
+                (self.results_.get('model_results') or {}).get('best_model') if isinstance(self.results_.get('model_results'), dict) else None,
+            ):
+                if candidate is not None:
+                    model_obj = candidate
+                    break
+            splits = self.results_.get('splits') or {}
+            target_col = getattr(self.config, 'target_col', 'target')
+            X_eval_df = None
+            y_eval_series = None
+            # Prefer test split if available
+            if 'test' in splits and isinstance(splits['test'], pd.DataFrame) and not splits['test'].empty:
+                base = splits['test']
+                if self.config.enable_woe and 'test_woe' in splits:
+                    X_eval_df = splits['test_woe']
+                else:
+                    X_eval_df = splits.get('test_raw_prepped', base)
+                y_eval_series = base[target_col] if target_col in base.columns else None
+            elif 'train' in splits and isinstance(splits['train'], pd.DataFrame):
+                base = splits['train']
+                if self.config.enable_woe and 'train_woe' in splits:
+                    X_eval_df = splits['train_woe']
+                else:
+                    X_eval_df = splits.get('train_raw_prepped', base)
+                y_eval_series = base[target_col] if target_col in base.columns else None
+            if model_obj is not None and X_eval_df is not None and y_eval_series is not None:
+                features = list(self.selected_features_) if getattr(self, 'selected_features_', None) else X_eval_df.columns.tolist()
+                features = [f for f in features if f in X_eval_df.columns]
+                X_eval = X_eval_df[features].apply(pd.to_numeric, errors='coerce').fillna(0)
+                y_eval = y_eval_series.astype(float).to_numpy()
+                try:
+                    from .core.utils import predict_positive_proba
+                    y_pred = predict_positive_proba(model_obj, X_eval)
+                    analyzer = CalibrationAnalyzer()
+                    cal_res = analyzer.analyze_calibration(y_eval, np.asarray(y_pred, dtype=float).ravel(), use_deciles=True)
+                    segments = cal_res.get('segments')
+                    if isinstance(segments, pd.DataFrame):
+                        self.reporter.reports_['calibration_tables'] = segments
+                        reports['calibration_tables'] = segments
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Calibration report
         if self.results_.get('calibration_stage1') or self.results_.get('calibration_stage2'):

@@ -1,4 +1,5 @@
 """
+        if getattr(self, 'test_psi_threshold', None) is None:\n            self.test_psi_threshold = self.psi_threshold\n
 Unified Configuration System for Risk Model Pipeline
 """
 
@@ -26,6 +27,8 @@ class Config:
     # Test split configuration
     create_test_split: bool = True
     use_test_split: bool = True  # Backward-compatible alias for historical flag
+    # Group-aware split to avoid splitting the same id across Train/Test (recommended when TSFresh is enabled)
+    group_split_by_id: bool = False
     test_size: float = 0.2
     stratify_test: bool = True  # Preserve event rate in splits
     train_ratio: Optional[float] = None
@@ -115,6 +118,15 @@ class Config:
     univariate_gini_threshold: Optional[float] = None
     iv_threshold: Optional[float] = None
     psi_threshold: Optional[float] = None
+    # Additional PSI configuration
+    test_psi_threshold: Optional[float] = None
+    # Bucketing modes for PSI calculations (WOE buckets vs quantiles)
+    psi_bucketing_mode_woe: str = 'woe_bucket'   # 'woe_bucket'
+    psi_bucketing_mode_raw: str = 'quantile'     # 'quantile'|'equal_width'
+    psi_bins: int = 10
+    # PSI compare axes and decision rule
+    psi_compare_axes: List[str] = field(default_factory=lambda: ['monthly','oot','test'])
+    psi_decision: str = 'any'  # 'any'|'all'|'weighted' (weighted not yet implemented)
     correlation_threshold: Optional[float] = None
     monthly_psi_threshold: Optional[float] = None
     oot_psi_threshold: Optional[float] = None
@@ -384,8 +396,7 @@ class Config:
         
         # Check calibration method
         valid_calibration = ['isotonic', 'sigmoid']
-        if self.calibration_method not in valid_calibration:
-            raise ValueError(f"calibration_method must be one of {valid_calibration}")
+        
 
         if self.stage2_target_rate is not None:
             if not 0 <= float(self.stage2_target_rate) <= 1:
@@ -601,12 +612,25 @@ class Config:
         else:
             self.enable_woe_boost_scorecard = bool(getattr(self, 'enable_woe_boost_scorecard', True))
 
-        if not hasattr(self, 'enable_calibration'):
-            self.enable_calibration = getattr(self, 'enable_stage2_calibration', False)
-        if not hasattr(self, 'stage2_method'):
-            self.stage2_method = 'lower_mean'
+        if not hasattr(self, 'enable_calibration'):\n            self.enable_calibration = getattr(self, 'enable_stage2_calibration', False)\n        # Map user-friendly stage2 adjustment to internal method names\n        adj = getattr(self, 'stage2_adjustment', None)\n        if adj:\n            adj_map = {\n                'lower': 'lower_mean',\n                'upper': 'upper_bound',\n                'mean': 'shift',\n                'manual': 'manual',\n            }\n            mapped = adj_map.get(str(adj).lower())\n            if mapped:\n                self.stage2_method = mapped\n        if not hasattr(self, 'stage2_method'):\n            self.stage2_method = 'lower_mean'
 
-        # Calendar defaults
+        # SHAP aliases
+        if not hasattr(self, 'shap_enable'):
+            self.shap_enable = bool(getattr(self, 'calculate_shap', False))
+        if not hasattr(self, 'calculate_shap'):
+            self.calculate_shap = bool(getattr(self, 'shap_enable', False))
+
+        # Performance / CV defaults
+        if not hasattr(self, 'cv_enable'):
+            self.cv_enable = bool(getattr(self, 'enable_cv', False))
+        if not hasattr(self, 'cv_folds'):
+            self.cv_folds = int(getattr(self, 'stepwise_cv_folds', 5))
+        if not hasattr(self, 'early_stopping_rounds'):
+            self.early_stopping_rounds = int(getattr(self, 'early_stopping_rounds', 200) or 200)
+        if not hasattr(self, 'class_weight'):
+            self.class_weight = getattr(self, 'class_weight', None)
+        if not hasattr(self, 'sample_weight_column'):
+            self.sample_weight_column = getattr(self, 'sample_weight_column', None)        # Calendar defaults
         self.snapshot_column = getattr(self, 'snapshot_column', getattr(self, 'snapshot_month_column', 'snapshot_month'))
         self.oot_months = getattr(self, 'oot_months', getattr(self, 'n_oot_months', 3))
 
@@ -698,3 +722,7 @@ class Config:
             if self.tsfresh_min_unique_months == 0 and self.tsfresh_min_events > 0:
                 warnings.warn('tsfresh_min_unique_months is 0 while tsfresh_min_events > 0; raising unique month requirement to 1.', RuntimeWarning)
                 self.tsfresh_min_unique_months = 1
+
+
+
+

@@ -354,29 +354,28 @@ class EnhancedWOETransformer:
         max_val = X.max()
         return np.linspace(min_val, max_val, n_bins + 1)
 
-def _group_rare_categories(self, X: pd.Series, y: pd.Series) -> Tuple[pd.Series, Dict]:
-    """Group rare categories and provide mapping for transformation."""
+    def _group_rare_categories(self, X: pd.Series, y: pd.Series) -> Tuple[pd.Series, Dict]:
+        """Group rare categories and provide mapping for transformation."""
 
-    min_pct = getattr(self.config, 'min_bin_size', 0.01)
+        min_pct = getattr(self.config, 'min_bin_size', 0.01)
 
-    X_filled = X.fillna('__MISSING__')
-    freq = X_filled.value_counts(normalize=True)
-    rare = set(freq[freq < min_pct].index)
+        X_filled = X.fillna('__MISSING__')
+        freq = X_filled.value_counts(normalize=True)
+        rare = set(freq[freq < min_pct].index)
 
-    category_mapping: Dict = {}
-    for cat in freq.index:
-        if cat == '__MISSING__':
-            category_mapping[cat] = '__MISSING__'
-        elif cat in rare:
-            category_mapping[cat] = '__RARE__'
-        else:
-            category_mapping[cat] = cat
+        category_mapping: Dict = {}
+        for cat in freq.index:
+            if cat == '__MISSING__':
+                category_mapping[cat] = '__MISSING__'
+            elif cat in rare:
+                category_mapping[cat] = '__RARE__'
+            else:
+                category_mapping[cat] = cat
 
-    fallback_label = '__RARE__' if '__RARE__' in category_mapping.values() else '__MISSING__'
-    X_grouped = X_filled.map(category_mapping).fillna(fallback_label)
+        fallback_label = '__RARE__' if '__RARE__' in category_mapping.values() else '__MISSING__'
+        X_grouped = X_filled.map(category_mapping).fillna(fallback_label)
 
-    return X_grouped, category_mapping
-
+        return X_grouped, category_mapping
     def _merge_similar_woe_categories(self, woe_map: Dict, stats: List, X: pd.Series, y: pd.Series) -> Tuple[Dict, List]:
         """Merge categories with similar WOE values."""
 
@@ -463,3 +462,4 @@ def _group_rare_categories(self, X: pd.Series, y: pd.Series) -> Tuple[pd.Series,
                     df_woe[col] = mapped.fillna(default_woe)
 
         return df_woe
+

@@ -74,7 +74,7 @@ class EnhancedWOETransformer:
         """Fit and transform categorical variable."""
 
         # Group rare categories
-        X_grouped = self._group_rare_categories(X, y)
+        X_grouped, category_mapping = self._group_rare_categories(X, y)
 
         # Calculate WOE for each category
         categories = X_grouped.unique()
@@ -116,7 +116,11 @@ class EnhancedWOETransformer:
             'iv': iv,
             'categories': list(woe_map.keys()),
             'stats': stats,
-            'type': 'categorical'
+            'type': 'categorical',
+            'category_mapping': category_mapping,
+            'default_woe': woe_map.get('__RARE__', woe_map.get('__MISSING__', 0.0)),
+            'rare_label': '__RARE__' if '__RARE__' in woe_map else None,
+            'missing_label': '__MISSING__' if '__MISSING__' in woe_map else None
         }
 
     def _optimize_bins_iv(self, X: pd.Series, y: pd.Series) -> np.ndarray:
@@ -350,21 +354,28 @@ class EnhancedWOETransformer:
         max_val = X.max()
         return np.linspace(min_val, max_val, n_bins + 1)
 
-    def _group_rare_categories(self, X: pd.Series, y: pd.Series) -> pd.Series:
-        """Group rare categories."""
+def _group_rare_categories(self, X: pd.Series, y: pd.Series) -> Tuple[pd.Series, Dict]:
+    """Group rare categories and provide mapping for transformation."""
 
-        min_pct = self.config.min_bin_size
+    min_pct = getattr(self.config, 'min_bin_size', 0.01)
 
-        # Calculate frequency
-        freq = X.value_counts(normalize=True)
-        rare = freq[freq < min_pct].index
+    X_filled = X.fillna('__MISSING__')
+    freq = X_filled.value_counts(normalize=True)
+    rare = set(freq[freq < min_pct].index)
 
-        # Group rare categories
-        X_grouped = X.copy()
-        if len(rare) > 0:
-            X_grouped[X_grouped.isin(rare)] = 'RARE'
+    category_mapping: Dict = {}
+    for cat in freq.index:
+        if cat == '__MISSING__':
+            category_mapping[cat] = '__MISSING__'
+        elif cat in rare:
+            category_mapping[cat] = '__RARE__'
+        else:
+            category_mapping[cat] = cat
 
-        return X_grouped
+    fallback_label = '__RARE__' if '__RARE__' in category_mapping.values() else '__MISSING__'
+    X_grouped = X_filled.map(category_mapping).fillna(fallback_label)
+
+    return X_grouped, category_mapping
 
     def _merge_similar_woe_categories(self, woe_map: Dict, stats: List, X: pd.Series, y: pd.Series) -> Tuple[Dict, List]:
         """Merge categories with similar WOE values."""
@@ -437,7 +448,18 @@ class EnhancedWOETransformer:
                         df[col], woe_info['bins'], woe_info['woe_map']
                     )
                 else:
-                    # For categorical, replace with WOE values
-                    df_woe[col] = df[col].map(woe_info['woe_map']).fillna(0)
+                    series = df[col]
+                    if woe_info.get('missing_label'):
+                        series = series.fillna('__MISSING__')
+                    else:
+                        series = series.fillna('__UNKNOWN__')
+                    category_mapping = woe_info.get('category_mapping') or {}
+                    if category_mapping:
+                        series = series.map(category_mapping)
+                        fallback_cat = woe_info.get('rare_label') or woe_info.get('missing_label') or '__UNKNOWN__'
+                        series = series.fillna(fallback_cat)
+                    mapped = series.map(woe_info['woe_map'])
+                    default_woe = woe_info.get('default_woe', 0.0)
+                    df_woe[col] = mapped.fillna(default_woe)
 
         return df_woe

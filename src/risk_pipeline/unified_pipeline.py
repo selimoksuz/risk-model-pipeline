@@ -907,6 +907,17 @@ class UnifiedRiskPipeline:
         Apply feature selection in specified order and capture diagnostics.
         """
 
+        def _first_available(*frames):
+            for frame in frames:
+                if frame is None:
+                    continue
+                if hasattr(frame, 'empty'):
+                    if not frame.empty:
+                        return frame
+                else:
+                    return frame
+            return None
+
         raw_train = splits['train']
         exclude_cols = {c for c in [self.config.target_col, self.config.id_col, self.config.time_col, 'snapshot_month'] if c}
         noise_name = getattr(self, 'noise_sentinel_name', 'noise_sentinel')
@@ -967,11 +978,11 @@ class UnifiedRiskPipeline:
                 train_for_psi = reference_df[selected_features]
 
                 if self.config.enable_woe:
-                    test_candidate = splits.get('test_woe') or splits.get('test')
-                    oot_candidate = splits.get('oot_woe') or splits.get('oot')
+                    test_candidate = _first_available(splits.get('test_woe'), splits.get('test'))
+                    oot_candidate = _first_available(splits.get('oot_woe'), splits.get('oot'))
                 else:
-                    test_candidate = splits.get('test_raw_prepped') or splits.get('test')
-                    oot_candidate = splits.get('oot_raw_prepped') or splits.get('oot')
+                    test_candidate = _first_available(splits.get('test_raw_prepped'), splits.get('test'))
+                    oot_candidate = _first_available(splits.get('oot_raw_prepped'), splits.get('oot'))
 
                 test_for_psi = test_candidate[selected_features] if isinstance(test_candidate, pd.DataFrame) and not test_candidate.empty else None
                 oot_for_psi = oot_candidate[selected_features] if isinstance(oot_candidate, pd.DataFrame) and not oot_candidate.empty else None

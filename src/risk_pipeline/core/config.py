@@ -612,7 +612,22 @@ class Config:
         else:
             self.enable_woe_boost_scorecard = bool(getattr(self, 'enable_woe_boost_scorecard', True))
 
-        if not hasattr(self, 'enable_calibration'):\n            self.enable_calibration = getattr(self, 'enable_stage2_calibration', False)\n        # Map user-friendly stage2 adjustment to internal method names\n        adj = getattr(self, 'stage2_adjustment', None)\n        if adj:\n            adj_map = {\n                'lower': 'lower_mean',\n                'upper': 'upper_bound',\n                'mean': 'shift',\n                'manual': 'manual',\n            }\n            mapped = adj_map.get(str(adj).lower())\n            if mapped:\n                self.stage2_method = mapped\n        if not hasattr(self, 'stage2_method'):\n            self.stage2_method = 'lower_mean'
+        if not hasattr(self, 'enable_calibration'):
+            self.enable_calibration = getattr(self, 'enable_stage2_calibration', False)
+        # Map user-friendly stage2 adjustment to internal method names
+        adj = getattr(self, 'stage2_adjustment', None)
+        if adj:
+            adj_map = {
+                'lower': 'lower_mean',
+                'upper': 'upper_bound',
+                'mean': 'shift',
+                'manual': 'manual',
+            }
+            mapped = adj_map.get(str(adj).lower())
+            if mapped:
+                self.stage2_method = mapped
+        if not hasattr(self, 'stage2_method'):
+            self.stage2_method = 'lower_mean'
 
         # SHAP aliases
         if not hasattr(self, 'shap_enable'):

@@ -152,49 +152,75 @@ class EnhancedReporter:
     ) -> Dict[str, Any]:
         """Build detailed model performance artefacts."""
 
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        raw_scores = models.get("scores", {}) or {}
+        if not isinstance(raw_scores, dict):
+            raw_scores = {}
+
+        # Fallback to model registry information when direct scores are missing
+        if not raw_scores:
+            registry = models.get('model_registry')
+            if isinstance(registry, list) and registry:
+                try:
+                    registry_df = pd.DataFrame(registry)
+                except Exception:
+                    registry_df = pd.DataFrame()
+                if not registry_df.empty and 'model_name' in registry_df.columns:
+                    fallback = (
+                        registry_df.drop(columns=[c for c in registry_df.columns if c.startswith('feature_')], errors='ignore')
+                        .set_index('model_name')
+                    )
+                    raw_scores = fallback.to_dict(orient='index')
+
         report = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "model_scores": models.get("scores", {}),
+            "timestamp": timestamp,
+            "model_scores": raw_scores,
             "best_model": models.get("best_model_name"),
-            "feature_count": len(models.get("selected_features", [])),
+            "feature_count": len(models.get("selected_features", []) or []),
         }
 
-        model_scores = report["model_scores"] if isinstance(report["model_scores"], dict) else {}
-        if model_scores:
-            models_summary_df = pd.DataFrame(model_scores).T
-            models_summary_df.index.name = 'model_name'
-            models_summary_df = models_summary_df.reset_index()
-            # Annotate mode/flow by model name prefix and active model flag
+        models_summary_df = pd.DataFrame()
+        if raw_scores:
+            try:
+                models_summary_df = pd.DataFrame.from_dict(raw_scores, orient='index').reset_index()
+                models_summary_df = models_summary_df.rename(columns={'index': 'model_name'})
+            except Exception:
+                models_summary_df = pd.DataFrame()
+
+        if not models_summary_df.empty:
             def _mode_from_name(name: str) -> str:
-                s = str(name or '').upper()
-                if s.startswith('WOE_'):
+                value = str(name or '').upper()
+                if value.startswith('WOE_'):
                     return 'WOE'
-                if s.startswith('RAW_'):
+                if value.startswith('RAW_'):
                     return 'RAW'
-                return ''
+                return str(models.get('mode', '') or '')
+
             models_summary_df['mode'] = models_summary_df['model_name'].apply(_mode_from_name)
+
             best_name = models.get('best_model_name') or models.get('active_model_name')
             models_summary_df['selection'] = models_summary_df['model_name'].apply(
                 lambda n: 'best' if str(n) == str(best_name) else ''
             )
-            # Ranking: prefer OOT AUC, then Test AUC, then Train AUC
+
             def _rank_score(row: pd.Series) -> float:
-                for key in ('oot_auc', 'test_auc', 'train_auc'):
+                for key in ('oot_auc', 'test_auc', 'train_auc', 'oot_gini', 'test_gini', 'train_gini'):
                     if key in row and pd.notna(row[key]):
                         try:
                             return float(row[key])
                         except Exception:
                             continue
                 return float('-inf')
+
             try:
                 models_summary_df['rank_score'] = models_summary_df.apply(_rank_score, axis=1)
                 models_summary_df = models_summary_df.sort_values('rank_score', ascending=False).reset_index(drop=True)
                 models_summary_df.insert(0, 'rank', models_summary_df.index + 1)
             except Exception:
-                pass
-            self.reports_['models_summary'] = models_summary_df
+                models_summary_df.insert(0, 'rank', models_summary_df.index + 1)
+
+            self.reports_['models_summary'] = models_summary_df.copy()
         else:
-            models_summary_df = pd.DataFrame()
             self.reports_.pop('models_summary', None)
 
         best_model = report["best_model"]
@@ -743,18 +769,20 @@ class EnhancedReporter:
         """Persist collected reports to an Excel workbook following the required structure."""
     
         used_names: set[str] = set()
-    
+        used_names_lower: set[str] = set()
+
         def safe_sheet_name(name: str) -> str:
             cleaned = re.sub(r"[^0-9A-Za-z _-]", "_", str(name)).strip()
             cleaned = cleaned or "Sheet"
             cleaned = cleaned[:31]
             base = cleaned
             counter = 1
-            while cleaned in used_names:
+            while cleaned.lower() in used_names_lower:
                 suffix = f"_{counter}"
                 cleaned = (base[: 31 - len(suffix)] + suffix).strip() or f"Sheet_{counter}"
                 counter += 1
             used_names.add(cleaned)
+            used_names_lower.add(cleaned.lower())
             return cleaned
     
         def ensure_df(candidate: Any, message: str) -> pd.DataFrame:

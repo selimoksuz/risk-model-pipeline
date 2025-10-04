@@ -3,19 +3,38 @@
 Unified Configuration System for Risk Model Pipeline
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, MISSING
 from typing import List, Optional, Dict, Any, Union
 import warnings
 import os
 import math
 
 
-@dataclass
+@dataclass(init=False)
 class Config:
     """
     Comprehensive configuration for Risk Model Pipeline.
     All features controlled through this single configuration.
     """
+    def __init__(self, **kwargs):
+        for f in fields(self):
+            if f.name in kwargs:
+                value = kwargs.pop(f.name)
+            elif f.default is not MISSING:
+                value = f.default
+            else:
+                default_factory = getattr(f, 'default_factory', MISSING)
+                if default_factory is not MISSING:
+                    value = default_factory()  # type: ignore[misc]
+                else:
+                    value = None
+            setattr(self, f.name, value)
+
+        for key, value in list(kwargs.items()):
+            setattr(self, key, value)
+
+        self.__post_init__()
+
     
     # ==================== DATA COLUMNS ====================
     target_column: str = 'target'
@@ -161,6 +180,9 @@ class Config:
     ])
     
     # Training configuration
+    cv_enable: bool = False
+    class_weight: Optional[str] = None
+    sample_weight_column: Optional[str] = None
     cv_folds: int = 5
     scoring_metric: str = 'roc_auc'
     early_stopping_rounds: int = 50
@@ -189,6 +211,7 @@ class Config:
     
     # Stage 2 calibration
     enable_stage2_calibration: bool = True
+    stage2_adjustment: Optional[str] = None
     stage2_target_rate: Optional[float] = None
     stage2_lower_bound: float = 0.8
     stage2_upper_bound: float = 1.2
@@ -252,10 +275,15 @@ class Config:
     # ==================== OUTPUT ====================
     output_folder: str = 'outputs'
     output_excel_path: Optional[str] = None
+    excel_overwrite: bool = False
     model_name_prefix: str = 'risk_model'
+    save_model: bool = True
     save_models: bool = True
     save_reports: bool = True
     save_plots: bool = True
+    freeze_config: bool = False
+    persist_artifacts: bool = False
+    run_id: Optional[str] = None
     
     # ==================== LOGGING ====================
     enable_run_logging: bool = True
@@ -629,6 +657,23 @@ class Config:
         if not hasattr(self, 'stage2_method'):
             self.stage2_method = 'lower_mean'
 
+        if hasattr(self, 'save_model'):
+            self.save_models = bool(getattr(self, 'save_model', True))
+        else:
+            self.save_model = bool(getattr(self, 'save_models', True))
+
+        overwrite_flag = getattr(self, 'overwrite_excel', None)
+        if overwrite_flag is not None:
+            self.excel_overwrite = bool(overwrite_flag)
+
+        freeze_flag = getattr(self, 'freeze_pipeline', None)
+        if freeze_flag is not None:
+            self.freeze_config = bool(freeze_flag)
+
+        persist_flag = getattr(self, 'persist_pipeline', None)
+        if persist_flag is not None:
+            self.persist_artifacts = bool(persist_flag)
+
         # SHAP aliases
         if not hasattr(self, 'shap_enable'):
             self.shap_enable = bool(getattr(self, 'calculate_shap', False))
@@ -636,16 +681,23 @@ class Config:
             self.calculate_shap = bool(getattr(self, 'shap_enable', False))
 
         # Performance / CV defaults
-        if not hasattr(self, 'cv_enable'):
+        if hasattr(self, 'cv_enable'):
+            self.enable_cv = bool(getattr(self, 'cv_enable', False))
+        else:
             self.cv_enable = bool(getattr(self, 'enable_cv', False))
         if not hasattr(self, 'cv_folds'):
             self.cv_folds = int(getattr(self, 'stepwise_cv_folds', 5))
         if not hasattr(self, 'early_stopping_rounds'):
             self.early_stopping_rounds = int(getattr(self, 'early_stopping_rounds', 200) or 200)
-        if not hasattr(self, 'class_weight'):
-            self.class_weight = getattr(self, 'class_weight', None)
-        if not hasattr(self, 'sample_weight_column'):
-            self.sample_weight_column = getattr(self, 'sample_weight_column', None)        # Calendar defaults
+        if getattr(self, 'class_weight', None) is None:
+            legacy_class_weight = getattr(self, 'class_weights', None)
+            if legacy_class_weight is not None:
+                self.class_weight = legacy_class_weight
+        if getattr(self, 'sample_weight_column', None) is None:
+            alt_sample_col = getattr(self, 'sample_weights_column', None)
+            if alt_sample_col is not None:
+                self.sample_weight_column = alt_sample_col
+        # Calendar defaults
         self.snapshot_column = getattr(self, 'snapshot_column', getattr(self, 'snapshot_month_column', 'snapshot_month'))
         self.oot_months = getattr(self, 'oot_months', getattr(self, 'n_oot_months', 3))
 
@@ -737,6 +789,13 @@ class Config:
             if self.tsfresh_min_unique_months == 0 and self.tsfresh_min_events > 0:
                 warnings.warn('tsfresh_min_unique_months is 0 while tsfresh_min_events > 0; raising unique month requirement to 1.', RuntimeWarning)
                 self.tsfresh_min_unique_months = 1
+
+
+
+
+
+
+
 
 
 

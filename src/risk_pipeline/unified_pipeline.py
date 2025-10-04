@@ -1537,9 +1537,9 @@ class UnifiedRiskPipeline:
                         stage2_prepped[col] = stage2_woe[col]
             X_stage2 = stage2_prepped[selected_features].copy()
 
-        for col in X_stage2.columns:
-            if is_object_dtype(X_stage2[col]) or is_datetime64_any_dtype(X_stage2[col]):
-                X_stage2.loc[:, col] = pd.to_numeric(X_stage2[col], errors='coerce').fillna(0)
+        if not X_stage2.empty:
+            X_stage2 = X_stage2.apply(lambda s: pd.to_numeric(s, errors='coerce'))
+            X_stage2 = X_stage2.fillna(0.0)
         X_stage2 = X_stage2.reset_index(drop=True)
         y_stage2: Optional[pd.Series] = None
         X_stage2_cal = X_stage2

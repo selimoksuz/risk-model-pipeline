@@ -173,9 +173,9 @@ class EnhancedReporter:
                     return 'RAW'
                 return ''
             models_summary_df['mode'] = models_summary_df['model_name'].apply(_mode_from_name)
-            active_name = models.get('active_model_name') or models.get('best_model_name')
-            models_summary_df['flow'] = models_summary_df['model_name'].apply(
-                lambda n: 'active' if str(n) == str(active_name) else ''
+            best_name = models.get('best_model_name') or models.get('active_model_name')
+            models_summary_df['selection'] = models_summary_df['model_name'].apply(
+                lambda n: 'best' if str(n) == str(best_name) else ''
             )
             # Ranking: prefer OOT AUC, then Test AUC, then Train AUC
             def _rank_score(row: pd.Series) -> float:

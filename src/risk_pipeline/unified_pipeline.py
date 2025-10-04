@@ -1614,16 +1614,28 @@ class UnifiedRiskPipeline:
 
         primary_results = model_results if isinstance(model_results, dict) else {}
         stage1_results = stage1_results or {}
+
         if (not primary_results or primary_results.get('calibrated_model') is None) and stage1_results.get('calibrated_model') is not None:
             print('  Risk bands: using Stage-1 calibrated model (Stage-2 unavailable).')
             primary_results = stage1_results
+
+        if not primary_results or primary_results.get('calibrated_model') is None:
+            cached_models = self.results_.get('model_results') if isinstance(self.results_.get('model_results'), dict) else {}
+            if cached_models.get('calibrated_model') is not None:
+                print('  Risk bands: using cached model results.')
+                primary_results = cached_models
 
         if not primary_results or primary_results.get('calibrated_model') is None:
             print('  Skipping risk bands: No model available')
             return {}
 
         model = primary_results['calibrated_model']
-        selected_features = self.selected_features_
+        selected_features = list(self.selected_features_) if getattr(self, 'selected_features_', None) else []
+        if not selected_features:
+            selected_features = list(primary_results.get('selected_features', []))
+        if not selected_features:
+            cached_selection = self.results_.get('selection_results') if isinstance(self.results_.get('selection_results'), dict) else {}
+            selected_features = list(cached_selection.get('selected_features', []))
         target_col = self.config.target_col
 
         if not selected_features:
